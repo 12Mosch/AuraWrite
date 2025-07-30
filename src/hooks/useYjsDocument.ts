@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { slateNodesToInsertDelta } from '@slate-yjs/core'
 import { Descendant } from 'slate'
+import { createAutomaticBackup, recoverCorruptedDocument } from '../utils/dataRecovery'
 
 /**
  * Configuration options for the Yjs document hook
@@ -30,6 +31,10 @@ interface UseYjsDocumentReturn {
   indexeddbProvider?: IndexeddbPersistence
   /** Whether the document is synced with IndexedDB */
   isSynced: boolean
+  /** Error state for persistence operations */
+  persistenceError?: string
+  /** Whether persistence is available and working */
+  persistenceAvailable: boolean
 }
 
 /**
@@ -53,9 +58,11 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
     enableGarbageCollection = true
   } = options
 
-  // Track sync status
+  // Track sync status and errors
   const isSyncedRef = useRef(false)
   const [isSynced, setIsSynced] = useState(false)
+  const [persistenceError, setPersistenceError] = useState<string | undefined>(undefined)
+  const [persistenceAvailable, setPersistenceAvailable] = useState(true)
 
   // Create Y.Doc and shared types
   const { yDoc, sharedType, indexeddbProvider } = useMemo(() => {
@@ -74,22 +81,69 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
     // Set up IndexedDB persistence if enabled
     let indexeddbProvider: IndexeddbPersistence | undefined
     if (enablePersistence) {
-      indexeddbProvider = new IndexeddbPersistence(documentId, yDoc)
-      
-      // Handle sync events
-      indexeddbProvider.whenSynced.then(() => {
-        console.log(`Y.Doc synced with IndexedDB for document: ${documentId}`)
-        isSyncedRef.current = true
-        setIsSynced(true)
-        
-        // Load initial value if the document is empty after sync
-        if (sharedType.length === 0 && initialValue.length > 0) {
-          console.log('Loading initial value into empty Y.Doc')
-          yDoc.transact(() => {
-            sharedType.applyDelta(slateNodesToInsertDelta(initialValue))
-          })
-        }
-      })
+      try {
+        indexeddbProvider = new IndexeddbPersistence(documentId, yDoc)
+
+        // Handle sync events
+        indexeddbProvider.whenSynced.then(() => {
+          console.log(`Y.Doc synced with IndexedDB for document: ${documentId}`)
+          isSyncedRef.current = true
+          setIsSynced(true)
+          setPersistenceError(undefined)
+          setPersistenceAvailable(true)
+
+          // Load initial value if the document is empty after sync
+          if (sharedType.length === 0 && initialValue.length > 0) {
+            console.log('Loading initial value into empty Y.Doc')
+            yDoc.transact(() => {
+              sharedType.applyDelta(slateNodesToInsertDelta(initialValue))
+            })
+          }
+        }).catch(async (error) => {
+          console.error('IndexedDB sync failed:', error)
+
+          // Attempt data recovery for corrupted documents
+          if (error.message?.includes('corrupt') || error.message?.includes('invalid')) {
+            console.log('Attempting to recover corrupted document...')
+            try {
+              const recoveredDoc = await recoverCorruptedDocument(documentId)
+              if (recoveredDoc) {
+                console.log('Document recovery successful')
+                setPersistenceError('Document was recovered from backup. Some recent changes may have been lost.')
+              } else {
+                setPersistenceError('Document recovery failed. Starting with empty document.')
+              }
+            } catch (recoveryError) {
+              console.error('Document recovery failed:', recoveryError)
+              setPersistenceError('Document recovery failed. Starting with empty document.')
+            }
+          } else {
+            setPersistenceError(`Failed to sync with local storage: ${error.message}`)
+          }
+
+          setPersistenceAvailable(false)
+          // Still allow editing without persistence
+          setIsSynced(true)
+        })
+
+        // Handle IndexedDB errors
+        indexeddbProvider.on('error', (error: Error) => {
+          console.error('IndexedDB error:', error)
+          if (error.name === 'QuotaExceededError') {
+            setPersistenceError('Local storage quota exceeded. Please free up space or clear old documents.')
+          } else if (error.name === 'InvalidStateError') {
+            setPersistenceError('Local storage is unavailable. Changes will not be saved locally.')
+          } else {
+            setPersistenceError(`Local storage error: ${error.message}`)
+          }
+          setPersistenceAvailable(false)
+        })
+      } catch (error) {
+        console.error('Failed to initialize IndexedDB persistence:', error)
+        setPersistenceError('Failed to initialize local storage. Changes will not be saved locally.')
+        setPersistenceAvailable(false)
+        indexeddbProvider = undefined
+      }
     } else {
       // If persistence is disabled, load initial value immediately
       if (sharedType.length === 0 && initialValue.length > 0) {
@@ -127,31 +181,49 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
     yDoc.on('update', handleUpdate)
     yDoc.on('afterTransaction', handleAfterTransaction)
 
+    // Set up automatic backups every 5 minutes if persistence is enabled
+    let backupInterval: NodeJS.Timeout | undefined
+    if (enablePersistence && isSynced) {
+      backupInterval = setInterval(() => {
+        createAutomaticBackup(yDoc, documentId, {
+          maxAge: 7, // Keep backups for 7 days
+          maxBackups: 5 // Keep max 5 backups per document
+        })
+      }, 5 * 60 * 1000) // 5 minutes
+    }
+
     // Cleanup function
     return () => {
       console.log(`Cleaning up Y.Doc for document: ${documentId}`)
-      
+
       // Remove event listeners
       yDoc.off('update', handleUpdate)
       yDoc.off('afterTransaction', handleAfterTransaction)
-      
+
+      // Clear backup interval
+      if (backupInterval) {
+        clearInterval(backupInterval)
+      }
+
       // Clean up IndexedDB provider
       if (indexeddbProvider) {
         indexeddbProvider.destroy()
       }
-      
+
       // Destroy the Y.Doc instance
       // Note: Only destroy if this is the last reference to the document
       // In a real application, you might want to implement reference counting
       yDoc.destroy()
     }
-  }, [yDoc, indexeddbProvider, documentId])
+  }, [yDoc, indexeddbProvider, documentId, enablePersistence, isSynced])
 
   return {
     yDoc,
     sharedType,
     indexeddbProvider,
-    isSynced
+    isSynced,
+    persistenceError,
+    persistenceAvailable
   }
 }
 

@@ -3,6 +3,7 @@ import { createEditor, Descendant, BaseEditor, Editor, Transforms } from 'slate'
 import { Slate, Editable, withReact, ReactEditor, RenderElementProps, RenderLeafProps } from 'slate-react'
 import { withYjs, YjsEditor } from '@slate-yjs/core'
 import { useYjsDocument } from '../hooks/useYjsDocument'
+import { useNetworkStatus, useNetworkStatusMessage } from '../hooks/useNetworkStatus'
 
 // TypeScript type definitions for Slate
 type CustomElement = { type: 'paragraph'; children: CustomText[] }
@@ -62,12 +63,16 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
   onChange
 }) => {
   // Initialize Y.Doc and shared types using the custom hook
-  const { yDoc, sharedType, indexeddbProvider, isSynced } = useYjsDocument({
+  const { yDoc, sharedType, indexeddbProvider, isSynced, persistenceError, persistenceAvailable } = useYjsDocument({
     documentId,
     initialValue,
     enablePersistence: true,
     enableGarbageCollection: true
   })
+
+  // Monitor network status for offline editing capabilities
+  const networkStatus = useNetworkStatus()
+  const networkMessage = useNetworkStatusMessage(networkStatus)
 
   // Create Slate editor with Yjs integration
   const editor = useMemo(() => {
@@ -168,6 +173,26 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 
   return (
     <div className={`collaborative-editor ${className}`}>
+      {/* Persistence Status Indicator */}
+      {persistenceError && (
+        <div className="mb-2 p-2 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-md text-sm">
+          <strong>⚠️ Local Storage Warning:</strong> {persistenceError}
+        </div>
+      )}
+
+      {!persistenceAvailable && !persistenceError && (
+        <div className="mb-2 p-2 bg-red-100 border border-red-400 text-red-700 rounded-md text-sm">
+          <strong>❌ Local Storage Unavailable:</strong> Your changes will not be saved locally.
+        </div>
+      )}
+
+      {/* Network Status Indicator */}
+      {!networkStatus.isOnline && (
+        <div className="mb-2 p-2 bg-blue-100 border border-blue-400 text-blue-700 rounded-md text-sm">
+          <strong>🌐 Offline Mode:</strong> You're working offline. Changes are saved locally and will sync when you're back online.
+        </div>
+      )}
+
       <Slate
         editor={editor}
         value={value}
@@ -183,12 +208,29 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
           autoFocus
         />
       </Slate>
-      
-      {/* Debug information - remove in production */}
-      <div className="mt-2 text-xs text-gray-500">
-        Document ID: {documentId} | Y.Doc Client ID: {yDoc.clientID} |
-        Synced: {isSynced ? '✅' : '⏳'} |
-        Shared Type Length: {sharedType.length}
+
+      {/* Enhanced Status Information */}
+      <div className="mt-2 text-xs text-gray-500 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1">
+            <span className={`inline-block w-2 h-2 rounded-full ${
+              isSynced && persistenceAvailable && networkStatus.isOnline ? 'bg-green-500' :
+              isSynced && persistenceAvailable && !networkStatus.isOnline ? 'bg-blue-500' :
+              isSynced && !persistenceAvailable ? 'bg-yellow-500' :
+              'bg-gray-400'
+            }`}></span>
+            {isSynced && persistenceAvailable && networkStatus.isOnline ? 'Online & Synced' :
+             isSynced && persistenceAvailable && !networkStatus.isOnline ? 'Offline - Saved locally' :
+             isSynced && !persistenceAvailable ? 'Editing without local storage' :
+             'Syncing...'}
+          </div>
+          <span>Document: {documentId}</span>
+          <span className="text-xs">({networkMessage})</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span>Client: {yDoc.clientID}</span>
+          <span>Length: {sharedType.length}</span>
+        </div>
       </div>
     </div>
   )
