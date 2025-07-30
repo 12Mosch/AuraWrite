@@ -10,12 +10,15 @@ const schema = defineSchema({
 	// Documents table for collaborative editing
 	documents: defineTable({
 		title: v.string(),
-		content: v.optional(v.string()), // Slate.js content as JSON string
+		content: v.optional(v.string()), // Slate.js content as JSON string (legacy)
+		yjsState: v.optional(v.bytes()), // Y.Doc binary state for real-time collaboration
+		yjsStateVector: v.optional(v.bytes()), // Y.Doc state vector for efficient sync
 		ownerId: v.id("users"), // Reference to the user who created the document
 		isPublic: v.optional(v.boolean()), // Whether the document is publicly accessible
 		collaborators: v.optional(v.array(v.id("users"))), // Array of user IDs who can edit
 		createdAt: v.number(),
 		updatedAt: v.number(),
+		yjsUpdatedAt: v.optional(v.number()), // Last Y.Doc update timestamp
 	})
 		.index("by_owner", ["ownerId"])
 		.index("by_updated", ["updatedAt"])
