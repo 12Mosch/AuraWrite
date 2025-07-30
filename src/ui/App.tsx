@@ -2,24 +2,30 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import CollaborativeEditorDemo from "../components/CollaborativeEditorDemo";
 import "./index.css";
+import { ErrorProvider } from "@/contexts/ErrorContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function App() {
 	return (
-		<div className="min-h-screen bg-gray-50">
-			<AuthLoading>
-				<div className="flex items-center justify-center min-h-screen">
-					<div className="text-lg">Loading...</div>
+		<ErrorProvider>
+			<ErrorBoundary>
+				<div className="min-h-screen bg-gray-50">
+					<AuthLoading>
+						<div className="flex items-center justify-center min-h-screen">
+							<div className="text-lg">Loading...</div>
+						</div>
+					</AuthLoading>
+
+					<Unauthenticated>
+						<SignInForm />
+					</Unauthenticated>
+
+					<Authenticated>
+						<AuthenticatedApp />
+					</Authenticated>
 				</div>
-			</AuthLoading>
-
-			<Unauthenticated>
-				<SignInForm />
-			</Unauthenticated>
-
-			<Authenticated>
-				<AuthenticatedApp />
-			</Authenticated>
-		</div>
+			</ErrorBoundary>
+		</ErrorProvider>
 	);
 }
 

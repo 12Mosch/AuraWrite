@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNetworkStatus } from './useNetworkStatus';
+import { useErrorHandler } from '../contexts/ErrorContext';
+import { ErrorFactory } from '../types/errors';
 
 /**
  * Connection state enum
@@ -80,8 +82,9 @@ export const useConnectionManager = (
     connectionTimeout = 10000,
   } = options;
 
-  // Network status
+  // Network status and error handling
   const { isOnline } = useNetworkStatus();
+  const handleError = useErrorHandler();
 
   // State management
   const [connectionState, setConnectionState] = useState<ConnectionState>(
@@ -209,7 +212,23 @@ export const useConnectionManager = (
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
-      
+
+      // Create and handle error
+      const appError = ErrorFactory.network(
+        'CONNECTION_ATTEMPT_FAILED',
+        `Connection attempt failed: ${errorMessage}`,
+        {
+          retryCount,
+          maxRetries,
+          isOffline: !isOnline,
+          context: {
+            connectionTimeout,
+            attempt: retryCount + 1,
+          },
+        }
+      );
+      handleError(appError);
+
       if (retryCount >= maxRetries) {
         setConnectionState(ConnectionState.FAILED);
         return false;
@@ -218,10 +237,10 @@ export const useConnectionManager = (
       // Schedule retry
       const newRetryCount = retryCount + 1;
       setRetryCount(newRetryCount);
-      
+
       const retryDelay = getRetryDelay(newRetryCount - 1);
       startCountdown(retryDelay);
-      
+
       retryTimerRef.current = setTimeout(() => {
         attemptConnection();
       }, retryDelay);

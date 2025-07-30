@@ -7,9 +7,13 @@ import { useYjsDocument } from '../hooks/useYjsDocument';
 import { useConvexYjsSync } from '../hooks/useConvexYjsSync';
 import { useOptimizedSync as useOptimizedSyncHook } from '../hooks/useOptimizedSync';
 import { usePresence } from '../hooks/usePresence';
+import { useConvexErrorHandler } from '../hooks/useConvexErrorHandler';
+import { useOfflineMode } from '../hooks/useOfflineMode';
+import { useError } from '../contexts/ErrorContext';
 import { DocumentHeader } from './DocumentHeader';
 import { PresenceIndicator } from './PresenceIndicator';
 import { SyncPerformanceMonitor, CompactPerformanceIndicator } from './SyncPerformanceMonitor';
+import { ErrorDisplay } from './ErrorDisplay';
 import { ConnectionStatus, SimpleConnectionIndicator } from './ConnectionStatus';
 import { Id } from '../../convex/_generated/dataModel';
 
@@ -62,19 +66,31 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
     { type: 'paragraph', children: [{ text: '' }] }
   ];
 
+  // Error handling
+  const { handleConvexError } = useConvexErrorHandler();
+  const { error: globalError, clearError } = useError();
+
   // Initialize Y.Doc and shared types using the existing hook
-  const { 
-    yDoc, 
-    sharedType, 
-    indexeddbProvider, 
-    isSynced: isLocalSynced, 
-    persistenceError, 
-    persistenceAvailable 
+  const {
+    yDoc,
+    sharedType,
+    indexeddbProvider,
+    isSynced: isLocalSynced,
+    persistenceError,
+    persistenceAvailable
   } = useYjsDocument({
     documentId,
     initialValue,
     enablePersistence: true,
     enableGarbageCollection: true
+  });
+
+  // Offline mode support
+  const offlineMode = useOfflineMode({
+    documentId,
+    yDoc,
+    enabled: true,
+    autoResolveConflicts: true,
   });
 
   // Initialize synchronization (optimized or regular)
@@ -221,43 +237,90 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
     );
   };
 
-  // Error display component
-  const ErrorDisplay = () => {
-    if (!syncError && !persistenceError) return null;
+  // Enhanced error display component
+  const EnhancedErrorDisplay = () => {
+    // Show global errors or local sync/persistence errors
+    const hasLocalErrors = syncError || persistenceError;
+    const hasGlobalError = globalError;
+
+    if (!hasLocalErrors && !hasGlobalError) return null;
 
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="text-sm font-medium text-red-800">Synchronization Issues</h4>
-            {syncError && (
-              <p className="text-sm text-red-700 mt-1">Server sync: {syncError}</p>
-            )}
-            {persistenceError && (
-              <p className="text-sm text-red-700 mt-1">Local storage: {persistenceError}</p>
-            )}
+      <div className="space-y-2 mb-4">
+        {/* Global error display */}
+        {hasGlobalError && (
+          <ErrorDisplay
+            showDetails={process.env.NODE_ENV === 'development'}
+            dismissible={true}
+            showRetry={true}
+            compact={false}
+          />
+        )}
+
+        {/* Local sync/persistence errors */}
+        {hasLocalErrors && (
+          <div className="bg-red-50 border border-red-200 rounded-md p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-medium text-red-800">Synchronization Issues</h4>
+                {syncError && (
+                  <p className="text-sm text-red-700 mt-1">Server sync: {syncError}</p>
+                )}
+                {persistenceError && (
+                  <p className="text-sm text-red-700 mt-1">Local storage: {persistenceError}</p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {syncError && (
+                  <button
+                    onClick={() => resync()}
+                    className="text-xs bg-red-100 hover:bg-red-200 text-red-800 px-2 py-1 rounded"
+                    disabled={isSyncing}
+                  >
+                    Retry Sync
+                  </button>
+                )}
+                {!isConnected && reconnect && (
+                  <button
+                    onClick={() => reconnect()}
+                    className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"
+                    disabled={isSyncing}
+                  >
+                    Reconnect
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="flex gap-2">
-            {syncError && (
-              <button
-                onClick={() => resync()}
-                className="text-xs bg-red-100 hover:bg-red-200 text-red-800 px-2 py-1 rounded"
-                disabled={isSyncing}
-              >
-                Retry Sync
-              </button>
-            )}
-            {!isConnected && reconnect && (
-              <button
-                onClick={() => reconnect()}
-                className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"
-                disabled={isSyncing}
-              >
-                Reconnect
-              </button>
-            )}
+        )}
+
+        {/* Offline mode indicator */}
+        {offlineMode.isOffline && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-medium text-blue-800">Offline Mode</h4>
+                <p className="text-sm text-blue-700">
+                  Working offline. Changes will sync when connection is restored.
+                </p>
+                {offlineMode.hasUnsyncedChanges && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    {offlineMode.pendingOperations} pending changes
+                  </p>
+                )}
+              </div>
+              {!offlineMode.isOffline && offlineMode.hasUnsyncedChanges && (
+                <button
+                  onClick={offlineMode.forceSync}
+                  disabled={offlineMode.isSyncing}
+                  className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"
+                >
+                  {offlineMode.isSyncing ? 'Syncing...' : 'Sync Now'}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };
@@ -311,7 +374,7 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
       </div>
 
       {/* Error display */}
-      <ErrorDisplay />
+      <EnhancedErrorDisplay />
 
       {/* Editor */}
       <div className="relative">
