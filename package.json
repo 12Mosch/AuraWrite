@@ -9,20 +9,26 @@
 		"dev:electron": "npm run transpile:electron && cross-env NODE_ENV=development electron .",
 		"dev": "npm-run-all --parallel dev:react dev:electron",
 		"build": "tsc -b && vite build",
-		"lint": "eslint .",
+		"lint": "npx @biomejs/biome check --write",
 		"transpile:electron": "tsc --project src/electron/tsconfig.json",
 		"preview": "vite preview"
 	},
 	"dependencies": {
 		"@radix-ui/react-slot": "^1.2.3",
+		"@slate-yjs/core": "^1.0.2",
+		"@slate-yjs/react": "^1.1.0",
 		"@tailwindcss/vite": "^4.1.11",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"lucide-react": "^0.534.0",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
+		"slate": "^0.82.1",
+		"slate-react": "^0.82.2",
 		"tailwind-merge": "^3.3.1",
-		"tailwindcss": "^4.1.11"
+		"tailwindcss": "^4.1.11",
+		"y-indexeddb": "^9.0.12",
+		"yjs": "^13.6.27"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.1.3",
