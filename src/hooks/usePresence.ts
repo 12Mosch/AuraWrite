@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from 'convex/react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
 
@@ -67,6 +67,8 @@ export interface UsePresenceReturn {
   currentUser: PresenceUser | undefined;
   /** Whether presence tracking is active */
   isActive: boolean;
+  /** Any update error that occurred */
+  updateError: Error | null;
 }
 
 /**
@@ -106,10 +108,13 @@ export const usePresence = (
   const lastSelectionRef = useRef<any>(null);
 
   // Update presence function
+  const [updateError, setUpdateError] = useState<Error | null>(null);
+
   const updatePresence = useCallback(async (cursor?: any, selection?: any) => {
     if (!documentId || !enabled) return;
 
     try {
+      setUpdateError(null);
       // Only include cursor/selection if tracking is enabled
       const presenceData: any = { documentId };
       
@@ -126,6 +131,7 @@ export const usePresence = (
       await updatePresenceMutation(presenceData);
     } catch (error) {
       console.error('Failed to update presence:', error);
+      setUpdateError(error as Error);
     }
   }, [documentId, enabled, trackCursor, trackSelection, updatePresenceMutation]);
 
@@ -174,6 +180,7 @@ export const usePresence = (
     otherUsers: otherUsers.filter(Boolean) as PresenceUser[],
     currentUser: currentUser || undefined,
     isActive,
+    updateError
   };
 };
 
@@ -181,11 +188,17 @@ export const usePresence = (
  * Utility function to get user initials for avatars
  */
 export const getUserInitials = (name: string): string => {
-  return name
+  if (!name || name.trim() === '') return '??';
+
+  const trimmedName = name.trim();
+  if (trimmedName.length === 1) return trimmedName.toUpperCase();
+
+  return trimmedName
     .split(' ')
+    .filter(part => part.length > 0)
     .map(part => part.charAt(0).toUpperCase())
     .slice(0, 2)
-    .join('');
+    .join('') || '??';
 };
 
 /**
@@ -212,8 +225,12 @@ export const getUserColor = (userId: string): string => {
 export const getLastSeenText = (lastSeen: number): string => {
   const now = Date.now();
   const diffMs = now - lastSeen;
+
+  // Handle future timestamps (clock skew)
+  if (diffMs < 0) return 'Just now';
+
   const diffSeconds = Math.floor(diffMs / 1000);
-  
+
   if (diffSeconds < 30) return 'Just now';
   if (diffSeconds < 60) return `${diffSeconds}s ago`;
   

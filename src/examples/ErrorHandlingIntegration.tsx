@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import * as Y from 'yjs';
 import { Id } from '../convex/_generated/dataModel';
 import { ErrorProvider } from '../contexts/ErrorContext';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -15,6 +16,7 @@ import { useConvexErrorHandler } from '../hooks/useConvexErrorHandler';
 import { useConnectionManager } from '../hooks/useConnectionManager';
 import { useOfflineMode } from '../hooks/useOfflineMode';
 import { ConnectionStatus } from '../components/ConnectionStatus';
+import { ConvexError } from 'convex/values';
 
 /**
  * Enhanced collaborative editor with comprehensive error handling
@@ -84,7 +86,7 @@ const EnhancedCollaborativeEditor: React.FC<{
 const OfflineAwareEditor: React.FC<{
   documentId: Id<"documents">;
 }> = ({ documentId }) => {
-  const yDoc = React.useMemo(() => new (require('yjs')).Doc(), []);
+  const yDoc = React.useMemo(() => new Y.Doc(), []);
   
   const offlineMode = useOfflineMode({
     documentId,
@@ -194,7 +196,7 @@ const ErrorHandlingDemo: React.FC = () => {
   };
 
   const triggerAuthError = () => {
-    const error = new (require('convex/values')).ConvexError({
+    const error = new ConvexError({
       message: 'Unauthorized access',
       code: 'unauthorized',
     });

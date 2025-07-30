@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 import { Id } from '../../convex/_generated/dataModel';
 import { useNetworkStatus } from './useNetworkStatus';
 import { useConnectionManager, ConnectionState } from './useConnectionManager';
+import { SyncHookReturn } from './useConvexYjsSync';
 
 /**
  * Configuration options for optimized sync
@@ -31,21 +32,7 @@ export interface OptimizedSyncOptions {
 /**
  * Return type for the optimized sync hook
  */
-export interface OptimizedSyncReturn {
-  /** Whether currently syncing */
-  isSyncing: boolean;
-  /** Whether fully synced with server */
-  isSynced: boolean;
-  /** Current sync error, if any */
-  syncError: string | null;
-  /** Whether connected to server */
-  isConnected: boolean;
-  /** Connection state */
-  connectionState: ConnectionState;
-  /** Force a full resync */
-  resync: () => Promise<void>;
-  /** Force reconnection */
-  reconnect: () => void;
+export interface OptimizedSyncReturn extends SyncHookReturn {
   /** Get sync statistics */
   getStats: () => SyncStats;
   /** Clear sync statistics */

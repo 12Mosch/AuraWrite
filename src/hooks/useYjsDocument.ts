@@ -161,10 +161,10 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
   // Set up event listeners and cleanup
   useEffect(() => {
     const handleUpdate = (update: Uint8Array, origin: any) => {
-      console.log('Y.Doc update received:', { 
-        updateSize: update.length, 
+      console.log('Y.Doc update received:', {
+        updateSize: update.length,
         origin: origin?.constructor?.name || origin,
-        clientId: yDoc.clientID 
+        clientId: yDoc.clientID
       })
     }
 
@@ -181,9 +181,28 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
     yDoc.on('update', handleUpdate)
     yDoc.on('afterTransaction', handleAfterTransaction)
 
+    // Cleanup function
+    return () => {
+      console.log(`Cleaning up Y.Doc event listeners for document: ${documentId}`)
+      // Remove event listeners
+      yDoc.off('update', handleUpdate)
+      yDoc.off('afterTransaction', handleAfterTransaction)
+    }
+  }, [yDoc, documentId])
+
+  // Set up automatic backups
+  useEffect(() => {
     // Set up automatic backups every 5 minutes if persistence is enabled
     let backupInterval: NodeJS.Timeout | undefined
+
     if (enablePersistence && isSynced) {
+      // Create immediate backup on sync
+      createAutomaticBackup(yDoc, documentId, {
+        maxAge: 7, // Keep backups for 7 days
+        maxBackups: 5 // Keep max 5 backups per document
+      })
+
+      // Set up periodic backups
       backupInterval = setInterval(() => {
         createAutomaticBackup(yDoc, documentId, {
           maxAge: 7, // Keep backups for 7 days
@@ -194,16 +213,16 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
 
     // Cleanup function
     return () => {
-      console.log(`Cleaning up Y.Doc for document: ${documentId}`)
-
-      // Remove event listeners
-      yDoc.off('update', handleUpdate)
-      yDoc.off('afterTransaction', handleAfterTransaction)
-
-      // Clear backup interval
       if (backupInterval) {
         clearInterval(backupInterval)
       }
+    }
+  }, [enablePersistence, isSynced, yDoc, documentId])
+
+  // Final cleanup on unmount
+  useEffect(() => {
+    return () => {
+      console.log(`Final cleanup for Y.Doc document: ${documentId}`)
 
       // Clean up IndexedDB provider
       if (indexeddbProvider) {
@@ -215,7 +234,7 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
       // In a real application, you might want to implement reference counting
       yDoc.destroy()
     }
-  }, [yDoc, indexeddbProvider, documentId, enablePersistence, isSynced])
+  }, [yDoc, indexeddbProvider, documentId])
 
   return {
     yDoc,

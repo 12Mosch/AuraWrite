@@ -43,18 +43,27 @@ interface SyncOperationContext {
 }
 
 /**
+ * Conflict information with enhanced metadata
+ */
+interface ConflictInfo {
+  path: string;
+  localValue: any;
+  remoteValue: any;
+  resolution: any;
+  conflictType?: string;
+  similarity?: number;
+  canAutoResolve?: boolean;
+  error?: string;
+}
+
+/**
  * Conflict resolution result
  */
 interface ConflictResolutionResult {
   resolved: boolean;
   strategy: ConflictResolutionStrategy;
   mergedDoc?: Y.Doc;
-  conflicts?: Array<{
-    path: string;
-    localValue: any;
-    remoteValue: any;
-    resolution: any;
-  }>;
+  conflicts?: Array<ConflictInfo>;
 }
 
 /**
@@ -333,37 +342,227 @@ function getDocumentTimestamp(doc: Y.Doc): number {
 }
 
 /**
- * Detect conflicts between two Y.Doc instances
+ * Detect conflicts between two Y.Doc instances using Y.js state vectors
+ * for more granular and accurate conflict detection
  */
-function detectConflicts(localDoc: Y.Doc, remoteDoc: Y.Doc): Array<{
-  path: string;
-  localValue: any;
-  remoteValue: any;
-  resolution: any;
-}> {
-  const conflicts: Array<{
-    path: string;
-    localValue: any;
-    remoteValue: any;
-    resolution: any;
-  }> = [];
+function detectConflicts(localDoc: Y.Doc, remoteDoc: Y.Doc): Array<ConflictInfo> {
+  const conflicts: Array<ConflictInfo> = [];
 
   try {
-    // Compare document content
+    // Get the shared types
     const localContent = localDoc.get('content', Y.XmlText);
     const remoteContent = remoteDoc.get('content', Y.XmlText);
-    
-    if (localContent.toString() !== remoteContent.toString()) {
+
+    // Use Y.js's built-in state vectors for more accurate conflict detection
+    const localState = Y.encodeStateVector(localDoc);
+    const remoteState = Y.encodeStateVector(remoteDoc);
+
+    // Check if documents have diverged by computing differences
+    const localDiff = Y.diffUpdate(Y.encodeStateAsUpdate(localDoc), remoteState);
+    const remoteDiff = Y.diffUpdate(Y.encodeStateAsUpdate(remoteDoc), localState);
+
+    // Real conflict exists if both documents have changes the other doesn't know about
+    if (localDiff.length > 0 && remoteDiff.length > 0) {
+      // Analyze the nature of the conflict
+      const conflictAnalysis = analyzeConflictType(localContent, remoteContent);
+
       conflicts.push({
         path: 'content',
         localValue: localContent.toString(),
         remoteValue: remoteContent.toString(),
-        resolution: 'manual_required',
+        resolution: conflictAnalysis.resolution,
+        ...conflictAnalysis.metadata,
       });
     }
+
+    // Check metadata conflicts
+    const metadataConflicts = detectMetadataConflicts(localDoc, remoteDoc);
+    conflicts.push(...metadataConflicts);
+
+    // Check for structural conflicts in nested types
+    const structuralConflicts = detectStructuralConflicts(localDoc, remoteDoc);
+    conflicts.push(...structuralConflicts);
+
   } catch (error) {
     console.error('Error detecting conflicts:', error);
+    // Fallback to basic conflict detection
+    conflicts.push({
+      path: 'root',
+      localValue: 'detection_failed',
+      remoteValue: 'detection_failed',
+      resolution: 'manual_required',
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   return conflicts;
+}
+
+/**
+ * Analyze the type and severity of content conflicts
+ */
+function analyzeConflictType(
+  localContent: Y.XmlText,
+  remoteContent: Y.XmlText
+): {
+  resolution: string;
+  metadata: Record<string, any>;
+} {
+  const localText = localContent.toString();
+  const remoteText = remoteContent.toString();
+
+  // Check if it's just a simple append/prepend (easier to resolve)
+  if (localText.includes(remoteText) || remoteText.includes(localText)) {
+    return {
+      resolution: 'auto_merge_possible',
+      metadata: {
+        conflictType: 'append_conflict',
+        canAutoResolve: true,
+      },
+    };
+  }
+
+  // Check for overlapping edits in the same region
+  const similarity = calculateTextSimilarity(localText, remoteText);
+  if (similarity > 0.8) {
+    return {
+      resolution: 'minor_conflict',
+      metadata: {
+        conflictType: 'minor_edit_conflict',
+        similarity,
+        canAutoResolve: true,
+      },
+    };
+  }
+
+  // Check for completely different content (major conflict)
+  if (similarity < 0.3) {
+    return {
+      resolution: 'major_conflict',
+      metadata: {
+        conflictType: 'major_content_conflict',
+        similarity,
+        canAutoResolve: false,
+      },
+    };
+  }
+
+  return {
+    resolution: 'manual_required',
+    metadata: {
+      conflictType: 'moderate_conflict',
+      similarity,
+      canAutoResolve: false,
+    },
+  };
+}
+
+/**
+ * Detect conflicts in document metadata
+ */
+function detectMetadataConflicts(localDoc: Y.Doc, remoteDoc: Y.Doc): Array<ConflictInfo> {
+  const conflicts: Array<ConflictInfo> = [];
+
+  try {
+    const localMeta = localDoc.getMap('meta');
+    const remoteMeta = remoteDoc.getMap('meta');
+
+    // Compare specific metadata fields that matter for conflict resolution
+    const criticalFields = ['lastModified', 'version', 'author', 'title'];
+
+    for (const field of criticalFields) {
+      const localValue = localMeta.get(field);
+      const remoteValue = remoteMeta.get(field);
+
+      if (localValue !== undefined && remoteValue !== undefined && localValue !== remoteValue) {
+        conflicts.push({
+          path: `meta.${field}`,
+          localValue,
+          remoteValue,
+          resolution: field === 'lastModified' ? 'use_latest' : 'manual_required',
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error detecting metadata conflicts:', error);
+  }
+
+  return conflicts;
+}
+
+/**
+ * Detect structural conflicts in nested Y.js types
+ */
+function detectStructuralConflicts(localDoc: Y.Doc, remoteDoc: Y.Doc): Array<ConflictInfo> {
+  const conflicts: Array<ConflictInfo> = [];
+
+  try {
+    // Check for conflicts in nested maps and arrays
+    const sharedTypeNames = ['settings', 'annotations', 'comments'];
+
+    for (const typeName of sharedTypeNames) {
+      const localType = localDoc.getMap(typeName);
+      const remoteType = remoteDoc.getMap(typeName);
+
+      // Compare the JSON representations for structural differences
+      const localJSON = JSON.stringify(localType.toJSON());
+      const remoteJSON = JSON.stringify(remoteType.toJSON());
+
+      if (localJSON !== remoteJSON) {
+        conflicts.push({
+          path: typeName,
+          localValue: localType.toJSON(),
+          remoteValue: remoteType.toJSON(),
+          resolution: 'merge_required',
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error detecting structural conflicts:', error);
+  }
+
+  return conflicts;
+}
+
+/**
+ * Calculate text similarity using a simple algorithm
+ * Returns a value between 0 (completely different) and 1 (identical)
+ */
+function calculateTextSimilarity(text1: string, text2: string): number {
+  if (text1 === text2) return 1;
+  if (text1.length === 0 || text2.length === 0) return 0;
+
+  // Use Levenshtein distance for similarity calculation
+  const maxLength = Math.max(text1.length, text2.length);
+  const distance = levenshteinDistance(text1, text2);
+
+  return 1 - (distance / maxLength);
+}
+
+/**
+ * Calculate Levenshtein distance between two strings
+ */
+function levenshteinDistance(str1: string, str2: string): number {
+  const matrix = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(null));
+
+  for (let i = 0; i <= str1.length; i++) {
+    matrix[0][i] = i;
+  }
+
+  for (let j = 0; j <= str2.length; j++) {
+    matrix[j][0] = j;
+  }
+
+  for (let j = 1; j <= str2.length; j++) {
+    for (let i = 1; i <= str1.length; i++) {
+      const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1, // deletion
+        matrix[j - 1][i] + 1, // insertion
+        matrix[j - 1][i - 1] + indicator // substitution
+      );
+    }
+  }
+
+  return matrix[str2.length][str1.length];
 }

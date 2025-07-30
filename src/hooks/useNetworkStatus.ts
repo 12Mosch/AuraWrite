@@ -39,7 +39,9 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
      * Handle online event
      */
     const handleOnline = () => {
-      console.log('Network status: Online')
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Network status: Online')
+      }
       setIsOnline(true)
       setLastStatusChange(new Date())
     }
@@ -48,7 +50,9 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
      * Handle offline event
      */
     const handleOffline = () => {
-      console.log('Network status: Offline')
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Network status: Offline')
+      }
       setIsOnline(false)
       setLastStatusChange(new Date())
     }
@@ -71,14 +75,18 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
         
         const actuallyOnline = response.ok
         if (actuallyOnline !== isOnline) {
-          console.log(`Network status corrected: ${actuallyOnline ? 'Online' : 'Offline'}`)
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`Network status corrected: ${actuallyOnline ? 'Online' : 'Offline'}`)
+          }
           setIsOnline(actuallyOnline)
           setLastStatusChange(new Date())
         }
       } catch (error) {
         // If fetch fails and we think we're online, we might actually be offline
         if (isOnline) {
-          console.log('Network connectivity check failed, assuming offline')
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Network connectivity check failed, assuming offline')
+          }
           setIsOnline(false)
           setLastStatusChange(new Date())
         }

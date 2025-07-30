@@ -5,8 +5,8 @@
  * including error state, recovery actions, and retry logic.
  */
 
-import React, { createContext, useContext, useReducer, useCallback, useRef } from 'react';
-import { AppError, ErrorContext, ErrorRecoveryAction, ErrorSeverity } from '../types/errors';
+import React, { createContext, useContext, useReducer, useCallback, useRef, useEffect } from 'react';
+import { AppError, ErrorContext, ErrorRecoveryAction, ErrorSeverity, ErrorCategory, RecoveryStrategy } from '../types/errors';
 
 /**
  * Error state interface
@@ -32,12 +32,14 @@ type ErrorAction =
  * Error reducer
  */
 function errorReducer(state: ErrorState, action: ErrorAction): ErrorState {
+  const maxHistorySize = 10;
+
   switch (action.type) {
     case 'SET_ERROR':
       return {
         ...state,
         currentError: action.payload,
-        errorHistory: [action.payload, ...state.errorHistory.slice(0, 9)], // Keep last 10 errors
+        errorHistory: [action.payload, ...state.errorHistory.slice(0, maxHistorySize - 1)],
         retryCount: 0,
       };
 
@@ -105,11 +107,23 @@ interface ErrorProviderProps {
  */
 export const ErrorProvider: React.FC<ErrorProviderProps> = ({
   children,
-  maxHistorySize = 10,
   onUnhandledError,
 }) => {
   const [state, dispatch] = useReducer(errorReducer, initialState);
   const retryHandlerRef = useRef<(() => Promise<void>) | null>(null);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  /**
+   * Cleanup timeout when component unmounts or error state changes
+   */
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+    };
+  }, [state.currentError]);
 
   /**
    * Add error to context
@@ -127,11 +141,17 @@ export const ErrorProvider: React.FC<ErrorProviderProps> = ({
     // Auto-retry for retryable errors with low retry count
     if (error.retryable && (error.retryCount || 0) < (error.maxRetries || 3)) {
       const retryDelay = Math.min(1000 * Math.pow(2, error.retryCount || 0), 10000); // Exponential backoff, max 10s
-      
-      setTimeout(() => {
+
+      // Clear any existing timeout before setting a new one
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+
+      retryTimeoutRef.current = setTimeout(() => {
         if (retryHandlerRef.current) {
           retry();
         }
+        retryTimeoutRef.current = null;
       }, retryDelay);
     }
   }, [onUnhandledError]);
@@ -140,6 +160,12 @@ export const ErrorProvider: React.FC<ErrorProviderProps> = ({
    * Clear current error
    */
   const clearError = useCallback(() => {
+    // Clear any pending retry timeout
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+
     dispatch({ type: 'CLEAR_ERROR' });
     retryHandlerRef.current = null;
   }, []);
@@ -304,9 +330,9 @@ export const useErrorHandler = () => {
       appError = {
         code: 'UNKNOWN_ERROR',
         message: error.message,
-        category: 'system' as any,
+        category: ErrorCategory.SYSTEM,
         severity: ErrorSeverity.MEDIUM,
-        recoveryStrategy: 'retry' as any,
+        recoveryStrategy: RecoveryStrategy.RETRY,
         timestamp: new Date(),
         retryable: false,
         context,
@@ -316,9 +342,9 @@ export const useErrorHandler = () => {
       appError = {
         code: 'UNKNOWN_ERROR',
         message: String(error) || 'An unknown error occurred',
-        category: 'system' as any,
+        category: ErrorCategory.SYSTEM,
         severity: ErrorSeverity.MEDIUM,
-        recoveryStrategy: 'retry' as any,
+        recoveryStrategy: RecoveryStrategy.RETRY,
         timestamp: new Date(),
         retryable: false,
         context,

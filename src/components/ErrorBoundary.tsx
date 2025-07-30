@@ -6,7 +6,7 @@
  */
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { AppError, ErrorFactory, ErrorSeverity } from '../types/errors';
+import { AppError, ErrorCategory, ErrorSeverity, RecoveryStrategy } from '../types/errors';
 
 /**
  * Error boundary state
@@ -104,7 +104,7 @@ const DefaultErrorFallback: React.FC<{
  * React Error Boundary component
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  private retryTimeoutId: number | null = null;
+  private retryTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor(props: ErrorBoundaryProps) {
     super(props);
@@ -138,23 +138,23 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     console.error('ErrorBoundary caught an error:', error, errorInfo);
 
     // Create AppError for error context
-    const appError = ErrorFactory.network(
-      'REACT_ERROR_BOUNDARY',
-      `React component error: ${error.message}`,
-      {
-        category: 'system' as any,
-        severity: ErrorSeverity.HIGH,
-        recoveryStrategy: 'reload' as any,
-        retryable: true,
-        maxRetries: 3,
-        context: {
-          componentName: this.props.componentName,
-          errorStack: error.stack,
-          componentStack: errorInfo.componentStack,
-          errorId: this.state.errorId,
-        },
-      }
-    );
+    const appError: AppError = {
+      code: 'REACT_ERROR_BOUNDARY',
+      message: `React component error: ${error.message}`,
+      category: ErrorCategory.SYSTEM,
+      severity: ErrorSeverity.HIGH,
+      recoveryStrategy: RecoveryStrategy.RELOAD,
+      timestamp: new Date(),
+      retryable: true,
+      maxRetries: 3,
+      retryCount: 0,
+      context: {
+        componentName: this.props.componentName,
+        errorStack: error.stack,
+        componentStack: errorInfo.componentStack,
+        errorId: this.state.errorId,
+      },
+    };
 
     // Call error handler if provided
     if (this.props.onError) {

@@ -150,11 +150,15 @@ function createConvexAppError(
   let recoveryStrategy = RecoveryStrategy.RETRY;
   let retryable = true;
 
-  const message = convexData.message.toLowerCase();
-  const code = convexData.code?.toLowerCase();
+  const message = convexData.message;
+  const code = convexData.code;
+
+  // Use case-insensitive regex or exact code matching
+  const hasMatch = (text: string, pattern: string) =>
+    new RegExp(pattern, 'i').test(text);
 
   // Categorize based on error content
-  if (message.includes('unauthorized') || message.includes('permission') || code === 'unauthorized') {
+  if (hasMatch(message, 'unauthorized|permission') || code?.toLowerCase() === 'unauthorized') {
     category = ErrorCategory.AUTHENTICATION;
     severity = ErrorSeverity.HIGH;
     recoveryStrategy = RecoveryStrategy.MANUAL;

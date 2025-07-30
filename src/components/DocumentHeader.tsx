@@ -72,7 +72,9 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
   };
 
   const handleTitleCancel = () => {
-    setTitleValue(metadata?.title || '');
+    if (metadata) {
+      setTitleValue(metadata.title);
+    }
     setIsEditingTitle(false);
   };
 
@@ -190,8 +192,8 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
             View all collaborators
           </summary>
           <div className="mt-2 pl-4 space-y-1">
-            {collaboratorNames.map((name, index) => (
-              <div key={index} className="text-gray-600">
+            {collaboratorNames.map((name) => (
+              <div key={name} className="text-gray-600">
                 {name}
               </div>
             ))}

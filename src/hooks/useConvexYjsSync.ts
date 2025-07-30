@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useQuery, useMutation } from 'convex/react';
 import * as Y from 'yjs';
+import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
 import { useNetworkStatus } from './useNetworkStatus';
+import { ConnectionState } from './useConnectionManager';
 
 /**
  * Configuration options for Convex-Yjs synchronization
@@ -22,9 +25,9 @@ interface UseConvexYjsSyncOptions {
 }
 
 /**
- * Return type for the useConvexYjsSync hook
+ * Common interface for sync hooks to ensure type compatibility
  */
-interface UseConvexYjsSyncReturn {
+export interface SyncHookReturn {
   /** Whether the hook is currently syncing with the server */
   isSyncing: boolean;
   /** Whether the document is fully synchronized */
@@ -33,10 +36,20 @@ interface UseConvexYjsSyncReturn {
   syncError: string | null;
   /** Connection status */
   isConnected: boolean;
-  /** Manual sync function */
-  sync: () => Promise<void>;
   /** Force a full resync from server */
   resync: () => Promise<void>;
+  /** Connection state (optional for compatibility) */
+  connectionState?: ConnectionState;
+  /** Force reconnection (optional for compatibility) */
+  reconnect?: () => void;
+}
+
+/**
+ * Return type for the useConvexYjsSync hook
+ */
+interface UseConvexYjsSyncReturn extends SyncHookReturn {
+  /** Manual sync function */
+  sync: () => Promise<void>;
 }
 
 /**
@@ -55,6 +68,7 @@ interface UseConvexYjsSyncReturn {
  */
 export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjsSyncReturn => {
   const {
+    documentId,
     yDoc,
     debounceMs = 500,
     enabled = true,
@@ -63,6 +77,15 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
 
   // Network status
   const { isOnline } = useNetworkStatus();
+
+  // Convex hooks
+  const serverState = useQuery(
+    api.yjsSync.subscribeToYjsState,
+    enabled && documentId ? { documentId } : "skip"
+  );
+  const initializeYjsStateMutation = useMutation(api.yjsSync.initializeYjsState);
+  const updateYjsStateMutation = useMutation(api.yjsSync.updateYjsState);
+  // Note: getYjsState will be called directly when needed for resync
 
   // State management
   const [isSyncing, setIsSyncing] = useState(false);
@@ -81,20 +104,41 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
    * Initialize Y.Doc state on the server if it doesn't exist
    */
   const initializeServerState = useCallback(async () => {
-    if (!enabled || isInitializedRef.current) return;
+    if (!enabled || isInitializedRef.current || !documentId) return;
 
     try {
-      const currentState = Y.encodeStateAsUpdate(yDoc);
+      setIsSyncing(true);
 
-      // Temporarily disabled - simulate successful initialization
-      console.log('Y.Doc state initialized on server');
-      lastSyncedStateRef.current = currentState;
+      // Get current Y.Doc state and state vector
+      const currentState = Y.encodeStateAsUpdate(yDoc);
+      const stateVector = Y.encodeStateVector(yDoc);
+
+      // Try to initialize the server state
+      const wasInitialized = await initializeYjsStateMutation({
+        documentId,
+        initialState: currentState,
+        stateVector: stateVector,
+      });
+
+      if (wasInitialized) {
+        console.log('Y.Doc state initialized on server');
+        lastSyncedStateRef.current = currentState;
+        setIsSynced(true);
+      } else {
+        console.log('Y.Doc state already exists on server, will sync with subscription');
+        // Server already has state, the subscription will handle syncing
+        setIsSynced(false);
+      }
+
       isInitializedRef.current = true;
+      setSyncError(null);
     } catch (error) {
       console.error('Failed to initialize server state:', error);
       setSyncError(`Failed to initialize: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSyncing(false);
     }
-  }, [yDoc, enabled]);
+  }, [yDoc, enabled, documentId, initializeYjsStateMutation]);
 
   /**
    * Apply server updates to local Y.Doc with conflict resolution
@@ -107,7 +151,7 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
       const currentState = Y.encodeStateAsUpdate(yDoc);
       if (lastSyncedStateRef.current &&
           currentState.length === lastSyncedStateRef.current.length &&
-          currentState.every((byte, index) => byte === lastSyncedStateRef.current![index])) {
+          Buffer.from(currentState).equals(Buffer.from(lastSyncedStateRef.current))) {
         return; // No changes needed
       }
 
@@ -131,18 +175,37 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
    * Send local updates to server with debouncing
    */
   const sendUpdateToServer = useCallback(async (update: Uint8Array) => {
-    if (!enabled || !isOnline) return;
+    if (!enabled || !isOnline || !documentId) return;
 
     try {
       setIsSyncing(true);
-      
-      // Temporarily disabled - simulate successful sync
-      lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
-      retryCountRef.current = 0;
-      setSyncError(null);
+
+      // Get current state vector for efficient sync
+      const stateVector = Y.encodeStateVector(yDoc);
+
+      // Send update to server
+      const result = await updateYjsStateMutation({
+        documentId,
+        update: update,
+        stateVector: stateVector,
+      });
+
+      if (result.success) {
+        lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
+        retryCountRef.current = 0;
+        setSyncError(null);
+        setIsSynced(true);
+
+        // Apply any conflict resolution update from server
+        if (result.conflictUpdate) {
+          applyServerUpdate(result.conflictUpdate, 'server-conflict');
+        }
+      } else {
+        throw new Error('Server rejected the update');
+      }
     } catch (error) {
       console.error('Failed to send update to server:', error);
-      
+
       // Implement retry logic
       if (retryCountRef.current < maxRetries) {
         retryCountRef.current++;
@@ -153,7 +216,7 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     } finally {
       setIsSyncing(false);
     }
-  }, [yDoc, enabled, isOnline, maxRetries, applyServerUpdate]);
+  }, [yDoc, enabled, isOnline, documentId, maxRetries, updateYjsStateMutation, applyServerUpdate]);
 
   /**
    * Debounced function to send updates to server
@@ -197,13 +260,26 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
    * Force a full resync from server
    */
   const resync = useCallback(async () => {
-    if (!enabled) return;
+    if (!enabled || !documentId) return;
 
     try {
       setIsSyncing(true);
-      
-      // Temporarily disabled - simulate successful resync
-      setIsSynced(true);
+
+      // For resync, we'll rely on the serverState from our subscription
+      // If serverState is available, apply it; otherwise initialize
+      if (serverState?.yjsState) {
+        // Apply the server state to our local Y.Doc
+        // Convert ArrayBuffer to Uint8Array
+        const serverStateBytes = new Uint8Array(serverState.yjsState);
+        applyServerUpdate(serverStateBytes, 'server-resync');
+        console.log('Successfully resynced with server state');
+        setIsSynced(true);
+      } else {
+        // No server state exists, initialize it with our current state
+        console.log('No server state found, initializing...');
+        await initializeServerState();
+      }
+
       setSyncError(null);
     } catch (error) {
       console.error('Failed to resync:', error);
@@ -211,7 +287,7 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     } finally {
       setIsSyncing(false);
     }
-  }, [enabled]);
+  }, [enabled, documentId, serverState, applyServerUpdate, initializeServerState]);
 
   // Initialize server state when component mounts
   useEffect(() => {
@@ -220,17 +296,38 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     }
   }, [enabled, initializeServerState]);
 
-  // Handle server state updates (temporarily disabled)
+  // Handle real-time server state updates
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !serverState) return;
+
+    // Apply server updates when they arrive
+    if (serverState.yjsState && isInitializedRef.current) {
+      const serverStateBytes = new Uint8Array(serverState.yjsState);
+
+      // Only apply if the server state is different from our last synced state
+      const currentState = Y.encodeStateAsUpdate(yDoc);
+      if (!lastSyncedStateRef.current ||
+          !Buffer.from(currentState).equals(Buffer.from(lastSyncedStateRef.current))) {
+
+        // Check if server state is newer
+        if (!serverState.yjsUpdatedAt ||
+            !lastSyncedStateRef.current ||
+            serverState.yjsUpdatedAt > (Date.now() - 5000)) { // 5 second tolerance
+
+          console.log('Applying server state update from subscription');
+          applyServerUpdate(serverStateBytes, 'server-subscription');
+        }
+      }
+    }
+
     setIsConnected(true);
-  }, [enabled]);
+  }, [enabled, serverState, yDoc, applyServerUpdate]);
 
   // Set up Y.Doc update listener
   useEffect(() => {
     if (!enabled) return;
 
-    const handleUpdate = (update: Uint8Array, origin: any) => {
+    const handleUpdate = (update: Uint8Array, origin: unknown) => {
       // Only sync updates that don't originate from server
       if (origin !== 'server') {
         debouncedSendUpdate(update);
@@ -261,5 +358,11 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     isConnected,
     sync,
     resync,
+    // Optional properties for compatibility with SyncHookReturn interface
+    connectionState: ConnectionState.CONNECTED,
+    reconnect: () => {
+      // Regular sync doesn't have reconnect functionality, but provide a no-op for compatibility
+      console.log('Reconnect not supported in regular sync mode');
+    },
   };
 };

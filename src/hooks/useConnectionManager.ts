@@ -256,6 +256,7 @@ export const useConnectionManager = (
     healthCheckInterval,
     getRetryDelay,
     startCountdown,
+    handleError,
   ]);
 
   /**

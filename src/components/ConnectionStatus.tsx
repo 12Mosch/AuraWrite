@@ -1,6 +1,21 @@
 import React from 'react';
 import { ConnectionState } from '../hooks/useConnectionManager';
 
+// CSS animation for indeterminate progress indicator
+const progressAnimationStyles = `
+  @keyframes indeterminateProgress {
+    0% {
+      transform: translateX(-100%);
+    }
+    50% {
+      transform: translateX(150%);
+    }
+    100% {
+      transform: translateX(-100%);
+    }
+  }
+`;
+
 /**
  * Props for the ConnectionStatus component
  */
@@ -51,52 +66,52 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
         return {
           color: 'text-green-600',
           bgColor: 'bg-green-100',
-          icon: '🟢',
+          icon: <span aria-label="Connected status indicator">🟢</span>,
           label: isSyncing ? 'Syncing...' : 'Connected',
           description: 'Real-time sync active',
         };
-      
+
       case ConnectionState.CONNECTING:
         return {
           color: 'text-blue-600',
           bgColor: 'bg-blue-100',
-          icon: '🔵',
+          icon: <span aria-label="Connecting status indicator">🔵</span>,
           label: 'Connecting...',
           description: 'Establishing connection',
         };
-      
+
       case ConnectionState.RECONNECTING:
         return {
           color: 'text-yellow-600',
           bgColor: 'bg-yellow-100',
-          icon: '🟡',
+          icon: <span aria-label="Reconnecting status indicator">🟡</span>,
           label: `Reconnecting... (${retryCount})`,
           description: nextRetryIn > 0 ? `Next attempt in ${nextRetryIn}s` : 'Attempting to reconnect',
         };
-      
+
       case ConnectionState.DISCONNECTED:
         return {
           color: 'text-gray-600',
           bgColor: 'bg-gray-100',
-          icon: '⚪',
+          icon: <span aria-label="Disconnected status indicator">⚪</span>,
           label: 'Disconnected',
           description: 'Not connected to server',
         };
-      
+
       case ConnectionState.FAILED:
         return {
           color: 'text-red-600',
           bgColor: 'bg-red-100',
-          icon: '🔴',
+          icon: <span aria-label="Connection failed status indicator">🔴</span>,
           label: 'Connection Failed',
           description: error || 'Unable to connect after multiple attempts',
         };
-      
+
       default:
         return {
           color: 'text-gray-600',
           bgColor: 'bg-gray-100',
-          icon: '❓',
+          icon: <span aria-label="Unknown connection status indicator">❓</span>,
           label: 'Unknown',
           description: 'Unknown connection state',
         };
@@ -133,7 +148,10 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 
   // Detailed view
   return (
-    <div className={`${config.bgColor} rounded-lg border ${sizeClasses[size]} ${className}`}>
+    <>
+      {/* Inject CSS animation styles */}
+      <style>{progressAnimationStyles}</style>
+      <div className={`${config.bgColor} rounded-lg border ${sizeClasses[size]} ${className}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <span className="text-lg">{config.icon}</span>
@@ -174,15 +192,23 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
         </div>
       </div>
 
-      {/* Progress indicator for connecting/reconnecting */}
+      {/* Indeterminate progress indicator for connecting/reconnecting */}
       {(connectionState === ConnectionState.CONNECTING || connectionState === ConnectionState.RECONNECTING) && (
         <div className="mt-2">
-          <div className="w-full bg-gray-200 rounded-full h-1">
-            <div className="bg-blue-600 h-1 rounded-full animate-pulse" style={{ width: '60%' }} />
+          <div className="w-full bg-gray-200 rounded-full h-1 overflow-hidden">
+            <div
+              className="bg-blue-600 h-1 rounded-full animate-pulse"
+              style={{
+                width: '40%',
+                animation: 'indeterminateProgress 2s ease-in-out infinite',
+                transformOrigin: 'left center'
+              }}
+            />
           </div>
         </div>
       )}
     </div>
+    </>
   );
 };
 
@@ -202,22 +228,22 @@ export const SimpleConnectionIndicator: React.FC<SimpleConnectionIndicatorProps>
 }) => {
   const getIndicator = () => {
     if (isSyncing) {
-      return { icon: '🔄', color: 'text-blue-500', label: 'Syncing' };
+      return { icon: <span aria-label="Syncing status indicator">🔄</span>, color: 'text-blue-500', label: 'Syncing' };
     }
 
     switch (connectionState) {
       case ConnectionState.CONNECTED:
-        return { icon: '🟢', color: 'text-green-500', label: 'Online' };
+        return { icon: <span aria-label="Connected status indicator">🟢</span>, color: 'text-green-500', label: 'Online' };
       case ConnectionState.CONNECTING:
-        return { icon: '🔵', color: 'text-blue-500', label: 'Connecting' };
+        return { icon: <span aria-label="Connecting status indicator">🔵</span>, color: 'text-blue-500', label: 'Connecting' };
       case ConnectionState.RECONNECTING:
-        return { icon: '🟡', color: 'text-yellow-500', label: 'Reconnecting' };
+        return { icon: <span aria-label="Reconnecting status indicator">🟡</span>, color: 'text-yellow-500', label: 'Reconnecting' };
       case ConnectionState.DISCONNECTED:
-        return { icon: '⚪', color: 'text-gray-500', label: 'Offline' };
+        return { icon: <span aria-label="Disconnected status indicator">⚪</span>, color: 'text-gray-500', label: 'Offline' };
       case ConnectionState.FAILED:
-        return { icon: '🔴', color: 'text-red-500', label: 'Failed' };
+        return { icon: <span aria-label="Connection failed status indicator">🔴</span>, color: 'text-red-500', label: 'Failed' };
       default:
-        return { icon: '❓', color: 'text-gray-500', label: 'Unknown' };
+        return { icon: <span aria-label="Unknown connection status indicator">❓</span>, color: 'text-gray-500', label: 'Unknown' };
     }
   };
 

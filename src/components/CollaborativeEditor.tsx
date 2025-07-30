@@ -115,9 +115,15 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 
     // Wait for IndexedDB to sync if persistence is enabled
     if (indexeddbProvider) {
-      indexeddbProvider.whenSynced.then(() => {
-        console.log('Y.Doc synced with IndexedDB')
-      })
+      indexeddbProvider.whenSynced
+        .then(() => {
+          console.log('Y.Doc synced with IndexedDB')
+        })
+        .catch((error) => {
+          console.error('Failed to sync Y.Doc with IndexedDB:', error)
+          // Continue operation even if IndexedDB sync fails
+          // The editor will still work with in-memory collaboration
+        })
     }
 
     // Cleanup function to disconnect the editor
@@ -141,7 +147,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 
   // Handle keyboard shortcuts
   const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (!event.ctrlKey) {
+    if (!event.ctrlKey && !event.metaKey) {
       return
     }
 

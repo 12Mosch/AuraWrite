@@ -10,9 +10,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Y from 'yjs';
+import { useConvex } from 'convex/react';
+import { api } from '../../convex/_generated/api';
+import { Id } from '../../convex/_generated/dataModel';
 import { useNetworkStatus } from './useNetworkStatus';
 import { useErrorHandler } from '../contexts/ErrorContext';
-import { useSyncErrorHandler } from './useSyncErrorHandler';
+import { useSyncErrorHandler, ConflictResolutionStrategy } from './useSyncErrorHandler';
 import { ErrorFactory } from '../types/errors';
 
 /**
@@ -91,13 +94,13 @@ export const useOfflineMode = (options: OfflineModeOptions): OfflineModeReturn =
     yDoc,
     enabled = true,
     maxOfflineOperations = 1000,
-    syncTimeout = 30000,
     autoResolveConflicts = true,
   } = options;
 
   const { isOnline } = useNetworkStatus();
   const handleError = useErrorHandler();
   const { handleSyncError, resolveConflicts } = useSyncErrorHandler();
+  const convex = useConvex();
 
   // State
   const [mode, setMode] = useState<OfflineMode>(
@@ -125,7 +128,7 @@ export const useOfflineMode = (options: OfflineModeOptions): OfflineModeReturn =
     data: any
   ) => {
     const operation: OfflineOperation = {
-      id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `${Date.now()}_${performance.now()}_${Math.random().toString(36).substring(2, 8)}`,
       type,
       timestamp: Date.now(),
       data,
@@ -149,6 +152,16 @@ export const useOfflineMode = (options: OfflineModeOptions): OfflineModeReturn =
       );
     } catch (error) {
       console.warn('Failed to save offline operations:', error);
+      const storageError = ErrorFactory.persistence(
+        'OFFLINE_STORAGE_FAILED',
+        'Failed to save offline changes',
+        'localstorage',
+        {
+          retryable: true,
+          context: { documentId, operationCount: offlineOperationsRef.current.length }
+        }
+      );
+      handleError(storageError);
     }
   }, [documentId, maxOfflineOperations]);
 
@@ -197,11 +210,8 @@ export const useOfflineMode = (options: OfflineModeOptions): OfflineModeReturn =
       // Get current document state
       const currentState = Y.encodeStateAsUpdate(yDoc);
       
-      // Check if there are conflicts with server state
-      // This would typically involve fetching the latest server state
-      // For now, we'll simulate this check
-      
-      const hasConflicts = await checkForConflicts(currentState);
+      // Check if there are conflicts with server state by comparing with actual server state
+      const hasConflicts = await checkForConflicts(convex, documentId, currentState);
       
       if (hasConflicts && !autoResolveConflicts) {
         setMode(OfflineMode.CONFLICT);
@@ -315,9 +325,9 @@ export const useOfflineMode = (options: OfflineModeOptions): OfflineModeReturn =
       const result = await resolveConflicts(
         yDoc,
         remoteDoc,
-        resolution === 'local' ? 'local_wins' as any :
-        resolution === 'remote' ? 'remote_wins' as any :
-        'merge' as any
+        resolution === 'local' ? ConflictResolutionStrategy.LOCAL_WINS :
+        resolution === 'remote' ? ConflictResolutionStrategy.REMOTE_WINS :
+        ConflictResolutionStrategy.MERGE
       );
 
       if (result.resolved && result.mergedDoc) {
@@ -355,7 +365,7 @@ export const useOfflineMode = (options: OfflineModeOptions): OfflineModeReturn =
   useEffect(() => {
     if (!enabled) return;
 
-    const handleUpdate = (update: Uint8Array, origin: any) => {
+    const handleUpdate = (update: Uint8Array, origin: unknown) => {
       // Only track local updates when offline
       if (origin !== 'server' && mode === OfflineMode.OFFLINE) {
         addOfflineOperation('update', {
@@ -404,12 +414,68 @@ export const useOfflineMode = (options: OfflineModeOptions): OfflineModeReturn =
 };
 
 /**
- * Check for conflicts with server state
+ * Check for conflicts with server state by comparing local and server document states
+ *
+ * @param convex - The Convex client instance
+ * @param documentId - The document ID to check conflicts for
+ * @param currentState - The current local document state as Uint8Array
+ * @returns Promise<boolean> - true if conflicts exist, false otherwise
  */
-async function checkForConflicts(currentState: Uint8Array): Promise<boolean> {
-  // This would typically involve comparing with server state
-  // For now, we'll simulate this
-  return Math.random() < 0.1; // 10% chance of conflicts
+async function checkForConflicts(convex: any, documentId: string, currentState: Uint8Array): Promise<boolean> {
+  try {
+    // Fetch the current server state using Convex API
+    if (!convex) {
+      console.warn('Convex client not available for conflict detection');
+      return false;
+    }
+
+    const serverData = await convex.query(api.yjsSync.getYjsState, { documentId: documentId as Id<"documents"> });
+
+    // If no server state exists, there are no conflicts
+    if (!serverData?.yjsState) {
+      return false;
+    }
+
+    // Convert server state from ArrayBuffer to Uint8Array
+    const serverState = new Uint8Array(serverData.yjsState);
+
+    // If states are identical, no conflicts
+    if (currentState.length === serverState.length &&
+        Buffer.from(currentState).equals(Buffer.from(serverState))) {
+      return false;
+    }
+
+    // Create temporary Y.Doc instances to compare states
+    const localDoc = new Y.Doc();
+    const serverDoc = new Y.Doc();
+
+    // Apply the states to the documents
+    Y.applyUpdate(localDoc, currentState);
+    Y.applyUpdate(serverDoc, serverState);
+
+    // Get state vectors for efficient conflict detection
+    const localStateVector = Y.encodeStateVector(localDoc);
+    const serverStateVector = Y.encodeStateVector(serverDoc);
+
+    // Check if both documents have changes the other doesn't know about
+    // This indicates a true conflict where both sides have diverged
+    const localDiff = Y.diffUpdate(Y.encodeStateAsUpdate(localDoc), serverStateVector);
+    const serverDiff = Y.diffUpdate(Y.encodeStateAsUpdate(serverDoc), localStateVector);
+
+    // A conflict exists if both sides have changes the other doesn't know about
+    const hasConflict = localDiff.length > 0 && serverDiff.length > 0;
+
+    if (hasConflict) {
+      console.log('Conflict detected: both local and server have divergent changes');
+    }
+
+    return hasConflict;
+
+  } catch (error) {
+    console.error('Error checking for conflicts:', error);
+    // In case of error, assume no conflicts to avoid blocking sync
+    return false;
+  }
 }
 
 /**

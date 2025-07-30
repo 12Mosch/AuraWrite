@@ -6,6 +6,18 @@ import { PresenceList, PresenceIndicator } from './PresenceIndicator';
 import { ConnectionStatus } from './ConnectionStatus';
 import { SyncPerformanceMonitor } from './SyncPerformanceMonitor';
 import { ConnectionState } from '../hooks/useConnectionManager';
+import { SyncStats } from '../hooks/useOptimizedSync';
+
+/**
+ * Tab types for the collaboration dashboard
+ */
+const TabType = {
+  PRESENCE: 'presence',
+  CONNECTION: 'connection',
+  PERFORMANCE: 'performance'
+} as const;
+
+type TabType = typeof TabType[keyof typeof TabType];
 
 /**
  * Props for the CollaborationDashboard component
@@ -16,7 +28,7 @@ interface CollaborationDashboardProps {
   isSyncing?: boolean;
   syncError?: string | null;
   onReconnect?: () => void;
-  getStats?: () => any;
+  getStats?: () => SyncStats;
   clearStats?: () => void;
   className?: string;
   defaultExpanded?: boolean;
@@ -44,7 +56,7 @@ export const CollaborationDashboard: React.FC<CollaborationDashboardProps> = ({
   defaultExpanded = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  const [activeTab, setActiveTab] = useState<'presence' | 'connection' | 'performance'>('presence');
+  const [activeTab, setActiveTab] = useState<TabType>(TabType.PRESENCE);
 
   // Hooks
   const { presence } = usePresence(documentId);
@@ -113,7 +125,7 @@ export const CollaborationDashboard: React.FC<CollaborationDashboardProps> = ({
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as TabType)}
                 className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
                   activeTab === tab.id
                     ? 'bg-white text-gray-900 shadow-sm'
@@ -247,7 +259,7 @@ interface FloatingCollaborationPanelProps {
   isSyncing?: boolean;
   syncError?: string | null;
   onReconnect?: () => void;
-  getStats?: () => any;
+  getStats?: () => SyncStats;
   clearStats?: () => void;
   position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
 }
@@ -286,7 +298,7 @@ export const FloatingCollaborationPanel: React.FC<FloatingCollaborationPanelProp
 
       {/* Panel */}
       {isVisible && (
-        <div className="absolute top-full mt-2 w-80 max-h-96 overflow-y-auto">
+        <div className="absolute top-full mt-2 w-80 max-w-[calc(100vw-2rem)] max-h-96 overflow-y-auto">
           <CollaborationDashboard
             documentId={documentId}
             connectionState={connectionState}

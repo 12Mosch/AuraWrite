@@ -14,6 +14,7 @@ import { Descendant } from 'slate'
 const CollaborativeEditorDemo: React.FC = () => {
   const [documentId, setDocumentId] = useState(() => createDocumentId('demo'))
   const [customDocumentId, setCustomDocumentId] = useState('')
+  const [validationError, setValidationError] = useState('')
   const [showMultipleEditors, setShowMultipleEditors] = useState(false)
   const [editorContent, setEditorContent] = useState<Descendant[]>([])
 
@@ -30,7 +31,7 @@ const CollaborativeEditorDemo: React.FC = () => {
       setDocumentId(customDocumentId)
       setEditorContent([])
     } else {
-      alert('Please enter a valid document ID (alphanumeric characters, hyphens, and underscores only)')
+      setValidationError('Please enter a valid document ID (alphanumeric characters, hyphens, and underscores only)')
     }
   }
 
@@ -75,10 +76,15 @@ const CollaborativeEditorDemo: React.FC = () => {
               <input
                 type="text"
                 value={customDocumentId}
-                onChange={(e) => setCustomDocumentId(e.target.value)}
+                onChange={(e) => {
+                  setCustomDocumentId(e.target.value)
+                  setValidationError('')
+                }}
+
                 placeholder="Enter custom document ID"
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {validationError && <div className="text-red-500">{validationError}</div>}
               <button
                 onClick={handleCustomDocument}
                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"

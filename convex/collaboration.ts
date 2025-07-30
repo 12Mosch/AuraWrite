@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
 /**
@@ -11,13 +11,13 @@ export const subscribeToPresence = query({
 	handler: async (ctx, { documentId }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
-			throw new Error("Not authenticated");
+			throw new ConvexError("Not authenticated");
 		}
 
 		// Verify user has access to the document
 		const document = await ctx.db.get(documentId);
 		if (!document) {
-			throw new Error("Document not found");
+			throw new ConvexError("Document not found");
 		}
 
 		const hasAccess =
@@ -26,7 +26,7 @@ export const subscribeToPresence = query({
 			document.collaborators?.includes(userId);
 
 		if (!hasAccess) {
-			throw new Error("Access denied");
+			throw new ConvexError("Access denied");
 		}
 
 		// Get active sessions (last 2 minutes)
@@ -82,13 +82,13 @@ export const getCollaborationSessions = query({
 	handler: async (ctx, { documentId, includeInactive = false }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
-			throw new Error("Not authenticated");
+			throw new ConvexError("Not authenticated");
 		}
 
 		// Verify user has access to the document
 		const document = await ctx.db.get(documentId);
 		if (!document) {
-			throw new Error("Document not found");
+			throw new ConvexError("Document not found");
 		}
 
 		const hasAccess =
@@ -97,7 +97,7 @@ export const getCollaborationSessions = query({
 			document.collaborators?.includes(userId);
 
 		if (!hasAccess) {
-			throw new Error("Access denied");
+			throw new ConvexError("Access denied");
 		}
 
 		// Determine time threshold based on includeInactive flag
@@ -148,13 +148,13 @@ export const getRealtimeCursors = query({
 	handler: async (ctx, { documentId }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
-			throw new Error("Not authenticated");
+			throw new ConvexError("Not authenticated");
 		}
 
 		// Verify user has access to the document
 		const document = await ctx.db.get(documentId);
 		if (!document) {
-			throw new Error("Document not found");
+			throw new ConvexError("Document not found");
 		}
 
 		const hasAccess =
@@ -163,7 +163,7 @@ export const getRealtimeCursors = query({
 			document.collaborators?.includes(userId);
 
 		if (!hasAccess) {
-			throw new Error("Access denied");
+			throw new ConvexError("Access denied");
 		}
 
 		// Get very recent sessions (last 30 seconds) for real-time cursors
@@ -203,13 +203,13 @@ export const getDocumentPresenceCount = query({
 	handler: async (ctx, { documentId }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
-			throw new Error("Not authenticated");
+			throw new ConvexError("Not authenticated");
 		}
 
 		// Verify user has access to the document
 		const document = await ctx.db.get(documentId);
 		if (!document) {
-			throw new Error("Document not found");
+			throw new ConvexError("Document not found");
 		}
 
 		const hasAccess =
@@ -218,7 +218,7 @@ export const getDocumentPresenceCount = query({
 			document.collaborators?.includes(userId);
 
 		if (!hasAccess) {
-			throw new Error("Access denied");
+			throw new ConvexError("Access denied");
 		}
 
 		// Count active users (last 2 minutes)
@@ -272,13 +272,13 @@ export const updateCollaborationSession = mutation({
 	handler: async (ctx, { documentId, cursor, selection }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
-			throw new Error("Not authenticated");
+			throw new ConvexError("Not authenticated");
 		}
 
 		// Verify user has access to the document
 		const document = await ctx.db.get(documentId);
 		if (!document) {
-			throw new Error("Document not found");
+			throw new ConvexError("Document not found");
 		}
 
 		const hasAccess =
@@ -287,7 +287,7 @@ export const updateCollaborationSession = mutation({
 			document.collaborators?.includes(userId);
 
 		if (!hasAccess) {
-			throw new Error("Access denied");
+			throw new ConvexError("Access denied");
 		}
 
 		// Find existing session or create new one
@@ -321,7 +321,7 @@ export const removeCollaborationSession = mutation({
 	handler: async (ctx, { documentId }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
-			throw new Error("Not authenticated");
+			throw new ConvexError("Not authenticated");
 		}
 
 		const existingSession = await ctx.db
@@ -367,13 +367,13 @@ export const getDocumentVersions = query({
 	handler: async (ctx, { documentId, limit = 10 }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
-			throw new Error("Not authenticated");
+			throw new ConvexError("Not authenticated");
 		}
 
 		// Verify user has access to the document
 		const document = await ctx.db.get(documentId);
 		if (!document) {
-			throw new Error("Document not found");
+			throw new ConvexError("Document not found");
 		}
 
 		const hasAccess =
@@ -382,7 +382,7 @@ export const getDocumentVersions = query({
 			document.collaborators?.includes(userId);
 
 		if (!hasAccess) {
-			throw new Error("Access denied");
+			throw new ConvexError("Access denied");
 		}
 
 		const versions = await ctx.db
@@ -421,20 +421,20 @@ export const saveDocumentVersion = mutation({
 	handler: async (ctx, { documentId, content }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
-			throw new Error("Not authenticated");
+			throw new ConvexError("Not authenticated");
 		}
 
 		// Verify user can edit the document
 		const document = await ctx.db.get(documentId);
 		if (!document) {
-			throw new Error("Document not found");
+			throw new ConvexError("Document not found");
 		}
 
 		const canEdit =
 			document.ownerId === userId || document.collaborators?.includes(userId);
 
 		if (!canEdit) {
-			throw new Error("Access denied");
+			throw new ConvexError("Access denied");
 		}
 
 		// Get the next version number
@@ -493,13 +493,13 @@ export const updatePresence = mutation({
 	handler: async (ctx, { documentId, cursor, selection }) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
-			throw new Error("Not authenticated");
+			throw new ConvexError("Not authenticated");
 		}
 
 		// Verify user has access to the document
 		const document = await ctx.db.get(documentId);
 		if (!document) {
-			throw new Error("Document not found");
+			throw new ConvexError("Document not found");
 		}
 
 		const hasAccess =
@@ -508,7 +508,7 @@ export const updatePresence = mutation({
 			document.collaborators?.includes(userId);
 
 		if (!hasAccess) {
-			throw new Error("Access denied");
+			throw new ConvexError("Access denied");
 		}
 
 		const now = Date.now();

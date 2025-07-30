@@ -240,9 +240,13 @@ export const SyncPerformanceMonitor: React.FC<SyncPerformanceMonitorProps> = ({
             </button>
             
             <button
-              onClick={() => {
-                const data = JSON.stringify(stats, null, 2);
-                navigator.clipboard.writeText(data);
+              onClick={async () => {
+                try {
+                  const data = JSON.stringify(stats, null, 2);
+                  await navigator.clipboard.writeText(data);
+                } catch (error) {
+                  console.error('Failed to copy stats:', error);
+                }
               }}
               className="px-3 py-1 bg-blue-700 hover:bg-blue-600 rounded text-xs"
             >
@@ -291,14 +295,19 @@ export const CompactPerformanceIndicator: React.FC<CompactPerformanceIndicatorPr
   };
 
   const getStatusIcon = () => {
-    if (stats.failedUpdates === 0) return '🟢';
-    if (stats.failedUpdates < 3) return '🟡';
-    return '🔴';
+    const status = stats.failedUpdates === 0 ? 'success' : 
+                  stats.failedUpdates < 3 ? 'warning' : 'error';
+    const icons = {
+      success: { emoji: '🟢', label: 'Sync successful' },
+      warning: { emoji: '🟡', label: 'Sync warnings' },
+      error: { emoji: '🔴', label: 'Sync errors' }
+    };
+    return icons[status];
   };
 
   return (
     <div className={`flex items-center space-x-2 text-xs ${className}`}>
-      <span>{getStatusIcon()}</span>
+      <span role="img" aria-label={getStatusIcon().label}>{getStatusIcon().emoji}</span>
       <span className={getLatencyColor(stats.averageLatency)}>
         {stats.averageLatency.toFixed(0)}ms
       </span>
