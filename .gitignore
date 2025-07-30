@@ -11,7 +11,11 @@ node_modules
 dist
 dist-ssr
 dist-react
+dist-electron
 *.local
+
+# Convex generated files
+convex/_generated
 
 # Editor directories and files
 .vscode/*

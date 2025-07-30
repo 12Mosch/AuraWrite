@@ -14,12 +14,15 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
+		"@auth/core": "^0.37.0",
+		"@convex-dev/auth": "^0.0.87",
 		"@radix-ui/react-slot": "^1.2.3",
 		"@slate-yjs/core": "^1.0.2",
 		"@slate-yjs/react": "^1.1.0",
 		"@tailwindcss/vite": "^4.1.11",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
+		"convex": "^1.25.4",
 		"lucide-react": "^0.534.0",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
