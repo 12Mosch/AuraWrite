@@ -66,7 +66,8 @@ const schema = defineSchema({
 		lastSeen: v.number(),
 	})
 		.index("by_document", ["documentId"])
-		.index("by_user_document", ["userId", "documentId"]),
+		.index("by_user_document", ["userId", "documentId"])
+		.index("by_document_last_seen", ["documentId", "lastSeen"]), // Optimized for time-based queries
 });
 
 export default schema;

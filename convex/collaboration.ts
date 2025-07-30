@@ -2,8 +2,81 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
-// Query to get active collaboration sessions for a document
+/**
+ * Query to get active collaboration sessions for a document
+ * Optimized for real-time collaboration features
+ * Returns sessions from users active in the last 2 minutes
+ */
 export const getCollaborationSessions = query({
+	args: {
+		documentId: v.id("documents"),
+		includeInactive: v.optional(v.boolean()), // Include sessions from last 5 minutes
+	},
+	handler: async (ctx, { documentId, includeInactive = false }) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) {
+			throw new Error("Not authenticated");
+		}
+
+		// Verify user has access to the document
+		const document = await ctx.db.get(documentId);
+		if (!document) {
+			throw new Error("Document not found");
+		}
+
+		const hasAccess =
+			document.ownerId === userId ||
+			document.isPublic ||
+			document.collaborators?.includes(userId);
+
+		if (!hasAccess) {
+			throw new Error("Access denied");
+		}
+
+		// Determine time threshold based on includeInactive flag
+		const timeThreshold = includeInactive
+			? Date.now() - 300000  // 5 minutes for inactive sessions
+			: Date.now() - 120000; // 2 minutes for active sessions only
+
+		// Get collaboration sessions filtered by time threshold
+		const sessions = await ctx.db
+			.query("collaborationSessions")
+			.withIndex("by_document", (q) => q.eq("documentId", documentId))
+			.filter((q) => q.gt(q.field("lastSeen"), timeThreshold))
+			.collect();
+
+		// Get user information for each session
+		const sessionsWithUsers = await Promise.all(
+			sessions.map(async (session) => {
+				const user = await ctx.db.get(session.userId);
+				const isActive = session.lastSeen > Date.now() - 120000; // Active in last 2 minutes
+
+				return {
+					...session,
+					isActive,
+					user: user
+						? {
+								_id: user._id,
+								name: user.name || user.email || "Anonymous",
+								email: user.email,
+							}
+						: null,
+				};
+			}),
+		);
+
+		// Sort by last seen (most recent first) and filter out sessions without users
+		return sessionsWithUsers
+			.filter((session) => session.user !== null)
+			.sort((a, b) => b.lastSeen - a.lastSeen);
+	},
+});
+
+/**
+ * Lightweight query for real-time cursor positions only
+ * Optimized for frequent updates during collaborative editing
+ */
+export const getRealtimeCursors = query({
 	args: { documentId: v.id("documents") },
 	handler: async (ctx, { documentId }) => {
 		const userId = await getAuthUserId(ctx);
@@ -26,7 +99,7 @@ export const getCollaborationSessions = query({
 			throw new Error("Access denied");
 		}
 
-		// Get active sessions (within last 30 seconds)
+		// Get very recent sessions (last 30 seconds) for real-time cursors
 		const thirtySecondsAgo = Date.now() - 30000;
 		const sessions = await ctx.db
 			.query("collaborationSessions")
@@ -34,24 +107,69 @@ export const getCollaborationSessions = query({
 			.filter((q) => q.gt(q.field("lastSeen"), thirtySecondsAgo))
 			.collect();
 
-		// Get user information for each session
-		const sessionsWithUsers = await Promise.all(
-			sessions.map(async (session) => {
-				const user = await ctx.db.get(session.userId);
-				return {
-					...session,
-					user: user
-						? {
-								_id: user._id,
-								name: user.name || user.email || "Anonymous",
-								email: user.email,
-							}
-						: null,
-				};
-			}),
+		// Return minimal data for efficient real-time updates, exclude current user
+		const cursors = await Promise.all(
+			sessions
+				.filter((session) => session.userId !== userId)
+				.map(async (session) => {
+					const user = await ctx.db.get(session.userId);
+					return {
+						userId: session.userId,
+						userName: user?.name || user?.email || "Anonymous",
+						cursor: session.cursor,
+						selection: session.selection,
+						lastSeen: session.lastSeen,
+					};
+				}),
 		);
 
-		return sessionsWithUsers.filter((session) => session.user !== null);
+		return cursors;
+	},
+});
+
+/**
+ * Get user presence count for a document (lightweight)
+ * Useful for showing "X users viewing" indicators
+ */
+export const getDocumentPresenceCount = query({
+	args: { documentId: v.id("documents") },
+	handler: async (ctx, { documentId }) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) {
+			throw new Error("Not authenticated");
+		}
+
+		// Verify user has access to the document
+		const document = await ctx.db.get(documentId);
+		if (!document) {
+			throw new Error("Document not found");
+		}
+
+		const hasAccess =
+			document.ownerId === userId ||
+			document.isPublic ||
+			document.collaborators?.includes(userId);
+
+		if (!hasAccess) {
+			throw new Error("Access denied");
+		}
+
+		// Count active users (last 2 minutes)
+		const twoMinutesAgo = Date.now() - 120000;
+		const activeSessions = await ctx.db
+			.query("collaborationSessions")
+			.withIndex("by_document", (q) => q.eq("documentId", documentId))
+			.filter((q) => q.gt(q.field("lastSeen"), twoMinutesAgo))
+			.collect();
+
+		// Count unique users
+		const uniqueUsers = new Set(activeSessions.map((session) => session.userId));
+
+		return {
+			documentId,
+			activeUserCount: uniqueUsers.size,
+			timestamp: Date.now(),
+		};
 	},
 });
 
