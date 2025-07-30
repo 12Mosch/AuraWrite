@@ -5,6 +5,12 @@ import { createEditor } from 'slate';
 import { withYjs, YjsEditor } from '@slate-yjs/core';
 import { useYjsDocument } from '../hooks/useYjsDocument';
 import { useConvexYjsSync } from '../hooks/useConvexYjsSync';
+import { useOptimizedSync as useOptimizedSyncHook } from '../hooks/useOptimizedSync';
+import { usePresence } from '../hooks/usePresence';
+import { DocumentHeader } from './DocumentHeader';
+import { PresenceIndicator } from './PresenceIndicator';
+import { SyncPerformanceMonitor, CompactPerformanceIndicator } from './SyncPerformanceMonitor';
+import { ConnectionStatus, SimpleConnectionIndicator } from './ConnectionStatus';
 import { Id } from '../../convex/_generated/dataModel';
 
 /**
@@ -21,6 +27,14 @@ interface ConvexCollaborativeEditorProps {
   onChange?: (value: Descendant[]) => void;
   /** Whether to enable real-time synchronization */
   enableSync?: boolean;
+  /** Whether to show the document header with real-time metadata */
+  showHeader?: boolean;
+  /** CSS class name for the header */
+  headerClassName?: string;
+  /** Whether to use optimized sync (default: true) */
+  useOptimizedSync?: boolean;
+  /** Whether to show performance monitoring (default: false) */
+  showPerformanceMonitor?: boolean;
 }
 
 /**
@@ -38,6 +52,10 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
   placeholder = 'Start typing...',
   onChange,
   enableSync = true,
+  showHeader = true,
+  headerClassName = '',
+  useOptimizedSync = true,
+  showPerformanceMonitor = false,
 }) => {
   // Initial editor value
   const initialValue: Descendant[] = [
@@ -59,21 +77,47 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
     enableGarbageCollection: true
   });
 
-  // Initialize Convex-Yjs synchronization
+  // Initialize synchronization (optimized or regular)
+  const regularSync = useConvexYjsSync({
+    documentId,
+    yDoc,
+    sharedType,
+    enabled: enableSync && !useOptimizedSync,
+    debounceMs: 500,
+    maxRetries: 3,
+  });
+
+  const optimizedSyncHook = useOptimizedSyncHook({
+    documentId,
+    yDoc,
+    sharedType,
+    enabled: enableSync && useOptimizedSync,
+    debounceMs: 300,
+    maxBatchSize: 10,
+    maxWaitTime: 2000,
+    maxRetries: 3,
+    useCompression: true,
+  });
+
+  // Use the appropriate sync based on configuration
   const {
     isSyncing,
     isSynced: isServerSynced,
     syncError,
     isConnected,
-    sync,
     resync,
-  } = useConvexYjsSync({
-    documentId,
-    yDoc,
-    sharedType,
+  } = useOptimizedSync ? optimizedSyncHook : regularSync;
+
+  // Get additional properties from optimized sync if available
+  const connectionState = useOptimizedSync ? optimizedSyncHook.connectionState : 'connected' as any;
+  const reconnect = useOptimizedSync ? optimizedSyncHook.reconnect : () => {};
+
+  // Initialize real-time presence tracking
+  const { updatePresence } = usePresence(documentId, {
     enabled: enableSync,
-    debounceMs: 500,
-    maxRetries: 3,
+    updateInterval: 5000,
+    trackCursor: true,
+    trackSelection: true,
   });
 
   // Create Slate editor with Yjs integration
@@ -83,8 +127,6 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
     // Ensure editor has a consistent structure
     const { normalizeNode } = e;
     e.normalizeNode = (entry) => {
-      const [node] = entry;
-      
       // Ensure the editor always has at least one paragraph
       if (e.children.length === 0) {
         e.insertNode({ type: 'paragraph', children: [{ text: '' }] });
@@ -122,6 +164,11 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
   const handleChange = (newValue: Descendant[]) => {
     setValue(newValue);
     onChange?.(newValue);
+
+    // Update presence with current selection
+    if (enableSync && editor.selection) {
+      updatePresence(undefined, editor.selection);
+    }
   };
 
   // Calculate overall sync status
@@ -200,6 +247,15 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
                 Retry Sync
               </button>
             )}
+            {!isConnected && reconnect && (
+              <button
+                onClick={() => reconnect()}
+                className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"
+                disabled={isSyncing}
+              >
+                Reconnect
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -208,9 +264,44 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
 
   return (
     <div className={`convex-collaborative-editor ${className}`}>
+      {/* Document Header with Real-time Metadata */}
+      {showHeader && (
+        <div className="border-b bg-white">
+          <DocumentHeader
+            documentId={documentId}
+            className={`p-4 ${headerClassName}`}
+            showCollaborators={true}
+            showLastUpdated={true}
+            editable={true}
+          />
+        </div>
+      )}
+
       {/* Status bar */}
       <div className="flex items-center justify-between p-2 bg-gray-50 border-b">
-        <SyncStatusIndicator />
+        <div className="flex items-center space-x-4">
+          <SyncStatusIndicator />
+          {/* Real-time Presence Indicator */}
+          <PresenceIndicator
+            documentId={documentId}
+            size="sm"
+            maxVisible={3}
+            showNames={false}
+          />
+
+          {/* Performance Monitor (compact) */}
+          {useOptimizedSync && (
+            <CompactPerformanceIndicator
+              getStats={optimizedSyncHook.getStats}
+            />
+          )}
+
+          {/* Connection Status */}
+          <SimpleConnectionIndicator
+            connectionState={connectionState}
+            isSyncing={isSyncing}
+          />
+        </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">
           {!persistenceAvailable && (
             <span className="text-yellow-600">⚠ Local storage unavailable</span>
@@ -226,7 +317,7 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
       <div className="relative">
         <Slate
           editor={editor}
-          initialValue={value}
+          value={value}
           onChange={handleChange}
         >
           <Editable
@@ -245,13 +336,35 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
         )}
       </div>
 
-      {/* Debug info (only in development) */}
+      {/* Performance Monitor (detailed) */}
+      {showPerformanceMonitor && useOptimizedSync && (
+        <SyncPerformanceMonitor
+          getStats={optimizedSyncHook.getStats}
+          clearStats={optimizedSyncHook.clearStats}
+          visible={true}
+          updateInterval={1000}
+        />
+      )}
+
+      {/* Enhanced Connection Status (development) */}
       {process.env.NODE_ENV === 'development' && (
-        <div className="p-2 bg-gray-100 border-t text-xs text-gray-600">
-          <div>Local synced: {isLocalSynced ? '✓' : '✗'}</div>
-          <div>Server synced: {isServerSynced ? '✓' : '✗'}</div>
-          <div>Connected: {isConnected ? '✓' : '✗'}</div>
-          <div>Y.Doc client ID: {yDoc.clientID}</div>
+        <div className="border-t">
+          <ConnectionStatus
+            connectionState={connectionState}
+            isSyncing={isSyncing}
+            error={syncError}
+            onReconnect={reconnect}
+            showDetails={true}
+            size="sm"
+            className="m-2"
+          />
+
+          <div className="p-2 bg-gray-100 text-xs text-gray-600 space-y-1">
+            <div>Local synced: {isLocalSynced ? '✓' : '✗'}</div>
+            <div>Server synced: {isServerSynced ? '✓' : '✗'}</div>
+            <div>Y.Doc client ID: {yDoc.clientID}</div>
+            <div>Sync mode: {useOptimizedSync ? 'Optimized' : 'Regular'}</div>
+          </div>
         </div>
       )}
     </div>

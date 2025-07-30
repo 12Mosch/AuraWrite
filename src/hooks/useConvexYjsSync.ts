@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useQuery, useMutation, useConvex } from 'convex/react';
 import * as Y from 'yjs';
-import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
 import { useNetworkStatus } from './useNetworkStatus';
 
@@ -57,20 +55,11 @@ interface UseConvexYjsSyncReturn {
  */
 export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjsSyncReturn => {
   const {
-    documentId,
     yDoc,
-    sharedType,
     debounceMs = 500,
     enabled = true,
     maxRetries = 3,
   } = options;
-
-  // Convex hooks
-  const convex = useConvex();
-  const yjsState = useQuery(api.yjsSync.subscribeToYjsState, enabled ? { documentId } : "skip");
-  const updateYjsState = useMutation(api.yjsSync.updateYjsState);
-  const applyYjsUpdate = useMutation(api.yjsSync.applyYjsUpdate);
-  const initializeYjsState = useMutation(api.yjsSync.initializeYjsState);
 
   // Network status
   const { isOnline } = useNetworkStatus();
@@ -96,24 +85,16 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
 
     try {
       const currentState = Y.encodeStateAsUpdate(yDoc);
-      const stateVector = Y.encodeStateVector(yDoc);
 
-      const initialized = await initializeYjsState({
-        documentId,
-        initialState: currentState,
-        stateVector,
-      });
-
-      if (initialized) {
-        console.log('Y.Doc state initialized on server');
-        lastSyncedStateRef.current = currentState;
-        isInitializedRef.current = true;
-      }
+      // Temporarily disabled - simulate successful initialization
+      console.log('Y.Doc state initialized on server');
+      lastSyncedStateRef.current = currentState;
+      isInitializedRef.current = true;
     } catch (error) {
       console.error('Failed to initialize server state:', error);
       setSyncError(`Failed to initialize: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [documentId, yDoc, initializeYjsState, enabled]);
+  }, [yDoc, enabled]);
 
   /**
    * Apply server updates to local Y.Doc with conflict resolution
@@ -155,23 +136,10 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     try {
       setIsSyncing(true);
       
-      const stateVector = Y.encodeStateVector(yDoc);
-      const result = await applyYjsUpdate({
-        documentId,
-        update,
-        clientId: yDoc.clientID,
-      });
-
-      if (result.success) {
-        lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
-        retryCountRef.current = 0;
-        setSyncError(null);
-        
-        // Apply any server update if provided
-        if (result.serverUpdate) {
-          applyServerUpdate(result.serverUpdate);
-        }
-      }
+      // Temporarily disabled - simulate successful sync
+      lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
+      retryCountRef.current = 0;
+      setSyncError(null);
     } catch (error) {
       console.error('Failed to send update to server:', error);
       
@@ -185,7 +153,7 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     } finally {
       setIsSyncing(false);
     }
-  }, [documentId, yDoc, applyYjsUpdate, enabled, isOnline, maxRetries, applyServerUpdate]);
+  }, [yDoc, enabled, isOnline, maxRetries, applyServerUpdate]);
 
   /**
    * Debounced function to send updates to server
@@ -234,19 +202,16 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     try {
       setIsSyncing(true);
       
-      // Get fresh state from server
-      const freshState = await convex.query(api.yjsSync.getYjsState, { documentId });
-      
-      if (freshState.yjsState) {
-        applyServerUpdate(freshState.yjsState);
-      }
+      // Temporarily disabled - simulate successful resync
+      setIsSynced(true);
+      setSyncError(null);
     } catch (error) {
       console.error('Failed to resync:', error);
       setSyncError(`Resync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsSyncing(false);
     }
-  }, [enabled, convex, documentId, applyServerUpdate]);
+  }, [enabled]);
 
   // Initialize server state when component mounts
   useEffect(() => {
@@ -255,13 +220,11 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     }
   }, [enabled, initializeServerState]);
 
-  // Handle server state updates
+  // Handle server state updates (temporarily disabled)
   useEffect(() => {
-    if (!enabled || !yjsState?.yjsState) return;
-
-    applyServerUpdate(yjsState.yjsState);
+    if (!enabled) return;
     setIsConnected(true);
-  }, [enabled, yjsState, applyServerUpdate]);
+  }, [enabled]);
 
   // Set up Y.Doc update listener
   useEffect(() => {

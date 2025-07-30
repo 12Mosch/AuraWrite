@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ConvexCollaborativeEditor } from '../components/ConvexCollaborativeEditor';
+import { CollaborationDashboard, FloatingCollaborationPanel } from '../components/CollaborationDashboard';
+import { ConnectionState } from '../hooks/useConnectionManager';
 import { Id } from '../../convex/_generated/dataModel';
 
 /**
@@ -19,14 +21,66 @@ export const ConvexYjsSyncExample: React.FC = () => {
     { id: 'doc3' as Id<"documents">, title: 'Brainstorming Session' },
   ];
 
-  const [selectedDocId, setSelectedDocId] = React.useState<Id<"documents">>(
+  const [selectedDocId, setSelectedDocId] = useState<Id<"documents">>(
     exampleDocuments[0].id as Id<"documents">
   );
 
+  // Demo configuration state
+  const [showDashboard, setShowDashboard] = useState(true);
+  const [useOptimizedSync, setUseOptimizedSync] = useState(true);
+  const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
+  const [showFloatingPanel, setShowFloatingPanel] = useState(false);
+
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Convex-Yjs Sync Example</h1>
-      
+    <div className="max-w-6xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-6">Enhanced Real-time Collaboration Demo</h1>
+
+      {/* Configuration Panel */}
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+        <h2 className="text-lg font-semibold mb-3">Demo Configuration</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={showDashboard}
+              onChange={(e) => setShowDashboard(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm">Show Dashboard</span>
+          </label>
+
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={useOptimizedSync}
+              onChange={(e) => setUseOptimizedSync(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm">Optimized Sync</span>
+          </label>
+
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={showPerformanceMonitor}
+              onChange={(e) => setShowPerformanceMonitor(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm">Performance Monitor</span>
+          </label>
+
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={showFloatingPanel}
+              onChange={(e) => setShowFloatingPanel(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm">Floating Panel</span>
+          </label>
+        </div>
+      </div>
+
       <div className="mb-6">
         <h2 className="text-lg font-semibold mb-3">Select Document</h2>
         <div className="flex gap-2">
@@ -46,22 +100,56 @@ export const ConvexYjsSyncExample: React.FC = () => {
         </div>
       </div>
 
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-3">Collaborative Editor</h2>
-        <div className="border rounded-lg overflow-hidden shadow-sm">
-          <ConvexCollaborativeEditor
-            documentId={selectedDocId}
-            placeholder="Start typing to see real-time collaboration in action..."
-            className="min-h-[400px]"
-            enableSync={true}
-            onChange={(value) => {
-              console.log('Editor content changed:', value);
-            }}
-          />
+      {/* Main Content Area */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Editor Column */}
+        <div className="lg:col-span-2">
+          <h2 className="text-lg font-semibold mb-3">Collaborative Editor</h2>
+          <div className="border rounded-lg overflow-hidden shadow-sm">
+            <ConvexCollaborativeEditor
+              documentId={selectedDocId}
+              placeholder="Start typing to see real-time collaboration in action..."
+              className="min-h-[500px]"
+              enableSync={true}
+              showHeader={true}
+              useOptimizedSync={useOptimizedSync}
+              showPerformanceMonitor={showPerformanceMonitor}
+              onChange={(value) => {
+                console.log('Editor content changed:', value);
+              }}
+            />
+          </div>
         </div>
+
+        {/* Dashboard Column */}
+        {showDashboard && (
+          <div className="lg:col-span-1">
+            <h2 className="text-lg font-semibold mb-3">Collaboration Dashboard</h2>
+            <CollaborationDashboard
+              documentId={selectedDocId}
+              connectionState={ConnectionState.CONNECTED} // This would come from your sync hook
+              isSyncing={false}
+              syncError={null}
+              onReconnect={() => console.log('Reconnect requested')}
+              defaultExpanded={true}
+            />
+          </div>
+        )}
       </div>
 
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      {/* Floating Panel */}
+      {showFloatingPanel && (
+        <FloatingCollaborationPanel
+          documentId={selectedDocId}
+          connectionState={ConnectionState.CONNECTED}
+          isSyncing={false}
+          syncError={null}
+          onReconnect={() => console.log('Reconnect requested')}
+          position="bottom-right"
+        />
+      )}
+
+      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h3 className="font-semibold text-blue-900 mb-2">How to Test Collaboration</h3>
         <ol className="list-decimal list-inside text-blue-800 space-y-1">
           <li>Open this page in multiple browser tabs or windows</li>
@@ -77,6 +165,10 @@ export const ConvexYjsSyncExample: React.FC = () => {
         <ul className="list-disc list-inside text-gray-700 space-y-1">
           <li><strong>Real-time Sync:</strong> Changes appear instantly across all connected clients</li>
           <li><strong>Conflict Resolution:</strong> Y.js CRDT automatically merges concurrent edits</li>
+          <li><strong>User Presence:</strong> See who's actively editing the document</li>
+          <li><strong>Connection Management:</strong> Automatic reconnection with exponential backoff</li>
+          <li><strong>Performance Monitoring:</strong> Real-time sync statistics and metrics</li>
+          <li><strong>Enhanced Error Recovery:</strong> Robust error handling and retry logic</li>
           <li><strong>Offline Support:</strong> Continue editing offline, sync when reconnected</li>
           <li><strong>Error Handling:</strong> Graceful handling of network issues and sync errors</li>
           <li><strong>Status Indicators:</strong> Visual feedback for sync status and connection state</li>

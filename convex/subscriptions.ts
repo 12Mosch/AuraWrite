@@ -67,8 +67,8 @@ export const subscribeToDocument = query({
 });
 
 /**
- * Subscribe to document metadata changes (title, collaborators, permissions)
- * Separate from content to avoid unnecessary updates when only content changes
+ * Subscribe to real-time document metadata changes
+ * Includes title, collaborators, permissions, and other metadata
  */
 export const subscribeToDocumentMetadata = query({
 	args: { documentId: v.id("documents") },
@@ -76,17 +76,42 @@ export const subscribeToDocumentMetadata = query({
 		const userId = await getCurrentUser(ctx);
 		const document = await checkDocumentAccess(ctx, documentId, userId);
 
+		// Get collaborator details
+		const collaboratorDetails = await Promise.all(
+			(document.collaborators || []).map(async (collaboratorId) => {
+				const user = await ctx.db.get(collaboratorId);
+				return user ? {
+					_id: user._id,
+					name: user.name,
+					email: user.email,
+					image: user.image,
+				} : null;
+			})
+		);
+
+		// Get owner details
+		const owner = await ctx.db.get(document.ownerId);
+
 		return {
 			_id: document._id,
 			title: document.title,
-			ownerId: document.ownerId,
-			isPublic: document.isPublic,
-			collaborators: document.collaborators || [],
+			isPublic: document.isPublic || false,
+			collaborators: collaboratorDetails.filter(Boolean),
+			owner: owner ? {
+				_id: owner._id,
+				name: owner.name,
+				email: owner.email,
+				image: owner.image,
+			} : null,
 			createdAt: document.createdAt,
 			updatedAt: document.updatedAt,
+			yjsUpdatedAt: document.yjsUpdatedAt,
+			_creationTime: document._creationTime,
 		};
 	},
 });
+
+
 
 /**
  * Subscribe to document version history updates

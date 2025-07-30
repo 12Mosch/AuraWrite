@@ -3,6 +3,73 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
 /**
+ * Real-time subscription for user presence in a document
+ * Optimized for live collaboration features
+ */
+export const subscribeToPresence = query({
+	args: { documentId: v.id("documents") },
+	handler: async (ctx, { documentId }) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) {
+			throw new Error("Not authenticated");
+		}
+
+		// Verify user has access to the document
+		const document = await ctx.db.get(documentId);
+		if (!document) {
+			throw new Error("Document not found");
+		}
+
+		const hasAccess =
+			document.ownerId === userId ||
+			document.isPublic ||
+			document.collaborators?.includes(userId);
+
+		if (!hasAccess) {
+			throw new Error("Access denied");
+		}
+
+		// Get active sessions (last 2 minutes)
+		const activeThreshold = Date.now() - (2 * 60 * 1000);
+		const sessions = await ctx.db
+			.query("collaborationSessions")
+			.withIndex("by_document", (q) => q.eq("documentId", documentId))
+			.filter((q) => q.gt(q.field("lastSeen"), activeThreshold))
+			.collect();
+
+		// Get user details for each active session
+		const activeUsers = await Promise.all(
+			sessions.map(async (session) => {
+				const user = await ctx.db.get(session.userId);
+				if (!user) return null;
+
+				return {
+					sessionId: session._id,
+					userId: session.userId,
+					user: {
+						_id: user._id,
+						name: user.name || 'Anonymous',
+						email: user.email,
+						image: user.image,
+					},
+					cursor: session.cursor,
+					selection: session.selection,
+					lastSeen: session.lastSeen,
+					isCurrentUser: session.userId === userId,
+				};
+			})
+		);
+
+		return {
+			documentId,
+			activeUsers: activeUsers.filter(Boolean),
+			totalActiveUsers: activeUsers.filter(Boolean).length,
+			lastUpdated: Date.now(),
+		};
+	},
+});
+
+/**
  * Query to get active collaboration sessions for a document
  * Optimized for real-time collaboration features
  * Returns sessions from users active in the last 2 minutes
@@ -388,5 +455,90 @@ export const saveDocumentVersion = mutation({
 		});
 
 		return versionId;
+	},
+});
+
+/**
+ * Update user presence information for real-time collaboration
+ * This should be called frequently to maintain active status
+ */
+export const updatePresence = mutation({
+	args: {
+		documentId: v.id("documents"),
+		cursor: v.optional(
+			v.object({
+				anchor: v.object({
+					path: v.array(v.number()),
+					offset: v.number(),
+				}),
+				focus: v.object({
+					path: v.array(v.number()),
+					offset: v.number(),
+				}),
+			})
+		),
+		selection: v.optional(
+			v.object({
+				anchor: v.object({
+					path: v.array(v.number()),
+					offset: v.number(),
+				}),
+				focus: v.object({
+					path: v.array(v.number()),
+					offset: v.number(),
+				}),
+			})
+		),
+	},
+	handler: async (ctx, { documentId, cursor, selection }) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) {
+			throw new Error("Not authenticated");
+		}
+
+		// Verify user has access to the document
+		const document = await ctx.db.get(documentId);
+		if (!document) {
+			throw new Error("Document not found");
+		}
+
+		const hasAccess =
+			document.ownerId === userId ||
+			document.isPublic ||
+			document.collaborators?.includes(userId);
+
+		if (!hasAccess) {
+			throw new Error("Access denied");
+		}
+
+		const now = Date.now();
+
+		// Check if session already exists
+		const existingSession = await ctx.db
+			.query("collaborationSessions")
+			.withIndex("by_user_document", (q) =>
+				q.eq("userId", userId).eq("documentId", documentId)
+			)
+			.first();
+
+		if (existingSession) {
+			// Update existing session
+			await ctx.db.patch(existingSession._id, {
+				cursor,
+				selection,
+				lastSeen: now,
+			});
+			return existingSession._id;
+		} else {
+			// Create new session
+			const sessionId = await ctx.db.insert("collaborationSessions", {
+				documentId,
+				userId,
+				cursor,
+				selection,
+				lastSeen: now,
+			});
+			return sessionId;
+		}
 	},
 });

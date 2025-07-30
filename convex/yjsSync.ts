@@ -76,7 +76,7 @@ export const updateYjsState = mutation({
 	}),
 	handler: async (ctx, { documentId, update, stateVector }) => {
 		const userId = await getCurrentUser(ctx);
-		const document = await checkDocumentAccess(ctx, documentId, userId);
+		await checkDocumentAccess(ctx, documentId, userId);
 
 		const now = Date.now();
 
@@ -162,7 +162,7 @@ export const applyYjsUpdate = mutation({
 		success: v.boolean(),
 		serverUpdate: v.optional(v.bytes()), // Update from server to apply locally
 	}),
-	handler: async (ctx, { documentId, update, clientId }) => {
+	handler: async (ctx, { documentId, update }) => {
 		const userId = await getCurrentUser(ctx);
 		await checkDocumentAccess(ctx, documentId, userId);
 
