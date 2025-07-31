@@ -61,13 +61,13 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
 
-    // Optional: Additional connectivity check using fetch
+    // Additional connectivity check using fetch
     // This can help detect cases where navigator.onLine is true but there's no actual connectivity
     const checkConnectivity = async () => {
       try {
-        // Try to fetch a small resource to verify actual connectivity
-        // Using a small image or endpoint that's likely to be available
-        const response = await fetch('/favicon.ico', {
+        // Try to fetch the health check endpoint to verify actual connectivity
+        // Using the dedicated health check endpoint for reliable connectivity testing
+        const response = await fetch('/api/health', {
           method: 'HEAD',
           cache: 'no-cache',
           signal: AbortSignal.timeout(5000) // 5 second timeout
