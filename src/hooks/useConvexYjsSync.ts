@@ -7,6 +7,26 @@ import { useNetworkStatus } from './useNetworkStatus';
 import { ConnectionState } from './useConnectionManager';
 
 /**
+ * Browser-compatible utility function to compare two Uint8Array instances
+ * @param a First Uint8Array to compare
+ * @param b Second Uint8Array to compare
+ * @returns true if arrays have the same length and identical contents
+ */
+const areUint8ArraysEqual = (a: Uint8Array, b: Uint8Array): boolean => {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+/**
  * Configuration options for Convex-Yjs synchronization
  */
 interface UseConvexYjsSyncOptions {
@@ -92,6 +112,7 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
   const [isSynced, setIsSynced] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.DISCONNECTED);
 
   // Refs for managing sync state
   const lastSyncedStateRef = useRef<Uint8Array | null>(null);
@@ -99,6 +120,43 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef(0);
   const isInitializedRef = useRef(false);
+
+  /**
+   * Derive connection state from sync hook's internal state
+   */
+  const deriveConnectionState = useCallback((
+    isOnline: boolean,
+    isSyncing: boolean,
+    syncError: string | null,
+    retryCount: number,
+    maxRetries: number,
+    isInitialized: boolean
+  ): ConnectionState => {
+    if (!enabled) {
+      return ConnectionState.DISCONNECTED;
+    }
+
+    if (!isOnline) {
+      return ConnectionState.DISCONNECTED;
+    }
+
+    if (syncError) {
+      if (retryCount >= maxRetries) {
+        return ConnectionState.FAILED;
+      }
+      return retryCount > 0 ? ConnectionState.RECONNECTING : ConnectionState.CONNECTING;
+    }
+
+    if (isSyncing) {
+      return retryCount > 0 ? ConnectionState.RECONNECTING : ConnectionState.CONNECTING;
+    }
+
+    if (isInitialized && !syncError) {
+      return ConnectionState.CONNECTED;
+    }
+
+    return ConnectionState.DISCONNECTED;
+  }, [enabled, maxRetries]);
 
   /**
    * Initialize Y.Doc state on the server if it doesn't exist
@@ -150,8 +208,7 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
       // Check if we need to apply this update
       const currentState = Y.encodeStateAsUpdate(yDoc);
       if (lastSyncedStateRef.current &&
-          currentState.length === lastSyncedStateRef.current.length &&
-          Buffer.from(currentState).equals(Buffer.from(lastSyncedStateRef.current))) {
+          areUint8ArraysEqual(currentState, lastSyncedStateRef.current)) {
         return; // No changes needed
       }
 
@@ -289,6 +346,35 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     }
   }, [enabled, documentId, serverState, applyServerUpdate, initializeServerState]);
 
+  /**
+   * Reconnect function that attempts to re-establish sync
+   */
+  const reconnect = useCallback(async () => {
+    if (!enabled) {
+      console.log('Reconnect called but sync is disabled');
+      return;
+    }
+
+    console.log('Attempting to reconnect...');
+
+    // Reset retry count and error state
+    retryCountRef.current = 0;
+    setSyncError(null);
+
+    // Update connection state to show we're attempting to reconnect
+    setConnectionState(ConnectionState.CONNECTING);
+
+    try {
+      // Attempt to resync with the server
+      await resync();
+      console.log('Reconnection successful');
+    } catch (error) {
+      console.error('Reconnection failed:', error);
+      setSyncError(`Reconnection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setConnectionState(ConnectionState.FAILED);
+    }
+  }, [enabled, resync]);
+
   // Initialize server state when component mounts
   useEffect(() => {
     if (enabled && !isInitializedRef.current) {
@@ -307,7 +393,7 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
       // Only apply if the server state is different from our last synced state
       const currentState = Y.encodeStateAsUpdate(yDoc);
       if (!lastSyncedStateRef.current ||
-          !Buffer.from(currentState).equals(Buffer.from(lastSyncedStateRef.current))) {
+          !areUint8ArraysEqual(currentState, lastSyncedStateRef.current)) {
 
         // Check if server state is newer
         if (!serverState.yjsUpdatedAt ||
@@ -346,10 +432,20 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     };
   }, [enabled, yDoc, debouncedSendUpdate]);
 
-  // Update connection status based on network and sync state
+  // Update connection status and state based on network and sync state
   useEffect(() => {
-    setIsConnected(isOnline && !syncError);
-  }, [isOnline, syncError]);
+    const newConnectionState = deriveConnectionState(
+      isOnline,
+      isSyncing,
+      syncError,
+      retryCountRef.current,
+      maxRetries,
+      isInitializedRef.current
+    );
+
+    setConnectionState(newConnectionState);
+    setIsConnected(newConnectionState === ConnectionState.CONNECTED);
+  }, [isOnline, isSyncing, syncError, maxRetries, deriveConnectionState]);
 
   return {
     isSyncing,
@@ -358,11 +454,8 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     isConnected,
     sync,
     resync,
-    // Optional properties for compatibility with SyncHookReturn interface
-    connectionState: ConnectionState.CONNECTED,
-    reconnect: () => {
-      // Regular sync doesn't have reconnect functionality, but provide a no-op for compatibility
-      console.log('Reconnect not supported in regular sync mode');
-    },
+    // Dynamic connection state and reconnect functionality
+    connectionState,
+    reconnect,
   };
 };

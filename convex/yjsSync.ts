@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
+import * as Y from "yjs";
 
 // Helper function to get current authenticated user
 async function getCurrentUser(ctx: QueryCtx | MutationCtx): Promise<Id<"users">> {
@@ -62,7 +63,7 @@ export const getYjsState = query({
 
 /**
  * Mutation to update Y.Doc state
- * Applies Y.Doc updates to the server state
+ * Applies Y.Doc updates to the server state with proper merging
  */
 export const updateYjsState = mutation({
 	args: {
@@ -76,23 +77,53 @@ export const updateYjsState = mutation({
 	}),
 	handler: async (ctx, { documentId, update, stateVector }) => {
 		const userId = await getCurrentUser(ctx);
-		await checkDocumentAccess(ctx, documentId, userId);
+		const document = await checkDocumentAccess(ctx, documentId, userId);
 
 		const now = Date.now();
 
-		// For now, we'll store the update directly
-		// In a production system, you might want to merge updates more intelligently
-		await ctx.db.patch(documentId, {
-			yjsState: update,
-			yjsStateVector: stateVector,
-			yjsUpdatedAt: now,
-			updatedAt: now,
-		});
+		try {
+			let mergedUpdate: Uint8Array;
+			let newStateVector: Uint8Array | undefined = stateVector ? new Uint8Array(stateVector) : undefined;
 
-		return {
-			success: true,
-			conflictUpdate: undefined, // No conflicts for now
-		};
+			if (document.yjsState) {
+				// Existing state exists - merge the updates properly
+				const existingState = new Uint8Array(document.yjsState);
+				const incomingUpdate = new Uint8Array(update);
+
+				// Merge the existing state with the new update
+				// This ensures incremental updates are combined correctly
+				mergedUpdate = Y.mergeUpdates([existingState, incomingUpdate]);
+
+				// If we have a state vector, we can use it for conflict detection
+				// For now, we'll use the provided state vector or generate a new one
+				if (!stateVector) {
+					// Create a temporary Y.Doc to generate the state vector
+					const tempDoc = new Y.Doc();
+					Y.applyUpdate(tempDoc, mergedUpdate);
+					newStateVector = Y.encodeStateVector(tempDoc);
+					tempDoc.destroy();
+				}
+			} else {
+				// No existing state - use the update directly
+				mergedUpdate = new Uint8Array(update);
+			}
+
+			// Store the merged update
+			await ctx.db.patch(documentId, {
+				yjsState: mergedUpdate,
+				yjsStateVector: newStateVector,
+				yjsUpdatedAt: now,
+				updatedAt: now,
+			});
+
+			return {
+				success: true,
+				conflictUpdate: undefined, // No conflicts for this implementation
+			};
+		} catch (error) {
+			console.error("Failed to merge Y.Doc updates:", error);
+			throw new ConvexError("Failed to apply document update");
+		}
 	},
 });
 
@@ -164,21 +195,118 @@ export const applyYjsUpdate = mutation({
 	}),
 	handler: async (ctx, { documentId, update }) => {
 		const userId = await getCurrentUser(ctx);
-		await checkDocumentAccess(ctx, documentId, userId);
+		const document = await checkDocumentAccess(ctx, documentId, userId);
 
 		const now = Date.now();
 
-		// For now, we'll store the update directly
-		// In a production system, you would merge the update with existing state
-		await ctx.db.patch(documentId, {
-			yjsState: update,
-			yjsUpdatedAt: now,
-			updatedAt: now,
-		});
+		try {
+			let mergedUpdate: Uint8Array;
 
-		return {
-			success: true,
-			serverUpdate: undefined, // No server update needed for now
-		};
+			if (document.yjsState) {
+				// Existing state exists - merge the updates properly
+				const existingState = new Uint8Array(document.yjsState);
+				const incomingUpdate = new Uint8Array(update);
+
+				// Merge the existing state with the new update
+				mergedUpdate = Y.mergeUpdates([existingState, incomingUpdate]);
+			} else {
+				// No existing state - use the update directly
+				mergedUpdate = new Uint8Array(update);
+			}
+
+			// Store the merged update
+			await ctx.db.patch(documentId, {
+				yjsState: mergedUpdate,
+				yjsUpdatedAt: now,
+				updatedAt: now,
+			});
+
+			return {
+				success: true,
+				serverUpdate: undefined, // No server update needed for this implementation
+			};
+		} catch (error) {
+			console.error("Failed to apply Y.Doc update:", error);
+			throw new ConvexError("Failed to apply document update");
+		}
+	},
+});
+
+/**
+ * Mutation to apply batched Y.Doc updates
+ * Optimized for handling multiple updates efficiently
+ */
+export const applyBatchedYjsUpdates = mutation({
+	args: {
+		documentId: v.id("documents"),
+		updates: v.array(v.bytes()), // Array of Y.Doc updates
+		stateVector: v.optional(v.bytes()), // Current state vector for conflict detection
+		clientId: v.optional(v.number()), // Y.Doc client ID for conflict resolution
+	},
+	returns: v.object({
+		success: v.boolean(),
+		conflictUpdate: v.optional(v.bytes()), // Update to resolve conflicts
+		appliedUpdates: v.number(), // Number of updates successfully applied
+	}),
+	handler: async (ctx, { documentId, updates, stateVector }) => {
+		const userId = await getCurrentUser(ctx);
+		const document = await checkDocumentAccess(ctx, documentId, userId);
+
+		const now = Date.now();
+
+		try {
+			if (updates.length === 0) {
+				return {
+					success: true,
+					conflictUpdate: undefined,
+					appliedUpdates: 0,
+				};
+			}
+
+			// Convert ArrayBuffers to Uint8Arrays for Yjs
+			const uint8Updates = updates.map(update => new Uint8Array(update));
+
+			// Merge all incoming updates first
+			const mergedIncomingUpdate = updates.length > 1 ?
+				Y.mergeUpdates(uint8Updates) :
+				uint8Updates[0];
+
+			let finalUpdate: Uint8Array;
+
+			if (document.yjsState) {
+				// Existing state exists - merge with the incoming updates
+				const existingState = new Uint8Array(document.yjsState);
+				finalUpdate = Y.mergeUpdates([existingState, mergedIncomingUpdate]);
+			} else {
+				// No existing state - use the merged incoming updates
+				finalUpdate = mergedIncomingUpdate;
+			}
+
+			// Generate new state vector if not provided
+			let newStateVector: Uint8Array | undefined = stateVector ? new Uint8Array(stateVector) : undefined;
+			if (!stateVector) {
+				const tempDoc = new Y.Doc();
+				Y.applyUpdate(tempDoc, finalUpdate);
+				newStateVector = Y.encodeStateVector(tempDoc);
+				tempDoc.destroy();
+			}
+
+			// Apply the final merged update to the document
+			await ctx.db.patch(documentId, {
+				yjsState: finalUpdate,
+				yjsStateVector: newStateVector,
+				yjsUpdatedAt: now,
+				updatedAt: now,
+			});
+
+			return {
+				success: true,
+				conflictUpdate: undefined, // No conflicts for this implementation
+				appliedUpdates: updates.length,
+			};
+		} catch (error) {
+			console.error('Failed to apply batched updates:', error);
+			throw new ConvexError("Failed to apply batched document updates");
+		}
 	},
 });

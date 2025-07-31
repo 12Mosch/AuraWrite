@@ -109,7 +109,7 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
       window.removeEventListener('offline', handleOffline)
       clearInterval(connectivityInterval)
     }
-  }, [isOnline]) // Include isOnline in dependency array for connectivity check
+  }, []) // Empty dependency array - effect only runs once
 
   return {
     isOnline,

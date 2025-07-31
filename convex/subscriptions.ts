@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { query, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 
@@ -10,7 +10,7 @@ import { Doc, Id } from "./_generated/dataModel";
 async function getCurrentUser(ctx: QueryCtx): Promise<Id<"users">> {
 	const userId = await getAuthUserId(ctx);
 	if (!userId) {
-		throw new Error("Authentication required");
+		throw new ConvexError("Authentication required");
 	}
 	return userId;
 }
@@ -26,7 +26,7 @@ async function checkDocumentAccess(
 ): Promise<Doc<"documents">> {
 	const document = await ctx.db.get(documentId);
 	if (!document) {
-		throw new Error("Document not found");
+		throw new ConvexError("Document not found");
 	}
 
 	const hasAccess =
@@ -35,7 +35,7 @@ async function checkDocumentAccess(
 		document.collaborators?.includes(userId);
 
 	if (!hasAccess) {
-		throw new Error("Access denied");
+		throw new ConvexError("Access denied");
 	}
 
 	return document;
@@ -111,7 +111,65 @@ export const subscribeToDocumentMetadata = query({
 	},
 });
 
+/**
+ * Subscribe to multiple documents' metadata in a single batch query
+ * Optimized for document lists and dashboards to reduce query count
+ */
+export const subscribeToMultipleDocumentMetadata = query({
+	args: { documentIds: v.array(v.id("documents")) },
+	handler: async (ctx, { documentIds }) => {
+		const userId = await getCurrentUser(ctx);
 
+		// Get all documents that the user has access to
+		const documentsWithMetadata = await Promise.all(
+			documentIds.map(async (documentId) => {
+				try {
+					const document = await checkDocumentAccess(ctx, documentId, userId);
+
+					// Get collaborator details
+					const collaboratorDetails = await Promise.all(
+						(document.collaborators || []).map(async (collaboratorId) => {
+							const user = await ctx.db.get(collaboratorId);
+							return user ? {
+								_id: user._id,
+								name: user.name,
+								email: user.email,
+								image: user.image,
+							} : null;
+						})
+					);
+
+					// Get owner details
+					const owner = await ctx.db.get(document.ownerId);
+
+					return {
+						_id: document._id,
+						title: document.title,
+						isPublic: document.isPublic || false,
+						collaborators: collaboratorDetails.filter(Boolean),
+						owner: owner ? {
+							_id: owner._id,
+							name: owner.name,
+							email: owner.email,
+							image: owner.image,
+						} : null,
+						createdAt: document.createdAt,
+						updatedAt: document.updatedAt,
+						yjsUpdatedAt: document.yjsUpdatedAt,
+						_creationTime: document._creationTime,
+					};
+				} catch (error) {
+					// If user doesn't have access to a document, skip it
+					// This allows partial results for mixed access scenarios
+					return null;
+				}
+			})
+		);
+
+		// Filter out null results (documents user doesn't have access to)
+		return documentsWithMetadata.filter(Boolean);
+	},
+});
 
 /**
  * Subscribe to document version history updates
@@ -336,7 +394,7 @@ export const subscribeToDocumentActivity = query({
 		const userFirstSeen = new Map<Id<"users">, number>();
 		for (const session of recentSessions) {
 			const existing = userFirstSeen.get(session.userId);
-			if (!existing || session.lastSeen < existing) {
+			if (!existing || session.lastSeen > existing) {
 				userFirstSeen.set(session.userId, session.lastSeen);
 			}
 		}

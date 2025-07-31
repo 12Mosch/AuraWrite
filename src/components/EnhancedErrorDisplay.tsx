@@ -117,7 +117,7 @@ export const EnhancedErrorDisplay: React.FC<EnhancedErrorDisplayProps> = React.m
                 </p>
               )}
             </div>
-            {!offlineMode.isOffline && offlineMode.hasUnsyncedChanges && (
+            {offlineMode.isOffline && offlineMode.hasUnsyncedChanges && (
               <button
                 onClick={offlineMode.forceSync}
                 disabled={offlineMode.isSyncing}

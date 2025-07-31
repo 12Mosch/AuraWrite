@@ -1,8 +1,10 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
+import { useMutation } from 'convex/react';
 import * as Y from 'yjs';
 import { Id } from '../../convex/_generated/dataModel';
+import { api } from '../../convex/_generated/api';
 import { useNetworkStatus } from './useNetworkStatus';
-import { useConnectionManager, ConnectionState } from './useConnectionManager';
+import { useConnectionManager } from './useConnectionManager';
 import { SyncHookReturn } from './useConvexYjsSync';
 
 /**
@@ -73,6 +75,7 @@ interface UpdateBatch {
  */
 export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncReturn => {
   const {
+    documentId,
     yDoc,
     enabled = true,
     debounceMs = 300,
@@ -83,6 +86,9 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
 
   // Network status
   const { isOnline } = useNetworkStatus();
+
+  // Convex mutation for batched updates
+  const applyBatchedUpdatesMutation = useMutation(api.yjsSync.applyBatchedYjsUpdates);
 
   // Connection management with automatic reconnection
   const connectionManager = useConnectionManager({
@@ -117,7 +123,7 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
 
 
   /**
-   * Send batched updates to server (temporarily disabled)
+   * Send batched updates to server with retry logic
    */
   const sendBatchedUpdates = useCallback(async (batch: UpdateBatch) => {
     if (!enabled || !isOnline) return;
@@ -126,27 +132,70 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
     setIsSyncing(true);
 
     try {
-      // Simulate successful sync for now
-      const latency = Date.now() - startTime;
+      // Get current state vector for efficient sync
+      const stateVector = Y.encodeStateVector(yDoc);
 
-      // Update statistics
-      statsRef.current.totalUpdates += batch.updates.length;
-      statsRef.current.batchedUpdates += 1;
-      statsRef.current.averageLatency =
-        (statsRef.current.averageLatency + latency) / 2;
-      statsRef.current.lastSyncTime = Date.now();
+      // Send batched updates to server
+      const result = await applyBatchedUpdatesMutation({
+        documentId,
+        updates: batch.updates,
+        stateVector: stateVector,
+        clientId: yDoc.clientID,
+      });
 
-      lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
-      setIsSynced(true);
-      setSyncError(null);
+      if (result.success) {
+        const latency = Date.now() - startTime;
+
+        // Update statistics
+        statsRef.current.totalUpdates += result.appliedUpdates;
+        statsRef.current.batchedUpdates += 1;
+
+        // Update average latency using running average formula
+        const sampleCount = statsRef.current.batchedUpdates;
+        statsRef.current.averageLatency =
+          (statsRef.current.averageLatency * (sampleCount - 1) + latency) / sampleCount;
+        statsRef.current.lastSyncTime = Date.now();
+
+        // Update last synced state
+        lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
+        setIsSynced(true);
+        setSyncError(null);
+
+        // Apply any conflict resolution update from server
+        if (result.conflictUpdate) {
+          yDoc.transact(() => {
+            Y.applyUpdate(yDoc, result.conflictUpdate!);
+          }, 'server-conflict');
+        }
+
+        // Reset retry count on success
+        batch.retryCount = 0;
+      } else {
+        throw new Error('Server rejected the batched updates');
+      }
     } catch (error) {
       console.error('Failed to send batched updates:', error);
       statsRef.current.failedUpdates += 1;
-      setSyncError(`Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      // Implement retry logic
+      if (batch.retryCount < maxRetries) {
+        batch.retryCount += 1;
+        setSyncError(`Sync failed (attempt ${batch.retryCount}/${maxRetries}): ${errorMessage}`);
+
+        // Schedule retry with exponential backoff
+        const retryDelay = Math.min(1000 * Math.pow(2, batch.retryCount - 1), 10000);
+        setTimeout(() => {
+          sendBatchedUpdates(batch);
+        }, retryDelay);
+      } else {
+        setSyncError(`Sync failed after ${maxRetries} attempts: ${errorMessage}`);
+      }
     } finally {
       setIsSyncing(false);
     }
-  }, [enabled, isOnline, yDoc, maxRetries]);
+  }, [enabled, isOnline, yDoc, documentId, maxRetries, applyBatchedUpdatesMutation]);
 
   /**
    * Add update to batch and schedule sync

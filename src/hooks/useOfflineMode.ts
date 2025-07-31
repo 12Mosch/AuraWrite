@@ -187,13 +187,87 @@ export const useOfflineMode = (options: OfflineModeOptions): OfflineModeReturn =
   const clearOfflineOperations = useCallback(() => {
     offlineOperationsRef.current = [];
     setHasUnsyncedChanges(false);
-    
+
     try {
       localStorage.removeItem(`offline_ops_${documentId}`);
     } catch (error) {
       console.warn('Failed to clear offline operations:', error);
     }
   }, [documentId]);
+
+  /**
+   * Apply offline operation to document
+   */
+  const applyOfflineOperation = useCallback(async (operation: OfflineOperation): Promise<void> => {
+    if (!yDoc) {
+      throw new Error('Y.Doc instance not available');
+    }
+
+    console.log('Applying offline operation:', operation);
+
+    try {
+      switch (operation.type) {
+        case 'update':
+          // Apply Y.Doc binary update
+          if (operation.data?.update) {
+            const updateArray = new Uint8Array(operation.data.update);
+            yDoc.transact(() => {
+              Y.applyUpdate(yDoc, updateArray);
+            }, 'offline-sync');
+          } else {
+            console.warn('Update operation missing binary update data');
+          }
+          break;
+
+        case 'insert':
+          // Apply text insertion to shared type
+          if (operation.data?.position !== undefined && operation.data?.content) {
+            const sharedType = yDoc.get('content', Y.XmlText);
+            yDoc.transact(() => {
+              sharedType.insert(operation.data.position, operation.data.content);
+            }, 'offline-sync');
+          } else {
+            console.warn('Insert operation missing position or content data');
+          }
+          break;
+
+        case 'delete':
+          // Apply text deletion to shared type
+          if (operation.data?.position !== undefined && operation.data?.length !== undefined) {
+            const sharedType = yDoc.get('content', Y.XmlText);
+            yDoc.transact(() => {
+              sharedType.delete(operation.data.position, operation.data.length);
+            }, 'offline-sync');
+          } else {
+            console.warn('Delete operation missing position or length data');
+          }
+          break;
+
+        case 'format':
+          // Apply formatting to shared type
+          if (operation.data?.position !== undefined &&
+              operation.data?.length !== undefined &&
+              operation.data?.attributes) {
+            const sharedType = yDoc.get('content', Y.XmlText);
+            yDoc.transact(() => {
+              sharedType.format(operation.data.position, operation.data.length, operation.data.attributes);
+            }, 'offline-sync');
+          } else {
+            console.warn('Format operation missing position, length, or attributes data');
+          }
+          break;
+
+        default:
+          console.warn(`Unknown operation type: ${operation.type}`);
+          break;
+      }
+
+      console.log(`Successfully applied offline operation: ${operation.type} (${operation.id})`);
+    } catch (error) {
+      console.error(`Failed to apply offline operation ${operation.id}:`, error);
+      throw new Error(`Failed to apply offline operation: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [yDoc]);
 
   /**
    * Sync offline operations when coming back online
@@ -441,7 +515,7 @@ async function checkForConflicts(convex: any, documentId: string, currentState: 
 
     // If states are identical, no conflicts
     if (currentState.length === serverState.length &&
-        Buffer.from(currentState).equals(Buffer.from(serverState))) {
+        currentState.every((byte, i) => byte === serverState[i])) {
       return false;
     }
 
@@ -476,13 +550,4 @@ async function checkForConflicts(convex: any, documentId: string, currentState: 
     // In case of error, assume no conflicts to avoid blocking sync
     return false;
   }
-}
-
-/**
- * Apply offline operation to document
- */
-async function applyOfflineOperation(operation: OfflineOperation): Promise<void> {
-  // This would apply the specific operation to the document
-  // Implementation depends on the operation type and data structure
-  console.log('Applying offline operation:', operation);
 }

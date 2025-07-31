@@ -5,18 +5,17 @@
  * ConvexError instances, network failures, and mutation/query/action errors.
  */
 
-import { useCallback } from 'react';
-import { ConvexError } from 'convex/values';
-import { 
-  AppError, 
-  ErrorFactory, 
-  ErrorSeverity, 
-  isConvexError, 
-  extractConvexErrorData,
+import {useCallback} from 'react';
+import {
+  AppError,
   ErrorCategory,
+  ErrorFactory,
+  ErrorSeverity,
+  extractConvexErrorData,
+  isConvexError,
   RecoveryStrategy
 } from '../types/errors';
-import { useErrorHandler } from '../contexts/ErrorContext';
+import {useErrorHandler} from '../contexts/ErrorContext';
 
 /**
  * Convex operation types
@@ -77,12 +76,11 @@ export const useConvexErrorHandler = () => {
       try {
         return await mutationFn(...args);
       } catch (error) {
-        const appError = handleConvexError(error, {
+        throw handleConvexError(error, {
           operation: 'mutation',
           functionName,
-          args: args.length > 0 ? { args } : undefined,
+          args: args.length > 0 ? {args} : undefined,
         });
-        throw appError;
       }
     };
   }, [handleConvexError]);
@@ -98,12 +96,11 @@ export const useConvexErrorHandler = () => {
       try {
         return queryFn(...args);
       } catch (error) {
-        const appError = handleConvexError(error, {
+        throw handleConvexError(error, {
           operation: 'query',
           functionName,
-          args: args.length > 0 ? { args } : undefined,
+          args: args.length > 0 ? {args} : undefined,
         });
-        throw appError;
       }
     };
   }, [handleConvexError]);
@@ -119,12 +116,11 @@ export const useConvexErrorHandler = () => {
       try {
         return await actionFn(...args);
       } catch (error) {
-        const appError = handleConvexError(error, {
+        throw handleConvexError(error, {
           operation: 'action',
           functionName,
-          args: args.length > 0 ? { args } : undefined,
+          args: args.length > 0 ? {args} : undefined,
         });
-        throw appError;
       }
     };
   }, [handleConvexError]);
@@ -163,17 +159,17 @@ function createConvexAppError(
     severity = ErrorSeverity.HIGH;
     recoveryStrategy = RecoveryStrategy.MANUAL;
     retryable = false;
-  } else if (message.includes('validation') || message.includes('invalid') || code === 'validation_error') {
+  } else if (hasMatch(message, 'validation|invalid') || code === 'validation_error') {
     category = ErrorCategory.VALIDATION;
     severity = ErrorSeverity.LOW;
     recoveryStrategy = RecoveryStrategy.MANUAL;
     retryable = false;
-  } else if (message.includes('conflict') || message.includes('write conflict') || code === 'write_conflict') {
+  } else if (hasMatch(message, 'conflict|write conflict') || code === 'write_conflict') {
     category = ErrorCategory.CONFLICT;
     severity = ErrorSeverity.HIGH;
     recoveryStrategy = RecoveryStrategy.RETRY;
     retryable = true;
-  } else if (message.includes('network') || message.includes('timeout') || message.includes('connection')) {
+  } else if (hasMatch(message, 'network|timeout|connection')) {
     category = ErrorCategory.NETWORK;
     severity = ErrorSeverity.MEDIUM;
     recoveryStrategy = RecoveryStrategy.RETRY;
@@ -276,7 +272,7 @@ function createUnknownAppError(
  * Utility hook for handling specific Convex error patterns
  */
 export const useConvexErrorPatterns = () => {
-  const { handleConvexError } = useConvexErrorHandler();
+  useConvexErrorHandler();
 
   /**
    * Handle write conflict errors with automatic retry

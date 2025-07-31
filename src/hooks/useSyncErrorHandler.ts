@@ -8,7 +8,7 @@
 import { useCallback, useRef } from 'react';
 import * as Y from 'yjs';
 import { useErrorHandler } from '../contexts/ErrorContext';
-import { ErrorFactory, SyncError, ConflictError } from '../types/errors';
+import { ErrorFactory, SyncError, ErrorSeverity } from '../types/errors';
 
 /**
  * Sync conflict types
@@ -115,7 +115,7 @@ export const useSyncErrorHandler = (): SyncErrorHandlerReturn => {
         documentId,
         operation,
         {
-          severity: 'high' as any,
+          severity: ErrorSeverity.HIGH,
           retryable: strategy !== ConflictResolutionStrategy.MANUAL,
           maxRetries: 5,
           retryCount,

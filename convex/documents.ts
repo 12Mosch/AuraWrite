@@ -1,7 +1,7 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { ConvexError, v } from "convex/values";
-import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
-import { Doc, Id } from "./_generated/dataModel";
+import {getAuthUserId} from "@convex-dev/auth/server";
+import {ConvexError, v} from "convex/values";
+import {mutation, MutationCtx, query, QueryCtx} from "./_generated/server";
+import {Doc, Id} from "./_generated/dataModel";
 
 // Helper function to get current authenticated user
 async function getCurrentUser(ctx: QueryCtx | MutationCtx): Promise<Id<"users">> {
@@ -91,13 +91,11 @@ export const getUserDocuments = query({
 	handler: async (ctx) => {
 		const userId = await getCurrentUser(ctx);
 
-		const documents = await ctx.db
+		return await ctx.db
 			.query("documents")
 			.withIndex("by_owner", (q) => q.eq("ownerId", userId))
 			.order("desc")
 			.collect();
-
-		return documents;
 	},
 });
 
@@ -117,8 +115,40 @@ export const getDocument = query({
 	}),
 	handler: async (ctx, { documentId }) => {
 		const userId = await getCurrentUser(ctx);
-		const document = await checkDocumentAccess(ctx, documentId, userId);
-		return document;
+		return await checkDocumentAccess(ctx, documentId, userId);
+	},
+});
+
+// Query to get document data for recovery purposes (includes Y.js state)
+export const getDocumentForRecovery = query({
+	args: { documentId: v.id("documents") },
+	returns: v.union(
+		v.object({
+			_id: v.id("documents"),
+			title: v.string(),
+			content: v.optional(v.string()),
+			yjsState: v.optional(v.bytes()),
+			yjsStateVector: v.optional(v.bytes()),
+			ownerId: v.id("users"),
+			isPublic: v.optional(v.boolean()),
+			collaborators: v.optional(v.array(v.id("users"))),
+			createdAt: v.number(),
+			updatedAt: v.number(),
+			yjsUpdatedAt: v.optional(v.number()),
+			_creationTime: v.number(),
+		}),
+		v.null()
+	),
+	handler: async (ctx, { documentId }) => {
+		try {
+			const userId = await getCurrentUser(ctx);
+			return await checkDocumentAccess(ctx, documentId, userId);
+		} catch (error) {
+			// Return null if document not found or access denied
+			// This allows recovery to handle missing documents gracefully
+			console.warn(`Document recovery failed for ${documentId}:`, error);
+			return null;
+		}
 	},
 });
 
@@ -147,19 +177,17 @@ export const createDocument = mutation({
 		}
 
 		const now = Date.now();
-		const documentId = await ctx.db.insert("documents", {
+		return await ctx.db.insert("documents", {
 			title: title.trim(),
 			content:
 				content ||
-				JSON.stringify([{ type: "paragraph", children: [{ text: "" }] }]),
+				JSON.stringify([{type: "paragraph", children: [{text: ""}]}]),
 			ownerId: userId,
 			isPublic: isPublic || false,
 			collaborators: [],
 			createdAt: now,
 			updatedAt: now,
 		});
-
-		return documentId;
 	},
 });
 
@@ -337,17 +365,15 @@ export const duplicateDocument = mutation({
 		}
 
 		const now = Date.now();
-		const newDocumentId = await ctx.db.insert("documents", {
+		return await ctx.db.insert("documents", {
 			title: newTitle.trim(),
-			content: document.content || JSON.stringify([{ type: "paragraph", children: [{ text: "" }] }]),
+			content: document.content || JSON.stringify([{type: "paragraph", children: [{text: ""}]}]),
 			ownerId: userId,
 			isPublic: false, // New document is private by default
 			collaborators: [],
 			createdAt: now,
 			updatedAt: now,
 		});
-
-		return newDocumentId;
 	},
 });
 

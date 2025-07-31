@@ -11,7 +11,7 @@
 		// ignore errors from dependencies
 		"skipLibCheck": true,
 		// add global types - include node for process global
-		"types": ["../UI/types", "node"],
+		"types": ["../ui/types", "node"],
 		// isolated modules for better performance
 		"isolatedModules": true
 	}

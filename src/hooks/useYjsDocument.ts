@@ -3,7 +3,8 @@ import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { slateNodesToInsertDelta } from '@slate-yjs/core'
 import { Descendant } from 'slate'
-import { createAutomaticBackup, recoverCorruptedDocument } from '../utils/dataRecovery'
+import { useCloudRecovery } from '../utils/cloudRecovery'
+import { Id } from '../../convex/_generated/dataModel'
 
 /**
  * Configuration options for the Yjs document hook
@@ -64,6 +65,9 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
   const [persistenceError, setPersistenceError] = useState<string | undefined>(undefined)
   const [persistenceAvailable, setPersistenceAvailable] = useState(true)
 
+  // Cloud recovery hook
+  const { recoverDocument, createFallback } = useCloudRecovery()
+
   // Create Y.Doc and shared types
   const { yDoc, sharedType, indexeddbProvider } = useMemo(() => {
     console.log(`Initializing Y.Doc for document: ${documentId}`)
@@ -102,19 +106,29 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
         }).catch(async (error) => {
           console.error('IndexedDB sync failed:', error)
 
-          // Attempt data recovery for corrupted documents
+          // Attempt cloud-based recovery for corrupted documents
           if (error.message?.includes('corrupt') || error.message?.includes('invalid')) {
-            console.log('Attempting to recover corrupted document...')
+            console.log('Attempting to recover corrupted document from cloud...')
             try {
-              const recoveredDoc = await recoverCorruptedDocument(documentId)
+              const recoveredDoc = await recoverDocument(documentId as Id<"documents">)
               if (recoveredDoc) {
-                console.log('Document recovery successful')
-                setPersistenceError('Document was recovered from backup. Some recent changes may have been lost.')
+                // Apply recovered content to current document
+                const recoveredState = Y.encodeStateAsUpdate(recoveredDoc)
+                Y.applyUpdate(yDoc, recoveredState)
+                console.log('Document recovery successful from cloud')
+                setPersistenceError('Document was recovered from cloud. Some recent changes may have been lost.')
+                recoveredDoc.destroy() // Clean up recovered document
               } else {
-                setPersistenceError('Document recovery failed. Starting with empty document.')
+                // Create fallback document with recovery message
+                const fallbackDoc = createFallback()
+                const fallbackState = Y.encodeStateAsUpdate(fallbackDoc)
+                Y.applyUpdate(yDoc, fallbackState)
+                console.log('Using fallback document with recovery message')
+                setPersistenceError('Document recovery failed. Started with recovery message.')
+                fallbackDoc.destroy() // Clean up fallback document
               }
             } catch (recoveryError) {
-              console.error('Document recovery failed:', recoveryError)
+              console.error('Cloud recovery failed:', recoveryError)
               setPersistenceError('Document recovery failed. Starting with empty document.')
             }
           } else {
@@ -190,34 +204,7 @@ export const useYjsDocument = (options: UseYjsDocumentOptions): UseYjsDocumentRe
     }
   }, [yDoc, documentId])
 
-  // Set up automatic backups
-  useEffect(() => {
-    // Set up automatic backups every 5 minutes if persistence is enabled
-    let backupInterval: NodeJS.Timeout | undefined
-
-    if (enablePersistence && isSynced) {
-      // Create immediate backup on sync
-      createAutomaticBackup(yDoc, documentId, {
-        maxAge: 7, // Keep backups for 7 days
-        maxBackups: 5 // Keep max 5 backups per document
-      })
-
-      // Set up periodic backups
-      backupInterval = setInterval(() => {
-        createAutomaticBackup(yDoc, documentId, {
-          maxAge: 7, // Keep backups for 7 days
-          maxBackups: 5 // Keep max 5 backups per document
-        })
-      }, 5 * 60 * 1000) // 5 minutes
-    }
-
-    // Cleanup function
-    return () => {
-      if (backupInterval) {
-        clearInterval(backupInterval)
-      }
-    }
-  }, [enablePersistence, isSynced, yDoc, documentId])
+  // Note: Automatic backups removed - using cloud-based recovery instead
 
   // Final cleanup on unmount
   useEffect(() => {
