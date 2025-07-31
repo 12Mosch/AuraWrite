@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useConvex } from 'convex/react';
 import * as Y from 'yjs';
 import { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
@@ -87,7 +87,8 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
   // Network status
   const { isOnline } = useNetworkStatus();
 
-  // Convex mutation for batched updates
+  // Convex client and mutations
+  const convex = useConvex();
   const applyBatchedUpdatesMutation = useMutation(api.yjsSync.applyBatchedYjsUpdates);
 
   // Connection management with automatic reconnection
@@ -255,24 +256,61 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
 
 
   /**
-   * Force a full resync from server (temporarily disabled)
+   * Force a full resync from server
+   * Fetches the latest document state and updates local Y.Doc accordingly
    */
   const resync = useCallback(async () => {
-    if (!enabled) return;
+    if (!enabled || !isOnline) {
+      console.log('Resync skipped: sync disabled or offline');
+      return;
+    }
 
     try {
       setIsSyncing(true);
+      console.log('Starting full resync from server...');
 
-      // Simulate successful resync
-      setIsSynced(true);
-      setSyncError(null);
+      // Fetch the latest document state from server
+      const serverData = await convex.query(api.yjsSync.getYjsState, {
+        documentId
+      });
+
+      if (!serverData) {
+        throw new Error('Failed to fetch document state from server');
+      }
+
+      // If server has Y.js state, apply it to local document
+      if (serverData.yjsState) {
+        console.log('Applying server state to local Y.Doc');
+
+        // Convert ArrayBuffer to Uint8Array for Y.js
+        const serverStateBytes = new Uint8Array(serverData.yjsState);
+
+        // Apply server state to local Y.Doc with proper origin tracking
+        yDoc.transact(() => {
+          Y.applyUpdate(yDoc, serverStateBytes);
+        }, 'server-resync');
+
+        // Update last synced state reference
+        lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
+
+        console.log('Successfully applied server state during resync');
+        setIsSynced(true);
+        setSyncError(null);
+      } else {
+        // No server state exists - this means the document hasn't been initialized yet
+        console.log('No server state found during resync');
+        throw new Error('Server state not found. Document may not be initialized yet. Please try syncing normally first.');
+      }
+
     } catch (error) {
       console.error('Failed to resync:', error);
-      setSyncError(`Resync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setSyncError(`Resync failed: ${errorMessage}`);
+      setIsSynced(false);
     } finally {
       setIsSyncing(false);
     }
-  }, [enabled]);
+  }, [enabled, isOnline, convex, documentId, yDoc]);
 
   /**
    * Get current sync statistics
@@ -294,13 +332,6 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
       lastSyncTime: 0,
     };
   }, []);
-
-  // Handle server state updates (temporarily disabled)
-  useEffect(() => {
-    if (!enabled) return;
-    // Simulate connection
-    connectionManager.setConnectionTest(async () => true);
-  }, [enabled, connectionManager]);
 
   // Set up Y.Doc update listener
   useEffect(() => {

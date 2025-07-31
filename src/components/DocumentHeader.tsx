@@ -32,7 +32,8 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
   editable = true,
 }) => {
   // Subscribe to real-time document metadata
-  const { metadata, isLoading, error } = useDocumentMetadata(documentId);
+  // Note: Errors are now handled by ConvexErrorBoundary wrapping this component
+  const { metadata, isLoading } = useDocumentMetadata(documentId);
   
   // Convex mutations
   const updateDocument = useMutation(api.documents.updateDocument);
@@ -102,12 +103,12 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
     );
   }
 
-  // Error state
-  if (error || !metadata) {
+  // No metadata available (but not loading)
+  if (!metadata && !isLoading) {
     return (
-      <div className={`text-red-600 ${className}`}>
-        <div className="text-lg font-semibold">Error loading document</div>
-        <div className="text-sm">Unable to load document information</div>
+      <div className={`text-gray-600 ${className}`}>
+        <div className="text-lg font-semibold">Document not found</div>
+        <div className="text-sm">This document may not exist or you may not have access to it</div>
       </div>
     );
   }

@@ -266,6 +266,11 @@ export const useSyncErrorHandler = (): SyncErrorHandlerReturn => {
    */
   const isSyncConflict = useCallback((error: unknown): boolean => {
     if (error instanceof Error) {
+      // Check for specific error types first
+      if (error.name === 'SyncConflictError' || error.name === 'ConflictError') {
+        return true;
+      }
+
       const message = error.message.toLowerCase();
       return (
         message.includes('conflict') ||
@@ -543,6 +548,13 @@ function calculateTextSimilarity(text1: string, text2: string): number {
  * Calculate Levenshtein distance between two strings
  */
 function levenshteinDistance(str1: string, str2: string): number {
+  // Avoid expensive calculations for very large strings
+  const maxLength = 10000; // Adjust based on your needs
+  if (str1.length > maxLength || str2.length > maxLength) {
+    // Use a faster approximation for large strings
+    return str1 === str2 ? 0 : Math.max(str1.length, str2.length);
+  }
+
   const matrix = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(null));
 
   for (let i = 0; i <= str1.length; i++) {

@@ -18,6 +18,13 @@ import {
 import {useErrorHandler} from '../contexts/ErrorContext';
 
 /**
+ * Helper function to check if error is a standard JavaScript Error
+ */
+function isError(error: unknown): error is Error {
+  return error instanceof Error;
+}
+
+/**
  * Convex operation types
  */
 export type ConvexOperationType = 'query' | 'mutation' | 'action';
@@ -51,7 +58,7 @@ export const useConvexErrorHandler = () => {
       // Handle ConvexError instances
       const convexData = extractConvexErrorData(error);
       appError = createConvexAppError(convexData, context);
-    } else if (error instanceof Error) {
+    } else if (isError(error)) {
       // Handle regular JavaScript errors
       appError = createNetworkAppError(error, context);
     } else {
@@ -87,15 +94,31 @@ export const useConvexErrorHandler = () => {
 
   /**
    * Wrapper for Convex queries with error handling
+   * Supports both synchronous and asynchronous query functions
    */
   const withQueryErrorHandling = useCallback(<T extends any[], R>(
-    queryFn: (...args: T) => R,
+    queryFn: (...args: T) => R | Promise<R>,
     functionName: string
   ) => {
-    return (...args: T): R => {
+    return (...args: T): R | Promise<R> => {
       try {
-        return queryFn(...args);
+        const result = queryFn(...args);
+
+        // Check if the result is a Promise (async query)
+        if (result instanceof Promise) {
+          return result.catch((error) => {
+            throw handleConvexError(error, {
+              operation: 'query',
+              functionName,
+              args: args.length > 0 ? {args} : undefined,
+            });
+          });
+        }
+
+        // Synchronous query - return result directly
+        return result;
       } catch (error) {
+        // Handle synchronous errors
         throw handleConvexError(error, {
           operation: 'query',
           functionName,
@@ -149,22 +172,25 @@ function createConvexAppError(
   const message = convexData.message;
   const code = convexData.code;
 
-  // Use case-insensitive regex or exact code matching
+  // Use case-insensitive matching for both message and code
   const hasMatch = (text: string, pattern: string) =>
     new RegExp(pattern, 'i').test(text);
 
+  const codeMatches = (codePattern: string) =>
+    code ? hasMatch(code, codePattern) : false;
+
   // Categorize based on error content
-  if (hasMatch(message, 'unauthorized|permission') || code?.toLowerCase() === 'unauthorized') {
+  if (hasMatch(message, 'unauthorized|permission') || codeMatches('unauthorized')) {
     category = ErrorCategory.AUTHENTICATION;
     severity = ErrorSeverity.HIGH;
     recoveryStrategy = RecoveryStrategy.MANUAL;
     retryable = false;
-  } else if (hasMatch(message, 'validation|invalid') || code === 'validation_error') {
+  } else if (hasMatch(message, 'validation|invalid') || codeMatches('validation_error')) {
     category = ErrorCategory.VALIDATION;
     severity = ErrorSeverity.LOW;
     recoveryStrategy = RecoveryStrategy.MANUAL;
     retryable = false;
-  } else if (hasMatch(message, 'conflict|write conflict') || code === 'write_conflict') {
+  } else if (hasMatch(message, 'conflict|write conflict') || codeMatches('write_conflict')) {
     category = ErrorCategory.CONFLICT;
     severity = ErrorSeverity.HIGH;
     recoveryStrategy = RecoveryStrategy.RETRY;

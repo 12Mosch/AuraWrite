@@ -60,6 +60,7 @@ export const CollaborationDashboard: React.FC<CollaborationDashboardProps> = ({
 
   // Hooks
   const { presence } = usePresence(documentId);
+  // Note: Errors are now handled by ConvexErrorBoundary wrapping this component
   const { metadata } = useDocumentMetadata(documentId);
 
   const totalUsers = presence?.totalActiveUsers || 0;

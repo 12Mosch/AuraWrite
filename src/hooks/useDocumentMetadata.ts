@@ -1,5 +1,4 @@
 import { useQuery } from 'convex/react';
-import { useState, useEffect } from 'react';
 import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
 
@@ -34,31 +33,34 @@ export interface DocumentMetadata {
 export interface UseDocumentMetadataReturn {
   metadata: DocumentMetadata | undefined;
   isLoading: boolean;
-  error: Error | null;
 }
 
 /**
  * Custom hook for subscribing to real-time document metadata changes
- * 
+ *
  * This hook provides real-time updates for:
  * - Document title changes
  * - Collaborator additions/removals
  * - Permission changes (public/private)
  * - Owner information
  * - Timestamps and creation info
- * 
+ *
+ * Error Handling:
+ * - Convex queries throw errors directly from the useQuery hook
+ * - Use React Error Boundaries to catch and handle query errors
+ * - Errors are thrown during rendering, not in useEffect
+ *
  * @param documentId - The ID of the document to subscribe to
  * @param enabled - Whether the subscription should be active (default: true)
- * @returns Object containing metadata, loading state, and error state
+ * @returns Object containing metadata and loading state
  */
 export const useDocumentMetadata = (
   documentId: Id<"documents"> | null,
   enabled: boolean = true
 ): UseDocumentMetadataReturn => {
-  // State for error handling
-  const [error, setError] = useState<Error | null>(null);
-
   // Subscribe to document metadata using Convex useQuery
+  // Note: Convex queries throw errors directly from this hook call
+  // Use React Error Boundaries to catch and handle these errors
   const metadata = useQuery(
     api.subscriptions.subscribeToDocumentMetadata,
     documentId && enabled ? { documentId } : "skip"
@@ -67,35 +69,12 @@ export const useDocumentMetadata = (
   // Determine loading state
   const isLoading = enabled && documentId !== null && metadata === undefined;
 
-  // Handle errors with useEffect and try-catch
-  useEffect(() => {
-    if (!enabled || !documentId) {
-      setError(null);
-      return;
-    }
-
-    try {
-      // Clear any previous errors when query parameters change
-      setError(null);
-
-      // The actual query is handled by useQuery above, but we can catch
-      // any synchronous errors that might occur during the query setup
-    } catch (caughtError) {
-      if (caughtError instanceof Error) {
-        setError(caughtError);
-      } else {
-        setError(new Error('An unknown error occurred while fetching document metadata'));
-      }
-    }
-  }, [documentId, enabled]);
-
   return {
     metadata: metadata ? {
       ...metadata,
       collaborators: metadata.collaborators.filter(Boolean) as DocumentUser[]
     } : undefined,
     isLoading,
-    error,
   };
 };
 
@@ -103,15 +82,19 @@ export const useDocumentMetadata = (
  * Hook for subscribing to multiple documents' metadata
  * Useful for document lists or dashboards
  * Uses a single batch query to optimize performance and reduce rate limiting
+ *
+ * Error Handling:
+ * - Convex queries throw errors directly from the useQuery hook
+ * - Use React Error Boundaries to catch and handle query errors
+ * - Errors are thrown during rendering, not in useEffect
  */
 export const useMultipleDocumentMetadata = (
   documentIds: Id<"documents">[],
   enabled: boolean = true
 ) => {
-  // State for error handling
-  const [error, setError] = useState<Error | null>(null);
-
   // Use batch query for optimal performance
+  // Note: Convex queries throw errors directly from this hook call
+  // Use React Error Boundaries to catch and handle these errors
   const batchMetadata = useQuery(
     api.subscriptions.subscribeToMultipleDocumentMetadata,
     enabled && documentIds.length > 0 ? { documentIds } : "skip"
@@ -119,28 +102,6 @@ export const useMultipleDocumentMetadata = (
 
   // Determine loading state
   const isLoading = enabled && documentIds.length > 0 && batchMetadata === undefined;
-
-  // Handle errors with useEffect and try-catch
-  useEffect(() => {
-    if (!enabled || documentIds.length === 0) {
-      setError(null);
-      return;
-    }
-
-    try {
-      // Clear any previous errors when query parameters change
-      setError(null);
-
-      // The actual query is handled by useQuery above, but we can catch
-      // any synchronous errors that might occur during the query setup
-    } catch (caughtError) {
-      if (caughtError instanceof Error) {
-        setError(caughtError);
-      } else {
-        setError(new Error('An unknown error occurred while fetching multiple document metadata'));
-      }
-    }
-  }, [documentIds, enabled]);
 
   // Process and filter the metadata
   const processedMetadata = batchMetadata ? (batchMetadata
@@ -153,7 +114,6 @@ export const useMultipleDocumentMetadata = (
   return {
     metadata: processedMetadata,
     isLoading,
-    error,
   };
 };
 

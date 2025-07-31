@@ -1,40 +1,8 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import * as Y from "yjs";
-
-// Helper function to get current authenticated user
-async function getCurrentUser(ctx: QueryCtx | MutationCtx): Promise<Id<"users">> {
-	const userId = await getAuthUserId(ctx);
-	if (!userId) {
-		throw new ConvexError("Authentication required to access this resource");
-	}
-	return userId;
-}
-
-// Helper function to check document access permissions
-async function checkDocumentAccess(
-	ctx: QueryCtx | MutationCtx,
-	documentId: Id<"documents">,
-	userId: Id<"users">,
-): Promise<Doc<"documents">> {
-	const document = await ctx.db.get(documentId);
-	if (!document) {
-		throw new ConvexError("Document not found");
-	}
-
-	const hasAccess =
-		document.ownerId === userId ||
-		document.isPublic ||
-		document.collaborators?.includes(userId);
-
-	if (!hasAccess) {
-		throw new ConvexError("Access denied to this document");
-	}
-
-	return document;
-}
+import { getCurrentUser, checkDocumentAccess } from "./authHelpers";
 
 /**
  * Query to get Y.Doc state for synchronization
@@ -214,9 +182,15 @@ export const applyYjsUpdate = mutation({
 				mergedUpdate = new Uint8Array(update);
 			}
 
-			// Store the merged update
+			// Create a temporary Y.Doc to compute the new state vector
+			const tempDoc = new Y.Doc();
+			Y.applyUpdate(tempDoc, mergedUpdate);
+			const newStateVector = Y.encodeStateVector(tempDoc);
+
+			// Store the merged update and updated state vector
 			await ctx.db.patch(documentId, {
 				yjsState: mergedUpdate,
+				yjsStateVector: newStateVector,
 				yjsUpdatedAt: now,
 				updatedAt: now,
 			});
