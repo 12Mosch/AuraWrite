@@ -1,25 +1,31 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
-import SlateEditor from "../components/SlateEditor";
+import CollaborativeEditorDemo from "../components/CollaborativeEditorDemo";
 import "./index.css";
+import { ErrorProvider } from "@/contexts/ErrorContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function App() {
 	return (
-		<div className="min-h-screen bg-gray-50">
-			<AuthLoading>
-				<div className="flex items-center justify-center min-h-screen">
-					<div className="text-lg">Loading...</div>
+		<ErrorProvider>
+			<ErrorBoundary>
+				<div className="min-h-screen bg-gray-50">
+					<AuthLoading>
+						<div className="flex items-center justify-center min-h-screen">
+							<div className="text-lg">Loading...</div>
+						</div>
+					</AuthLoading>
+
+					<Unauthenticated>
+						<SignInForm />
+					</Unauthenticated>
+
+					<Authenticated>
+						<AuthenticatedApp />
+					</Authenticated>
 				</div>
-			</AuthLoading>
-
-			<Unauthenticated>
-				<SignInForm />
-			</Unauthenticated>
-
-			<Authenticated>
-				<AuthenticatedApp />
-			</Authenticated>
-		</div>
+			</ErrorBoundary>
+		</ErrorProvider>
 	);
 }
 
@@ -119,17 +125,8 @@ function AuthenticatedApp() {
 				</div>
 			</header>
 
-			<main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-				<div className="bg-white rounded-lg shadow p-6">
-					<h2 className="text-lg font-medium mb-4">Welcome to AuraWrite!</h2>
-					<p className="text-gray-600 mb-6">
-						Start writing your document below. Use Ctrl+B for bold and Ctrl+I for italic.
-					</p>
-					<SlateEditor
-						placeholder="Start typing your document here..."
-						className="w-full"
-					/>
-				</div>
+			<main className="py-8">
+				<CollaborativeEditorDemo />
 			</main>
 		</div>
 	);
