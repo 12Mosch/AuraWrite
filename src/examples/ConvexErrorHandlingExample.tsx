@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { useMutation, useAction } from 'convex/react';
+import { useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
 import { useDocumentMetadata, useMultipleDocumentMetadata } from '../hooks/useDocumentMetadata';
@@ -151,10 +151,31 @@ const ActionExample: React.FC<{ documentId: Id<"documents"> }> = ({ documentId }
   const [isSending, setIsSending] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  const sendInvitation = useAction(api.emails.sendCollaborationInvite);
+  // Note: This is a mock action for demonstration purposes
+  // In a real application, you would implement an email sending action
+  const sendInvitation = async ({ documentId, email }: { documentId: Id<"documents">, email: string }) => {
+    // Simulate API call delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Simulate random failures for demonstration
+    if (Math.random() < 0.3) {
+      throw new Error(`Failed to send invitation to ${email}. Please try again.`);
+    }
+
+    console.log(`Mock: Invitation sent to ${email} for document ${documentId}`);
+    return { success: true };
+  };
 
   const handleSendInvite = async () => {
-    if (!email.trim()) return;
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) return;
+  
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError('Please enter a valid email address');
+      return;
+    }
 
     setIsSending(true);
     setError(null);
@@ -163,7 +184,7 @@ const ActionExample: React.FC<{ documentId: Id<"documents"> }> = ({ documentId }
     try {
       await sendInvitation({
         documentId,
-        email: email.trim(),
+        email: trimmedEmail,
       });
       setEmail('');
       setSuccess(true);
@@ -227,6 +248,7 @@ const DocumentHeaderWithErrorBoundary = withConvexErrorBoundary(DocumentHeader, 
  * Main example component
  */
 export const ConvexErrorHandlingExample: React.FC = () => {
+  // Example IDs for demonstration - in production these would be real document IDs
   const [documentId] = useState<Id<"documents">>('example-doc-id' as Id<"documents">);
   const [documentIds] = useState<Id<"documents">[]>([
     'doc-1' as Id<"documents">,
@@ -259,7 +281,7 @@ export const ConvexErrorHandlingExample: React.FC = () => {
           {/* Multiple documents metadata with error boundary */}
           <ConvexErrorBoundary
             componentName="DocumentList"
-            fallback={(error, errorInfo, retry) => (
+            fallback={(_error, _errorInfo, retry) => (
               <div className="p-4 bg-red-50 border border-red-200 rounded">
                 <h3 className="text-red-800 font-semibold">Failed to load documents</h3>
                 <p className="text-red-600 text-sm mt-1">

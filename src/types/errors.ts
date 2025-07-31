@@ -19,6 +19,8 @@ export enum ErrorCategory {
   CONFLICT = 'conflict',
   SYSTEM = 'system',
   USER = 'user',
+  RATE_LIMIT = 'rate_limit',
+  SERVER = 'server',
 }
 
 /**
@@ -40,6 +42,7 @@ export enum RecoveryStrategy {
   MANUAL = 'manual',
   IGNORE = 'ignore',
   RELOAD = 'reload',
+  REDIRECT = 'redirect',
 }
 
 /**

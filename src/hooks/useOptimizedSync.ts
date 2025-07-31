@@ -363,9 +363,13 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
   useEffect(() => {
     const connectionTest = async (): Promise<boolean> => {
       try {
-        // Simulate connection test
-        return true;
-      } catch (error) {
+        // Test connectivity by querying a lightweight endpoint
+        const response = await fetch('/api/health', { 
+          method: 'HEAD',
+          cache: 'no-cache',
+        });
+        return response.ok;
+      } catch {
         return false;
       }
     };

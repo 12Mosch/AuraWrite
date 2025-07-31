@@ -137,7 +137,7 @@ const ConvexErrorFallback: React.FC<{
   errorInfo: ErrorInfo;
   retry: () => void;
   showDetails?: boolean;
-}> = ({ error, errorInfo, retry, showDetails = false }) => {
+}> = ({ error, errorInfo: _, retry, showDetails = false }) => {
   const errorCategory = categorizeConvexError(error);
   
   const getErrorTitle = () => {
@@ -220,7 +220,7 @@ const ConvexErrorFallback: React.FC<{
               <div className="mb-2">
                 <strong>Retryable:</strong> {errorCategory.retryable ? 'Yes' : 'No'}
               </div>
-              {showDetails && error.stack && (
+              {error.stack && (
                 <div>
                   <strong>Stack:</strong>
                   <pre className="whitespace-pre-wrap text-xs mt-1">

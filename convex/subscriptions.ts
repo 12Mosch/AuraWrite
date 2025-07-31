@@ -1,45 +1,7 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { query, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
-
-/**
- * Helper function to get current authenticated user
- * Throws error if user is not authenticated
- */
-async function getCurrentUser(ctx: QueryCtx): Promise<Id<"users">> {
-	const userId = await getAuthUserId(ctx);
-	if (!userId) {
-		throw new ConvexError("Authentication required");
-	}
-	return userId;
-}
-
-/**
- * Helper function to check if user has access to a document
- * Returns the document if access is granted, throws error otherwise
- */
-async function checkDocumentAccess(
-	ctx: QueryCtx,
-	documentId: Id<"documents">,
-	userId: Id<"users">,
-): Promise<Doc<"documents">> {
-	const document = await ctx.db.get(documentId);
-	if (!document) {
-		throw new ConvexError("Document not found");
-	}
-
-	const hasAccess =
-		document.ownerId === userId ||
-		document.isPublic ||
-		document.collaborators?.includes(userId);
-
-	if (!hasAccess) {
-		throw new ConvexError("Access denied");
-	}
-
-	return document;
-}
+import { getCurrentUser, checkDocumentAccess } from "./authHelpers";
 
 /**
  * Helper function to enrich a document with user details (collaborators and owner)

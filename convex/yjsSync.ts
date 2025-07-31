@@ -138,7 +138,6 @@ export const subscribeToYjsState = query({
 
 		// Return minimal data for efficient real-time updates
 		return {
-			_id: document._id,
 			yjsState: document.yjsState,
 			yjsStateVector: document.yjsStateVector,
 			yjsUpdatedAt: document.yjsUpdatedAt,
@@ -186,6 +185,7 @@ export const applyYjsUpdate = mutation({
 			const tempDoc = new Y.Doc();
 			Y.applyUpdate(tempDoc, mergedUpdate);
 			const newStateVector = Y.encodeStateVector(tempDoc);
+			tempDoc.destroy();
 
 			// Store the merged update and updated state vector
 			await ctx.db.patch(documentId, {
