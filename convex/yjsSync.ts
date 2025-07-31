@@ -29,6 +29,34 @@ export const getYjsState = query({
 });
 
 /**
+ * Real-time subscription query for Y.js state changes
+ * This query will automatically re-run when the document's Y.js state changes,
+ * enabling real-time collaboration between clients
+ */
+export const subscribeToYjsState = query({
+	args: { documentId: v.id("documents") },
+	returns: v.object({
+		yjsState: v.optional(v.bytes()),
+		yjsStateVector: v.optional(v.bytes()),
+		yjsUpdatedAt: v.optional(v.number()),
+		_creationTime: v.number(),
+		documentId: v.id("documents"),
+	}),
+	handler: async (ctx, { documentId }) => {
+		const userId = await getCurrentUser(ctx);
+		const document = await checkDocumentAccess(ctx, documentId, userId);
+
+		return {
+			yjsState: document.yjsState,
+			yjsStateVector: document.yjsStateVector,
+			yjsUpdatedAt: document.yjsUpdatedAt,
+			_creationTime: document._creationTime,
+			documentId: document._id,
+		};
+	},
+});
+
+/**
  * Mutation to update Y.Doc state
  * Applies Y.Doc updates to the server state with proper merging
  */

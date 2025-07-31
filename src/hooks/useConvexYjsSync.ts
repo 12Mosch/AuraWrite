@@ -98,14 +98,14 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
   // Network status
   const { isOnline } = useNetworkStatus();
 
-  // Convex hooks
+  // Convex hooks - Use the subscription query for real-time updates
   const serverState = useQuery(
-    api.yjsSync.getYjsState,
+    api.yjsSync.subscribeToYjsState,
     enabled && documentId ? { documentId } : "skip"
   );
   const initializeYjsStateMutation = useMutation(api.yjsSync.initializeYjsState);
   const updateYjsStateMutation = useMutation(api.yjsSync.updateYjsState);
-  // Note: getYjsState is used for both real-time subscription and direct queries
+  // Note: subscribeToYjsState automatically re-runs when server state changes
 
   // State management
   const [isSyncing, setIsSyncing] = useState(false);
@@ -116,6 +116,7 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
 
   // Refs for managing sync state
   const lastSyncedStateRef = useRef<Uint8Array | null>(null);
+  const lastSyncTimestampRef = useRef<number | null>(null);
   const pendingUpdatesRef = useRef<Uint8Array[]>([]);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef(0);
@@ -249,6 +250,7 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
 
       if (result.success) {
         lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
+        lastSyncTimestampRef.current = Date.now(); // Track when we last sent an update
         retryCountRef.current = 0;
         setSyncError(null);
         setIsSynced(true);
@@ -390,18 +392,22 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     if (serverState.yjsState && isInitializedRef.current) {
       const serverStateBytes = new Uint8Array(serverState.yjsState);
 
-      // Only apply if the server state is different from our last synced state
-      const currentState = Y.encodeStateAsUpdate(yDoc);
-      if (!lastSyncedStateRef.current ||
-          !areUint8ArraysEqual(currentState, lastSyncedStateRef.current)) {
+      // Check if server state is newer than our last sync
+      const shouldApplyUpdate = !lastSyncTimestampRef.current ||
+        (serverState.yjsUpdatedAt && serverState.yjsUpdatedAt > lastSyncTimestampRef.current);
 
-        // Check if server state is newer
-        if (!serverState.yjsUpdatedAt ||
-            !lastSyncedStateRef.current ||
-            serverState.yjsUpdatedAt > (Date.now() - 5000)) { // 5 second tolerance
+      if (shouldApplyUpdate) {
+        console.log('Applying server state update from subscription', {
+          serverTimestamp: serverState.yjsUpdatedAt,
+          lastSyncTimestamp: lastSyncTimestampRef.current
+        });
 
-          console.log('Applying server state update from subscription');
-          applyServerUpdate(serverStateBytes, 'server-subscription');
+        // Apply the server update
+        applyServerUpdate(serverStateBytes, 'server-subscription');
+
+        // Update our sync timestamp
+        if (serverState.yjsUpdatedAt) {
+          lastSyncTimestampRef.current = serverState.yjsUpdatedAt;
         }
       }
     }
