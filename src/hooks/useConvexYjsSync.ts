@@ -100,12 +100,12 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
 
   // Convex hooks
   const serverState = useQuery(
-    api.yjsSync.subscribeToYjsState,
+    api.yjsSync.getYjsState,
     enabled && documentId ? { documentId } : "skip"
   );
   const initializeYjsStateMutation = useMutation(api.yjsSync.initializeYjsState);
   const updateYjsStateMutation = useMutation(api.yjsSync.updateYjsState);
-  // Note: getYjsState will be called directly when needed for resync
+  // Note: getYjsState is used for both real-time subscription and direct queries
 
   // State management
   const [isSyncing, setIsSyncing] = useState(false);

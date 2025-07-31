@@ -1,6 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
-import { Doc, Id } from "./_generated/dataModel";
+import { mutation, query } from "./_generated/server";
 import * as Y from "yjs";
 import { getCurrentUser, checkDocumentAccess } from "./authHelpers";
 
@@ -123,26 +122,6 @@ export const initializeYjsState = mutation({
 		});
 
 		return true;
-	},
-});
-
-/**
- * Query to subscribe to Y.Doc state changes
- * Optimized for real-time synchronization
- */
-export const subscribeToYjsState = query({
-	args: { documentId: v.id("documents") },
-	handler: async (ctx, { documentId }) => {
-		const userId = await getCurrentUser(ctx);
-		const document = await checkDocumentAccess(ctx, documentId, userId);
-
-		// Return minimal data for efficient real-time updates
-		return {
-			yjsState: document.yjsState,
-			yjsStateVector: document.yjsStateVector,
-			yjsUpdatedAt: document.yjsUpdatedAt,
-			_creationTime: document._creationTime,
-		};
 	},
 });
 
