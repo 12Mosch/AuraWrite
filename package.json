@@ -7,11 +7,12 @@
 	"scripts": {
 		"dev:react": "vite",
 		"dev:electron": "npm run transpile:electron && cross-env NODE_ENV=development electron .",
-		"dev": "npm-run-all --parallel dev:react dev:electron",
+		"dev": "npm-run-all --parallel dev:react dev:electron convex",
 		"build": "tsc -b && vite build",
 		"lint": "tsc -noEmit && npx @biomejs/biome check --write",
 		"transpile:electron": "tsc --project src/electron/tsconfig.json",
-		"preview": "vite preview"
+		"preview": "vite preview",
+		"convex": "npx convex dev"
 	},
 	"dependencies": {
 		"@auth/core": "^0.37.0",
