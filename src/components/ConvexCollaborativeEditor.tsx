@@ -167,7 +167,7 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
       console.warn('Error getting editor value from Y.js:', error);
       return initialValue;
     }
-  }, [editor.children, isLocalSynced, initialValue]);
+  }, [editor, isLocalSynced, initialValue]);
 
   // Connect/disconnect the Yjs editor
   useEffect(() => {

@@ -272,7 +272,7 @@ export const useSharedYjsDocument = (options: UseSharedYjsDocumentOptions): UseS
     updateState()
 
     // Set up polling to check for state changes
-    // In a real implementation, you might want to use events instead
+    // TODO: Use events instead of polling
     const interval = setInterval(updateState, 500) // More frequent updates for better responsiveness
 
     return () => clearInterval(interval)

@@ -131,17 +131,9 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
    * Browser-compatible utility function to compare two Uint8Array instances
    */
   const areUint8ArraysEqual = useCallback((a: Uint8Array, b: Uint8Array): boolean => {
-    if (a.length !== b.length) {
-      return false;
-    }
-
-    for (let i = 0; i < a.length; i++) {
-      if (a[i] !== b[i]) {
-        return false;
-      }
-    }
-
-    return true;
+    if (a.length !== b.length) return false;
+    // Use every() for early termination on first mismatch
+    return a.every((value, index) => value === b[index]);
   }, []);
 
   /**
