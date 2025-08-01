@@ -82,9 +82,10 @@ class YjsDocumentManager {
 					console.log(
 						"Loading initial value into shared Y.Doc (no persistence)",
 					);
+					const initialValue = options.initialValue;
 					docInfo.yDoc.transact(() => {
 						docInfo.sharedType.applyDelta(
-							slateNodesToInsertDelta(options.initialValue!),
+							slateNodesToInsertDelta(initialValue),
 						);
 					});
 				}
@@ -103,8 +104,20 @@ class YjsDocumentManager {
 
 	private async setupPersistence(
 		documentId: string,
-		docInfo: any,
-		options: any,
+		docInfo: {
+			yDoc: Y.Doc;
+			sharedType: Y.XmlText;
+			indexeddbProvider?: IndexeddbPersistence;
+			refCount: number;
+			isSynced: boolean;
+			persistenceError?: string;
+			persistenceAvailable: boolean;
+		},
+		options: {
+			initialValue?: Descendant[];
+			recoverDocument?: (id: Id<"documents">) => Promise<Y.Doc | null>;
+			createFallback?: () => Y.Doc;
+		},
 	) {
 		try {
 			const indexeddbProvider = new IndexeddbPersistence(
@@ -130,9 +143,10 @@ class YjsDocumentManager {
 						options.initialValue.length > 0
 					) {
 						console.log("Loading initial value into empty shared Y.Doc");
+						const initialValue = options.initialValue;
 						docInfo.yDoc.transact(() => {
 							docInfo.sharedType.applyDelta(
-								slateNodesToInsertDelta(options.initialValue),
+								slateNodesToInsertDelta(initialValue),
 							);
 						});
 					}
@@ -324,6 +338,7 @@ export const useSharedYjsDocument = (
 		recoverDocument,
 		createFallback,
 		initialValue,
+		documentManager.getDocument,
 	]);
 
 	// Update local state when document state changes
@@ -352,7 +367,7 @@ export const useSharedYjsDocument = (
 		const docIdString =
 			typeof documentId === "string" ? documentId : String(documentId);
 
-		const handleUpdate = (update: Uint8Array, origin: any) => {
+		const handleUpdate = (update: Uint8Array, origin: unknown) => {
 			if (!isDebug) return;
 			console.log("Shared Y.Doc update received:", {
 				documentId: docIdString,
@@ -389,7 +404,7 @@ export const useSharedYjsDocument = (
 			yDoc.off("update", handleUpdate);
 			yDoc.off("afterTransaction", handleAfterTransaction);
 		};
-	}, [docInfo, documentId]);
+	}, [docInfo, documentId, isDebug]);
 
 	// Release document reference on unmount
 	useEffect(() => {

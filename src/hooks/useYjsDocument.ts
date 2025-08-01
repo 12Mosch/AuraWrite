@@ -199,11 +199,18 @@ export const useYjsDocument = (
 		}
 
 		return { yDoc, sharedType, indexeddbProvider };
-	}, [documentId, enablePersistence, enableGarbageCollection]);
+	}, [
+		documentId,
+		enablePersistence,
+		enableGarbageCollection,
+		createFallback,
+		initialValue,
+		recoverDocument,
+	]);
 
 	// Set up event listeners and cleanup
 	useEffect(() => {
-		const handleUpdate = (update: Uint8Array, origin: any) => {
+		const handleUpdate = (update: Uint8Array, origin: unknown) => {
 			console.log("Y.Doc update received:", {
 				updateSize: update.length,
 				origin: origin?.constructor?.name || origin,

@@ -93,6 +93,7 @@ export const ConvexYjsSyncExample: React.FC = () => {
 					{exampleDocuments.map((doc) => (
 						<button
 							key={doc.id}
+							type="button"
 							onClick={() => setSelectedDocId(doc.id as Id<"documents">)}
 							className={`px-4 py-2 rounded-md border ${
 								selectedDocId === doc.id

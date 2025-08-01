@@ -95,6 +95,7 @@ export const CollaborativeEditingTest: React.FC = () => {
 					<div className="bg-red-50 border border-red-200 rounded-md p-4">
 						<p className="text-red-700">{error}</p>
 						<button
+							type="button"
 							onClick={handleCreateNewDocument}
 							className="mt-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
 						>
@@ -138,6 +139,7 @@ export const CollaborativeEditingTest: React.FC = () => {
 				<div className="mb-6 p-4 bg-gray-50 rounded-lg">
 					<div className="flex flex-wrap gap-4 items-center mb-4">
 						<button
+							type="button"
 							onClick={handleCreateNewDocument}
 							disabled={isCreatingDocument}
 							className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
@@ -170,6 +172,7 @@ export const CollaborativeEditingTest: React.FC = () => {
 							<div className="flex flex-wrap gap-2">
 								{userDocuments.slice(0, 5).map((doc) => (
 									<button
+										type="button"
 										key={doc._id}
 										onClick={() => handleSelectDocument(doc._id)}
 										className={`px-3 py-1 text-xs rounded-md transition-colors ${

@@ -89,6 +89,7 @@ export const EnhancedErrorDisplay: React.FC<EnhancedErrorDisplayProps> =
 								<div className="flex gap-2">
 									{syncError && (
 										<button
+											type="button"
 											onClick={() => resync()}
 											className="text-xs bg-red-100 hover:bg-red-200 text-red-800 px-2 py-1 rounded"
 											disabled={isSyncing}
@@ -98,6 +99,7 @@ export const EnhancedErrorDisplay: React.FC<EnhancedErrorDisplayProps> =
 									)}
 									{!isConnected && reconnect && (
 										<button
+											type="button"
 											onClick={() => reconnect()}
 											className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"
 											disabled={isSyncing}
@@ -130,6 +132,7 @@ export const EnhancedErrorDisplay: React.FC<EnhancedErrorDisplayProps> =
 								</div>
 								{offlineMode.isOffline && offlineMode.hasUnsyncedChanges && (
 									<button
+										type="button"
 										onClick={offlineMode.forceSync}
 										disabled={offlineMode.isSyncing}
 										className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"

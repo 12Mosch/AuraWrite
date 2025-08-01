@@ -7,26 +7,6 @@ import { ConnectionState } from "./useConnectionManager";
 import { useNetworkStatus } from "./useNetworkStatus";
 
 /**
- * Browser-compatible utility function to compare two Uint8Array instances
- * @param a First Uint8Array to compare
- * @param b Second Uint8Array to compare
- * @returns true if arrays have the same length and identical contents
- */
-const areUint8ArraysEqual = (a: Uint8Array, b: Uint8Array): boolean => {
-	if (a.length !== b.length) {
-		return false;
-	}
-
-	for (let i = 0; i < a.length; i++) {
-		if (a[i] !== b[i]) {
-			return false;
-		}
-	}
-
-	return true;
-};
-
-/**
  * Configuration options for Convex-Yjs synchronization
  */
 interface UseConvexYjsSyncOptions {
@@ -169,7 +149,7 @@ export const useConvexYjsSync = (
 
 			return ConnectionState.DISCONNECTED;
 		},
-		[enabled, maxRetries],
+		[enabled],
 	);
 
 	/**
@@ -529,7 +509,7 @@ export const useConvexYjsSync = (
 		}
 
 		setIsConnected(true);
-	}, [enabled, serverState, yDoc, applyServerUpdate]);
+	}, [enabled, serverState, applyServerUpdate, documentId]);
 
 	// Set up Y.Doc update listener
 	useEffect(() => {

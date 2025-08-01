@@ -5,7 +5,7 @@
  * used throughout the application for consistent error management.
  */
 
-import { ConvexError } from "convex/values";
+import { ConvexError, type Value } from "convex/values";
 
 /**
  * Base error categories for classification
@@ -49,6 +49,8 @@ export enum RecoveryStrategy {
  * Base error interface that all application errors should implement
  */
 export interface BaseError {
+	/** Error name (required for Error interface compatibility) */
+	name: string;
 	/** Unique error code for identification */
 	code: string;
 	/** Human-readable error message */
@@ -60,7 +62,7 @@ export interface BaseError {
 	/** Suggested recovery strategy */
 	recoveryStrategy: RecoveryStrategy;
 	/** Additional context data */
-	context?: Record<string, any>;
+	context?: Record<string, unknown>;
 	/** Timestamp when error occurred */
 	timestamp: Date;
 	/** Whether this error can be retried */
@@ -96,8 +98,8 @@ export interface SyncError extends BaseError {
 	/** Conflicting changes if applicable */
 	conflicts?: Array<{
 		field: string;
-		localValue: any;
-		remoteValue: any;
+		localValue: unknown;
+		remoteValue: unknown;
 	}>;
 }
 
@@ -208,20 +210,22 @@ export interface ConvexErrorData {
 	/** Error code from Convex */
 	code?: string;
 	/** Additional error data */
-	data?: Record<string, any>;
+	data?: Record<string, unknown>;
 }
 
 /**
  * Helper function to check if error is a ConvexError
  */
-export function isConvexError(error: any): error is ConvexError {
+export function isConvexError(error: unknown): error is ConvexError<Value> {
 	return error instanceof ConvexError;
 }
 
 /**
  * Helper function to extract error data from ConvexError
  */
-export function extractConvexErrorData(error: ConvexError): ConvexErrorData {
+export function extractConvexErrorData(
+	error: ConvexError<Value>,
+): ConvexErrorData {
 	const data = error.data;
 
 	if (typeof data === "string") {
@@ -229,10 +233,11 @@ export function extractConvexErrorData(error: ConvexError): ConvexErrorData {
 	}
 
 	if (typeof data === "object" && data !== null) {
+		const dataObj = data as Record<string, unknown>;
 		return {
-			message: data.message || "Unknown Convex error",
-			code: data.code,
-			data: data,
+			message: (dataObj.message as string) || "Unknown Convex error",
+			code: dataObj.code as string | undefined,
+			data: dataObj,
 		};
 	}
 
@@ -248,6 +253,7 @@ export const ErrorFactory = {
 		message: string,
 		options: Partial<NetworkError> = {},
 	): NetworkError => ({
+		name: "NetworkError",
 		code,
 		message,
 		category: ErrorCategory.NETWORK,
@@ -268,6 +274,7 @@ export const ErrorFactory = {
 		operation: "push" | "pull" | "merge",
 		options: Partial<SyncError> = {},
 	): SyncError => ({
+		name: "SyncError",
 		code,
 		message,
 		category: ErrorCategory.SYNC,
@@ -288,6 +295,7 @@ export const ErrorFactory = {
 		storageType: "indexeddb" | "localstorage" | "memory",
 		options: Partial<PersistenceError> = {},
 	): PersistenceError => ({
+		name: "PersistenceError",
 		code,
 		message,
 		category: ErrorCategory.PERSISTENCE,
@@ -304,6 +312,7 @@ export const ErrorFactory = {
 		message: string,
 		options: Partial<AuthenticationError> = {},
 	): AuthenticationError => ({
+		name: "AuthenticationError",
 		code,
 		message,
 		category: ErrorCategory.AUTHENTICATION,
@@ -320,6 +329,7 @@ export const ErrorFactory = {
 		field?: string,
 		options: Partial<ValidationError> = {},
 	): ValidationError => ({
+		name: "ValidationError",
 		code,
 		message,
 		category: ErrorCategory.VALIDATION,
@@ -338,6 +348,7 @@ export const ErrorFactory = {
 		operations: ConflictError["operations"],
 		options: Partial<ConflictError> = {},
 	): ConflictError => ({
+		name: "ConflictError",
 		code,
 		message,
 		category: ErrorCategory.CONFLICT,

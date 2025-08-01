@@ -8,7 +8,7 @@
  * - Graceful degradation of features
  */
 
-import { useConvex } from "convex/react";
+import { type ConvexReactClient, useConvex } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { api } from "../../convex/_generated/api";
@@ -32,13 +32,43 @@ export enum OfflineMode {
 }
 
 /**
+ * Offline operation data types
+ */
+interface UpdateOperationData {
+	update: ArrayLike<number>;
+	origin?: unknown;
+}
+
+interface InsertOperationData {
+	position: number;
+	content: string;
+}
+
+interface DeleteOperationData {
+	position: number;
+	length: number;
+}
+
+interface FormatOperationData {
+	position: number;
+	length: number;
+	attributes: Record<string, unknown>;
+}
+
+type OfflineOperationData =
+	| UpdateOperationData
+	| InsertOperationData
+	| DeleteOperationData
+	| FormatOperationData;
+
+/**
  * Offline operation types
  */
 interface OfflineOperation {
 	id: string;
 	type: "insert" | "delete" | "format" | "update";
 	timestamp: number;
-	data: any;
+	data: OfflineOperationData;
 	applied: boolean;
 }
 
@@ -131,7 +161,7 @@ export const useOfflineMode = (
 	 * Add offline operation to queue
 	 */
 	const addOfflineOperation = useCallback(
-		(type: OfflineOperation["type"], data: any) => {
+		(type: OfflineOperation["type"], data: OfflineOperationData) => {
 			const operation: OfflineOperation = {
 				id: `${Date.now()}_${performance.now()}_${Math.random().toString(36).substring(2, 8)}`,
 				type,
@@ -174,7 +204,7 @@ export const useOfflineMode = (
 				handleError(storageError);
 			}
 		},
-		[documentId, maxOfflineOperations],
+		[documentId, maxOfflineOperations, handleError],
 	);
 
 	/**
@@ -222,10 +252,11 @@ export const useOfflineMode = (
 
 			try {
 				switch (operation.type) {
-					case "update":
+					case "update": {
 						// Apply Y.Doc binary update
-						if (operation.data?.update) {
-							const updateArray = new Uint8Array(operation.data.update);
+						const updateData = operation.data as UpdateOperationData;
+						if (updateData.update) {
+							const updateArray = new Uint8Array(updateData.update);
 							yDoc.transact(() => {
 								Y.applyUpdate(yDoc, updateArray);
 							}, "offline-sync");
@@ -233,56 +264,53 @@ export const useOfflineMode = (
 							console.warn("Update operation missing binary update data");
 						}
 						break;
+					}
 
-					case "insert":
+					case "insert": {
 						// Apply text insertion to shared type
-						if (
-							operation.data?.position !== undefined &&
-							operation.data?.content
-						) {
+						const insertData = operation.data as InsertOperationData;
+						if (insertData.position !== undefined && insertData.content) {
 							const sharedType = yDoc.get("content", Y.XmlText);
 							yDoc.transact(() => {
-								sharedType.insert(
-									operation.data.position,
-									operation.data.content,
-								);
+								sharedType.insert(insertData.position, insertData.content);
 							}, "offline-sync");
 						} else {
 							console.warn("Insert operation missing position or content data");
 						}
 						break;
+					}
 
-					case "delete":
+					case "delete": {
 						// Apply text deletion to shared type
+						const deleteData = operation.data as DeleteOperationData;
 						if (
-							operation.data?.position !== undefined &&
-							operation.data?.length !== undefined
+							deleteData.position !== undefined &&
+							deleteData.length !== undefined
 						) {
 							const sharedType = yDoc.get("content", Y.XmlText);
 							yDoc.transact(() => {
-								sharedType.delete(
-									operation.data.position,
-									operation.data.length,
-								);
+								sharedType.delete(deleteData.position, deleteData.length);
 							}, "offline-sync");
 						} else {
 							console.warn("Delete operation missing position or length data");
 						}
 						break;
+					}
 
-					case "format":
+					case "format": {
 						// Apply formatting to shared type
+						const formatData = operation.data as FormatOperationData;
 						if (
-							operation.data?.position !== undefined &&
-							operation.data?.length !== undefined &&
-							operation.data?.attributes
+							formatData.position !== undefined &&
+							formatData.length !== undefined &&
+							formatData.attributes
 						) {
 							const sharedType = yDoc.get("content", Y.XmlText);
 							yDoc.transact(() => {
 								sharedType.format(
-									operation.data.position,
-									operation.data.length,
-									operation.data.attributes,
+									formatData.position,
+									formatData.length,
+									formatData.attributes,
 								);
 							}, "offline-sync");
 						} else {
@@ -291,6 +319,7 @@ export const useOfflineMode = (
 							);
 						}
 						break;
+					}
 
 					default:
 						console.warn(`Unknown operation type: ${operation.type}`);
@@ -394,6 +423,8 @@ export const useOfflineMode = (
 		documentId,
 		autoResolveConflicts,
 		handleSyncError,
+		applyOfflineOperation,
+		convex,
 	]);
 
 	/**
@@ -549,7 +580,7 @@ export const useOfflineMode = (
  * @returns Promise<boolean> - true if conflicts exist, false otherwise
  */
 async function checkForConflicts(
-	convex: any,
+	convex: ConvexReactClient,
 	documentId: string,
 	currentState: Uint8Array,
 ): Promise<boolean> {

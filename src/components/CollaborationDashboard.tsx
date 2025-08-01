@@ -70,9 +70,12 @@ export const CollaborationDashboard: React.FC<CollaborationDashboardProps> = ({
 	return (
 		<div className={`bg-white border rounded-lg shadow-sm ${className}`}>
 			{/* Header */}
-			<div
-				className="flex items-center justify-between p-3 border-b cursor-pointer hover:bg-gray-50"
+			<button
+				type="button"
+				className="flex items-center justify-between p-3 border-b cursor-pointer hover:bg-gray-50 w-full text-left"
 				onClick={() => setIsExpanded(!isExpanded)}
+				aria-expanded={isExpanded}
+				aria-label="Toggle collaboration dashboard"
 			>
 				<div className="flex items-center space-x-3">
 					<div className="flex items-center space-x-2">
@@ -81,7 +84,9 @@ export const CollaborationDashboard: React.FC<CollaborationDashboardProps> = ({
 							fill="none"
 							stroke="currentColor"
 							viewBox="0 0 24 24"
+							aria-label="Users"
 						>
+							<title>Users</title>
 							<path
 								strokeLinecap="round"
 								strokeLinejoin="round"
@@ -119,7 +124,9 @@ export const CollaborationDashboard: React.FC<CollaborationDashboardProps> = ({
 						fill="none"
 						stroke="currentColor"
 						viewBox="0 0 24 24"
+						aria-label={isExpanded ? "Collapse" : "Expand"}
 					>
+						<title>{isExpanded ? "Collapse" : "Expand"}</title>
 						<path
 							strokeLinecap="round"
 							strokeLinejoin="round"
@@ -128,7 +135,7 @@ export const CollaborationDashboard: React.FC<CollaborationDashboardProps> = ({
 						/>
 					</svg>
 				</div>
-			</div>
+			</button>
 
 			{/* Expanded Content */}
 			{isExpanded && (
@@ -141,6 +148,7 @@ export const CollaborationDashboard: React.FC<CollaborationDashboardProps> = ({
 							{ id: "performance", label: "Performance", icon: "📊" },
 						].map((tab) => (
 							<button
+								type="button"
 								key={tab.id}
 								onClick={() => setActiveTab(tab.id as TabType)}
 								className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
@@ -270,7 +278,9 @@ export const CollaborationDashboard: React.FC<CollaborationDashboardProps> = ({
 											fill="none"
 											stroke="currentColor"
 											viewBox="0 0 24 24"
+											aria-label="Performance chart"
 										>
+											<title>Performance chart</title>
 											<path
 												strokeLinecap="round"
 												strokeLinejoin="round"
@@ -334,6 +344,7 @@ export const FloatingCollaborationPanel: React.FC<
 		<div className={`fixed ${positionClasses[position]} z-50`}>
 			{/* Toggle Button */}
 			<button
+				type="button"
 				onClick={() => setIsVisible(!isVisible)}
 				className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-full shadow-lg transition-colors"
 				title="Collaboration Dashboard"
@@ -343,7 +354,9 @@ export const FloatingCollaborationPanel: React.FC<
 					fill="none"
 					stroke="currentColor"
 					viewBox="0 0 24 24"
+					aria-label="Collaboration Dashboard"
 				>
+					<title>Collaboration Dashboard</title>
 					<path
 						strokeLinecap="round"
 						strokeLinejoin="round"

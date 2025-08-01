@@ -60,7 +60,7 @@ export interface UsePresenceReturn {
 	/** Whether presence data is loading */
 	isLoading: boolean;
 	/** Update current user's presence */
-	updatePresence: (cursor?: any, selection?: any) => Promise<void>;
+	updatePresence: (cursor?: unknown, selection?: unknown) => Promise<void>;
 	/** Get other users (excluding current user) */
 	otherUsers: PresenceUser[];
 	/** Get current user's presence info */
@@ -104,28 +104,44 @@ export const usePresence = (
 
 	// Refs for tracking state
 	const intervalRef = useRef<NodeJS.Timeout | null>(null);
-	const lastCursorRef = useRef<any>(null);
-	const lastSelectionRef = useRef<any>(null);
+	const lastCursorRef = useRef<unknown>(null);
+	const lastSelectionRef = useRef<unknown>(null);
 
 	// Update presence function
 	const [updateError, setUpdateError] = useState<Error | null>(null);
 
 	const updatePresence = useCallback(
-		async (cursor?: any, selection?: any) => {
+		async (cursor?: unknown, selection?: unknown) => {
 			if (!documentId || !enabled) return;
 
 			try {
 				setUpdateError(null);
-				// Only include cursor/selection if tracking is enabled
-				const presenceData: any = { documentId };
+				// Build presence data with proper typing
+				const presenceData: {
+					documentId: Id<"documents">;
+					cursor?: {
+						anchor: { path: number[]; offset: number };
+						focus: { path: number[]; offset: number };
+					};
+					selection?: {
+						anchor: { path: number[]; offset: number };
+						focus: { path: number[]; offset: number };
+					};
+				} = { documentId };
 
 				if (trackCursor && cursor) {
-					presenceData.cursor = cursor;
+					presenceData.cursor = cursor as {
+						anchor: { path: number[]; offset: number };
+						focus: { path: number[]; offset: number };
+					};
 					lastCursorRef.current = cursor;
 				}
 
 				if (trackSelection && selection) {
-					presenceData.selection = selection;
+					presenceData.selection = selection as {
+						anchor: { path: number[]; offset: number };
+						focus: { path: number[]; offset: number };
+					};
 					lastSelectionRef.current = selection;
 				}
 
@@ -171,9 +187,7 @@ export const usePresence = (
 	const isLoading = enabled && documentId !== null && presence === undefined;
 	const otherUsers =
 		presence?.activeUsers.filter((user) => user && !user.isCurrentUser) || [];
-	const currentUser = presence?.activeUsers.find(
-		(user) => user && user.isCurrentUser,
-	);
+	const currentUser = presence?.activeUsers.find((user) => user?.isCurrentUser);
 	const isActive = enabled && !!documentId;
 
 	return {

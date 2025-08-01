@@ -91,7 +91,7 @@ const CollaborativeEditorDemo: React.FC = () => {
 				setDocumentId(docId);
 				setEditorContent([]);
 				setValidationError("");
-			} catch (error) {
+			} catch (_error) {
 				setValidationError("Please enter a valid Convex document ID");
 			}
 		} else {
@@ -154,6 +154,7 @@ const CollaborativeEditorDemo: React.FC = () => {
 
 					<div className="flex flex-wrap gap-4 items-center mb-4">
 						<button
+							type="button"
 							onClick={handleNewDocument}
 							disabled={isCreatingDocument}
 							className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -173,6 +174,7 @@ const CollaborativeEditorDemo: React.FC = () => {
 								className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
 							/>
 							<button
+								type="button"
 								onClick={handleCustomDocument}
 								className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
 							>
@@ -215,6 +217,7 @@ const CollaborativeEditorDemo: React.FC = () => {
 							<div className="flex flex-wrap gap-2">
 								{userDocuments.slice(0, 5).map((doc) => (
 									<button
+										type="button"
 										key={doc._id}
 										onClick={() => handleSelectDocument(doc._id)}
 										className={`px-3 py-1 text-xs rounded-md transition-colors ${

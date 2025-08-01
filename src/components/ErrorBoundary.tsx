@@ -66,6 +66,7 @@ const DefaultErrorFallback: React.FC<{
 
 			<div className="flex gap-2 justify-center">
 				<button
+					type="button"
 					onClick={retry}
 					className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
 				>
@@ -73,6 +74,7 @@ const DefaultErrorFallback: React.FC<{
 				</button>
 
 				<button
+					type="button"
 					onClick={() => window.location.reload()}
 					className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
 				>
@@ -117,7 +119,7 @@ export class ErrorBoundary extends Component<
 	ErrorBoundaryProps,
 	ErrorBoundaryState
 > {
-	private retryTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	private retryTimeoutId: number | null = null;
 
 	constructor(props: ErrorBoundaryProps) {
 		super(props);
@@ -137,7 +139,7 @@ export class ErrorBoundary extends Component<
 		return {
 			hasError: true,
 			error,
-			errorId: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+			errorId: `error_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
 		};
 	}
 
@@ -152,6 +154,7 @@ export class ErrorBoundary extends Component<
 
 		// Create AppError for error context
 		const appError: AppError = {
+			name: "ReactErrorBoundaryError",
 			code: "REACT_ERROR_BOUNDARY",
 			message: `React component error: ${error.message}`,
 			category: ErrorCategory.SYSTEM,

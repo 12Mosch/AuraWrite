@@ -141,6 +141,33 @@ export const ErrorProvider: React.FC<ErrorProviderProps> = ({
 				retryTimeoutRef.current = null;
 			}
 		};
+	}, []);
+
+	/**
+	 * Retry last failed operation
+	 */
+	const retry = useCallback(async () => {
+		if (!state.currentError || !retryHandlerRef.current) {
+			return;
+		}
+
+		dispatch({ type: "START_RETRY" });
+
+		try {
+			await retryHandlerRef.current();
+			dispatch({ type: "END_RETRY", success: true });
+		} catch (error) {
+			console.error("Retry failed:", error);
+
+			// Update error with incremented retry count
+			const updatedError: AppError = {
+				...state.currentError,
+				retryCount: (state.currentError.retryCount || 0) + 1,
+			};
+
+			dispatch({ type: "SET_ERROR", payload: updatedError });
+			dispatch({ type: "END_RETRY", success: false });
+		}
 	}, [state.currentError]);
 
 	/**
@@ -177,7 +204,7 @@ export const ErrorProvider: React.FC<ErrorProviderProps> = ({
 				}, retryDelay);
 			}
 		},
-		[onUnhandledError],
+		[onUnhandledError, retry],
 	);
 
 	/**
@@ -192,40 +219,6 @@ export const ErrorProvider: React.FC<ErrorProviderProps> = ({
 
 		dispatch({ type: "CLEAR_ERROR" });
 		retryHandlerRef.current = null;
-	}, []);
-
-	/**
-	 * Retry last failed operation
-	 */
-	const retry = useCallback(async () => {
-		if (!state.currentError || !retryHandlerRef.current) {
-			return;
-		}
-
-		dispatch({ type: "START_RETRY" });
-
-		try {
-			await retryHandlerRef.current();
-			dispatch({ type: "END_RETRY", success: true });
-		} catch (error) {
-			console.error("Retry failed:", error);
-
-			// Update error with incremented retry count
-			const updatedError: AppError = {
-				...state.currentError,
-				retryCount: (state.currentError.retryCount || 0) + 1,
-			};
-
-			dispatch({ type: "SET_ERROR", payload: updatedError });
-			dispatch({ type: "END_RETRY", success: false });
-		}
-	}, [state.currentError]);
-
-	/**
-	 * Set retry handler for current error
-	 */
-	const setRetryHandler = useCallback((handler: () => Promise<void>) => {
-		retryHandlerRef.current = handler;
 	}, []);
 
 	/**
@@ -344,7 +337,7 @@ export const useErrorHandler = () => {
 	const { addError } = useError();
 
 	return useCallback(
-		(error: Error | AppError | unknown, context?: Record<string, any>) => {
+		(error: Error | AppError | unknown, context?: Record<string, unknown>) => {
 			let appError: AppError;
 
 			if (error && typeof error === "object" && "category" in error) {
@@ -353,6 +346,7 @@ export const useErrorHandler = () => {
 			} else if (error instanceof Error) {
 				// Convert Error to AppError
 				appError = {
+					name: "SystemError",
 					code: "UNKNOWN_ERROR",
 					message: error.message,
 					category: ErrorCategory.SYSTEM,
@@ -365,6 +359,7 @@ export const useErrorHandler = () => {
 			} else {
 				// Unknown error type
 				appError = {
+					name: "SystemError",
 					code: "UNKNOWN_ERROR",
 					message: String(error) || "An unknown error occurred",
 					category: ErrorCategory.SYSTEM,

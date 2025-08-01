@@ -212,6 +212,7 @@ const ConvexErrorFallback: React.FC<{
 				<div className="flex gap-2 justify-center">
 					{errorCategory.retryable && (
 						<button
+							type="button"
 							onClick={retry}
 							className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
 						>
@@ -220,6 +221,7 @@ const ConvexErrorFallback: React.FC<{
 					)}
 
 					<button
+						type="button"
 						onClick={() => window.location.reload()}
 						className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
 					>
@@ -271,7 +273,7 @@ export const ConvexErrorBoundary: React.FC<ConvexErrorBoundaryProps> = ({
 }) => {
 	const handleError = (error: AppError) => {
 		// Log Convex-specific error information
-		if (isConvexError(error as any)) {
+		if (isConvexError(error)) {
 			console.error("Convex query error detected:", {
 				message: error.message,
 				category: error.category,

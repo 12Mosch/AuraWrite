@@ -80,11 +80,14 @@ export const SyncPerformanceMonitor: React.FC<SyncPerformanceMonitorProps> = ({
 	return (
 		<div className={`bg-gray-900 text-white text-xs font-mono ${className}`}>
 			{/* Compact View */}
-			<div
-				className="flex items-center justify-between p-2 cursor-pointer hover:bg-gray-800"
-				onClick={() => setIsExpanded(!isExpanded)}
-			>
-				<div className="flex items-center space-x-4">
+			<div className="flex items-center justify-between p-2">
+				<button
+					type="button"
+					className="flex items-center space-x-4 cursor-pointer hover:bg-gray-800 p-1 rounded flex-1 text-left"
+					onClick={() => setIsExpanded(!isExpanded)}
+					aria-expanded={isExpanded}
+					aria-label="Toggle sync performance monitor"
+				>
 					<div className="flex items-center space-x-1">
 						<div
 							className={`w-2 h-2 rounded-full ${
@@ -103,32 +106,43 @@ export const SyncPerformanceMonitor: React.FC<SyncPerformanceMonitorProps> = ({
 					<div>{stats.totalUpdates} updates</div>
 
 					<div>{successRate}% success</div>
-				</div>
+				</button>
 
-				<div className="flex items-center space-x-2">
+				<div className="flex items-center space-x-2 ml-2">
 					<button
-						onClick={(e) => {
-							e.stopPropagation();
-							clearStats();
-						}}
+						type="button"
+						onClick={clearStats}
 						className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
 					>
 						Clear
 					</button>
 
-					<svg
-						className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
+					<button
+						type="button"
+						onClick={() => setIsExpanded(!isExpanded)}
+						className="p-1 hover:bg-gray-800 rounded"
+						aria-expanded={isExpanded}
+						aria-label={
+							isExpanded
+								? "Collapse sync performance monitor"
+								: "Expand sync performance monitor"
+						}
 					>
-						<path
-							strokeLinecap="round"
-							strokeLinejoin="round"
-							strokeWidth={2}
-							d="M19 9l-7 7-7-7"
-						/>
-					</svg>
+						<svg
+							className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<title>{isExpanded ? "Collapse" : "Expand"}</title>
+							<path
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								strokeWidth={2}
+								d="M19 9l-7 7-7-7"
+							/>
+						</svg>
+					</button>
 				</div>
 			</div>
 
@@ -272,6 +286,7 @@ export const SyncPerformanceMonitor: React.FC<SyncPerformanceMonitorProps> = ({
 					{/* Quick Actions */}
 					<div className="flex space-x-2 pt-2 border-t border-gray-700">
 						<button
+							type="button"
 							onClick={clearStats}
 							className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
 						>
@@ -279,6 +294,7 @@ export const SyncPerformanceMonitor: React.FC<SyncPerformanceMonitorProps> = ({
 						</button>
 
 						<button
+							type="button"
 							onClick={async () => {
 								try {
 									const data = JSON.stringify(stats, null, 2);

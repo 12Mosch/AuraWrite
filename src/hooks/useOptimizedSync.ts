@@ -63,18 +63,6 @@ interface UpdateBatch {
 }
 
 /**
- * Browser-compatible utility function to compare two Uint8Array instances
- */
-const areUint8ArraysEqual = useCallback(
-	(a: Uint8Array, b: Uint8Array): boolean => {
-		if (a.length !== b.length) return false;
-		// Use every() for early termination on first mismatch
-		return a.every((value, index) => value === b[index]);
-	},
-	[],
-);
-
-/**
  * Enhanced hook for optimized real-time synchronization
  *
  * Features:
@@ -272,8 +260,10 @@ export const useOptimizedSync = (
 
 					// Apply any conflict resolution update from server
 					if (result.conflictUpdate) {
+						const conflictUpdate = result.conflictUpdate;
 						yDoc.transact(() => {
-							Y.applyUpdate(yDoc, result.conflictUpdate!);
+							// Convert ArrayBuffer to Uint8Array for Y.js compatibility
+							Y.applyUpdate(yDoc, new Uint8Array(conflictUpdate));
 						}, "server-conflict");
 					}
 
@@ -396,7 +386,12 @@ export const useOptimizedSync = (
 			console.log("Starting full resync from server...");
 
 			// Use serverState from subscription if available, otherwise fetch directly
-			let serverData;
+			let serverData: {
+				yjsState?: ArrayBuffer;
+				yjsStateVector?: ArrayBuffer;
+				yjsUpdatedAt?: number;
+				_creationTime: number;
+			};
 			if (serverState) {
 				serverData = serverState;
 			} else {
@@ -471,7 +466,7 @@ export const useOptimizedSync = (
 	useEffect(() => {
 		if (!enabled) return;
 
-		const handleUpdate = (update: Uint8Array, origin: any) => {
+		const handleUpdate = (update: Uint8Array, origin: unknown) => {
 			// Only sync updates that don't originate from server
 			if (origin !== "server") {
 				addUpdateToBatch(update);
@@ -551,7 +546,7 @@ export const useOptimizedSync = (
 				});
 			}
 		}
-	}, [enabled, serverState, applyServerUpdate]);
+	}, [enabled, serverState, applyServerUpdate, documentId]);
 
 	// Initialize server state when component mounts
 	useEffect(() => {

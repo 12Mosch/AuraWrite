@@ -8,6 +8,7 @@
 import { ConvexError } from "convex/values";
 import React from "react";
 import * as Y from "yjs";
+import type { Id } from "../../convex/_generated/dataModel";
 import { ConnectionStatus } from "../components/ConnectionStatus";
 import { ConvexCollaborativeEditor } from "../components/ConvexCollaborativeEditor";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -16,7 +17,6 @@ import {
 	ErrorNotificationContainer,
 } from "../components/ErrorDisplay";
 import { ErrorProvider } from "../contexts/ErrorContext";
-import type { Id } from "../convex/_generated/dataModel";
 import { useConnectionManager } from "../hooks/useConnectionManager";
 import { useConvexErrorHandler } from "../hooks/useConvexErrorHandler";
 import { useOfflineMode } from "../hooks/useOfflineMode";
@@ -27,9 +27,6 @@ import { useOfflineMode } from "../hooks/useOfflineMode";
 const EnhancedCollaborativeEditor: React.FC<{
 	documentId: Id<"documents">;
 }> = ({ documentId }) => {
-	const { handleConvexError, withMutationErrorHandling } =
-		useConvexErrorHandler();
-
 	// Connection management with error handling
 	const connectionManager = useConnectionManager({
 		maxRetries: 5,
@@ -128,6 +125,7 @@ const OfflineAwareEditor: React.FC<{
 
 						{!offlineMode.isOffline && offlineMode.hasUnsyncedChanges && (
 							<button
+								type="button"
 								onClick={offlineMode.forceSync}
 								disabled={offlineMode.isSyncing}
 								className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded text-sm"
@@ -151,18 +149,21 @@ const OfflineAwareEditor: React.FC<{
 
 					<div className="flex gap-2">
 						<button
+							type="button"
 							onClick={() => offlineMode.resolveConflicts("local")}
 							className="px-3 py-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-800 rounded text-sm"
 						>
 							Keep My Changes
 						</button>
 						<button
+							type="button"
 							onClick={() => offlineMode.resolveConflicts("remote")}
 							className="px-3 py-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-800 rounded text-sm"
 						>
 							Use Server Version
 						</button>
 						<button
+							type="button"
 							onClick={() => offlineMode.resolveConflicts("merge")}
 							className="px-3 py-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-800 rounded text-sm"
 						>
@@ -222,6 +223,7 @@ const ErrorHandlingDemo: React.FC = () => {
 
 				<div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
 					<button
+						type="button"
 						onClick={triggerNetworkError}
 						className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
 					>
@@ -229,6 +231,7 @@ const ErrorHandlingDemo: React.FC = () => {
 					</button>
 
 					<button
+						type="button"
 						onClick={triggerSyncConflict}
 						className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
 					>
@@ -236,6 +239,7 @@ const ErrorHandlingDemo: React.FC = () => {
 					</button>
 
 					<button
+						type="button"
 						onClick={triggerAuthError}
 						className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
 					>

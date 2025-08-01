@@ -142,7 +142,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 			console.warn("Error getting editor value from Y.js:", error);
 			return initialValue;
 		}
-	}, [editor.children, isSynced, initialValue]);
+	}, [editor.children, isSynced]);
 
 	// Connect/disconnect the Yjs editor
 	useEffect(() => {

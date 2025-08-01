@@ -68,9 +68,9 @@ const DocumentListDisplay: React.FC<{ documentIds: Id<"documents">[] }> = ({
 	if (isLoading) {
 		return (
 			<div className="space-y-2">
-				{documentIds.map((_, index) => (
+				{documentIds.map((docId, index) => (
 					<div
-						key={index}
+						key={docId || `loading-${index}`}
 						className="animate-pulse bg-gray-200 h-16 rounded"
 					></div>
 				))}
@@ -143,6 +143,7 @@ const MutationExample: React.FC<{ documentId: Id<"documents"> }> = ({
 				/>
 
 				<button
+					type="button"
 					onClick={handleUpdateTitle}
 					disabled={isUpdating || !title.trim()}
 					className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
@@ -243,6 +244,7 @@ const ActionExample: React.FC<{ documentId: Id<"documents"> }> = ({
 				/>
 
 				<button
+					type="button"
 					onClick={handleSendInvite}
 					disabled={isSending || !email.trim()}
 					className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
@@ -329,6 +331,7 @@ export const ConvexErrorHandlingExample: React.FC = () => {
 									Unable to load the document list. Please try again.
 								</p>
 								<button
+									type="button"
 									onClick={retry}
 									className="mt-3 px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
 								>
