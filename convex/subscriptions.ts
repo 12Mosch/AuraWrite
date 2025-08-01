@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import { query, QueryCtx } from "./_generated/server";
-import { Doc, Id } from "./_generated/dataModel";
-import { getCurrentUser, checkDocumentAccess } from "./authHelpers";
+import type { Doc, Id } from "./_generated/dataModel";
+import { type QueryCtx, query } from "./_generated/server";
+import { checkDocumentAccess, getCurrentUser } from "./authHelpers";
 
 /**
  * Helper function to enrich a document with user details (collaborators and owner)
@@ -9,34 +9,36 @@ import { getCurrentUser, checkDocumentAccess } from "./authHelpers";
  */
 async function enrichDocumentWithUserDetails(
 	ctx: QueryCtx,
-	document: Doc<"documents">
+	document: Doc<"documents">,
 ) {
 	// Optimize user fetching by collecting all user IDs (collaborators + owner)
 	const allUserIds = [...(document.collaborators || []), document.ownerId];
 	const uniqueUserIds = [...new Set(allUserIds)];
 
 	// Batch fetch all users
-	const users = await Promise.all(
-		uniqueUserIds.map(id => ctx.db.get(id))
-	);
+	const users = await Promise.all(uniqueUserIds.map((id) => ctx.db.get(id)));
 
 	// Create a map for efficient lookups
 	const userMap = new Map(
 		users
 			.filter((user): user is NonNullable<typeof user> => user !== null)
-			.map(user => [user._id, user])
+			.map((user) => [user._id, user]),
 	);
 
 	// Get collaborator details using cached data
-	const collaboratorDetails = (document.collaborators || []).map(collaboratorId => {
-		const user = userMap.get(collaboratorId);
-		return user ? {
-			_id: user._id,
-			name: user.name,
-			email: user.email,
-			image: user.image,
-		} : null;
-	}).filter(Boolean);
+	const collaboratorDetails = (document.collaborators || [])
+		.map((collaboratorId) => {
+			const user = userMap.get(collaboratorId);
+			return user
+				? {
+						_id: user._id,
+						name: user.name,
+						email: user.email,
+						image: user.image,
+					}
+				: null;
+		})
+		.filter(Boolean);
 
 	// Get owner details using cached data
 	const owner = userMap.get(document.ownerId);
@@ -46,12 +48,14 @@ async function enrichDocumentWithUserDetails(
 		title: document.title,
 		isPublic: document.isPublic || false,
 		collaborators: collaboratorDetails.filter(Boolean),
-		owner: owner ? {
-			_id: owner._id,
-			name: owner.name,
-			email: owner.email,
-			image: owner.image,
-		} : null,
+		owner: owner
+			? {
+					_id: owner._id,
+					name: owner.name,
+					email: owner.email,
+					image: owner.image,
+				}
+			: null,
 		createdAt: document.createdAt,
 		updatedAt: document.updatedAt,
 		yjsUpdatedAt: document.yjsUpdatedAt,
@@ -68,11 +72,11 @@ async function enrichDocumentWithUserDetails(
  * Optimized for efficient real-time updates of document content
  */
 export const subscribeToDocument = query({
-	args: { 
-    documentId: v.id("documents"),
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, { documentId, limit = 50 }) => {
+	args: {
+		documentId: v.id("documents"),
+		limit: v.optional(v.number()),
+	},
+	handler: async (ctx, { documentId, limit = 50 }) => {
 		const userId = await getCurrentUser(ctx);
 		const document = await checkDocumentAccess(ctx, documentId, userId);
 
@@ -121,7 +125,7 @@ export const subscribeToMultipleDocumentMetadata = query({
 					// This allows partial results for mixed access scenarios
 					return null;
 				}
-			})
+			}),
 		);
 
 		// Filter out null results (documents user doesn't have access to)
@@ -149,22 +153,20 @@ export const subscribeToDocumentVersions = query({
 			.take(limit);
 
 		// Optimize user fetching by collecting unique user IDs first
-		const uniqueUserIds = [...new Set(versions.map(v => v.createdBy))];
+		const uniqueUserIds = [...new Set(versions.map((v) => v.createdBy))];
 
 		// Batch fetch all unique users
-		const users = await Promise.all(
-			uniqueUserIds.map(id => ctx.db.get(id))
-		);
+		const users = await Promise.all(uniqueUserIds.map((id) => ctx.db.get(id)));
 
 		// Create a map for efficient lookups
 		const userMap = new Map(
 			users
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
 		// Include user information for each version using cached data
-		const versionsWithUsers = versions.map(version => {
+		const versionsWithUsers = versions.map((version) => {
 			const user = userMap.get(version.createdBy);
 			return {
 				...version,
@@ -173,7 +175,7 @@ export const subscribeToDocumentVersions = query({
 							_id: user._id,
 							name: user.name || user.email || "Anonymous",
 							email: user.email,
-					  }
+						}
 					: null,
 			};
 		});
@@ -205,22 +207,20 @@ export const subscribeToDocumentPresence = query({
 			.collect();
 
 		// Optimize user fetching by collecting unique user IDs first
-		const uniqueUserIds = [...new Set(activeSessions.map(s => s.userId))];
+		const uniqueUserIds = [...new Set(activeSessions.map((s) => s.userId))];
 
 		// Batch fetch all unique users
-		const users = await Promise.all(
-			uniqueUserIds.map(id => ctx.db.get(id))
-		);
+		const users = await Promise.all(uniqueUserIds.map((id) => ctx.db.get(id)));
 
 		// Create a map for efficient lookups
 		const userMap = new Map(
 			users
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
 		// Map sessions with user data using the cached user data
-		const activeUsers = activeSessions.map(session => {
+		const activeUsers = activeSessions.map((session) => {
 			const user = userMap.get(session.userId);
 			return {
 				userId: session.userId,
@@ -240,10 +240,10 @@ export const subscribeToDocumentPresence = query({
  * Optimized query for showing collaboration indicators
  */
 export const getActiveCollaborators = query({
-	args: { 
-    documentId: v.id("documents"),
-    limit: v.optional(v.number()),
-  },
+	args: {
+		documentId: v.id("documents"),
+		limit: v.optional(v.number()),
+	},
 	handler: async (ctx, { documentId, limit = 50 }) => {
 		const userId = await getCurrentUser(ctx);
 		const document = await checkDocumentAccess(ctx, documentId, userId);
@@ -257,7 +257,7 @@ export const getActiveCollaborators = query({
 			.collect();
 
 		// Group by user and get the most recent session for each
-		const userSessions = new Map<Id<"users">, typeof recentSessions[0]>();
+		const userSessions = new Map<Id<"users">, (typeof recentSessions)[0]>();
 		for (const session of recentSessions) {
 			const existing = userSessions.get(session.userId);
 			if (!existing || session.lastSeen > existing.lastSeen) {
@@ -269,22 +269,20 @@ export const getActiveCollaborators = query({
 		const limitedSessions = Array.from(userSessions.values()).slice(0, limit);
 
 		// Optimize user fetching by collecting unique user IDs first
-		const uniqueUserIds = [...new Set(limitedSessions.map(s => s.userId))];
+		const uniqueUserIds = [...new Set(limitedSessions.map((s) => s.userId))];
 
 		// Batch fetch all unique users
-		const users = await Promise.all(
-			uniqueUserIds.map(id => ctx.db.get(id))
-		);
+		const users = await Promise.all(uniqueUserIds.map((id) => ctx.db.get(id)));
 
 		// Create a map for efficient lookups
 		const userMap = new Map(
 			users
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
 		// Get user details and format response using cached user data
-		const collaborators = limitedSessions.map(session => {
+		const collaborators = limitedSessions.map((session) => {
 			const user = userMap.get(session.userId);
 			const isActive = session.lastSeen > Date.now() - 120000; // Active in last 2 minutes
 
@@ -296,7 +294,8 @@ export const getActiveCollaborators = query({
 				isActive,
 				isCurrentUser: session.userId === userId,
 				isOwner: document.ownerId === session.userId,
-				isCollaborator: document.collaborators?.includes(session.userId) || false,
+				isCollaborator:
+					document.collaborators?.includes(session.userId) || false,
 			};
 		});
 
@@ -332,21 +331,19 @@ export const subscribeToCollaborationState = query({
 		);
 
 		// Optimize user fetching by collecting unique user IDs first
-		const uniqueUserIds = [...new Set(otherUsersSessions.map(s => s.userId))];
+		const uniqueUserIds = [...new Set(otherUsersSessions.map((s) => s.userId))];
 
 		// Batch fetch all unique users
-		const users = await Promise.all(
-			uniqueUserIds.map(id => ctx.db.get(id))
-		);
+		const users = await Promise.all(uniqueUserIds.map((id) => ctx.db.get(id)));
 
 		// Create a map for efficient lookups
 		const userMap = new Map(
 			users
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
-		const collaborationState = otherUsersSessions.map(session => {
+		const collaborationState = otherUsersSessions.map((session) => {
 			const user = userMap.get(session.userId);
 			return {
 				userId: session.userId,
@@ -390,18 +387,18 @@ export const subscribeToDocumentActivity = query({
 			.collect();
 
 		// Optimize user fetching for version activity
-		const versionUserIds = [...new Set(recentVersions.map(v => v.createdBy))];
+		const versionUserIds = [...new Set(recentVersions.map((v) => v.createdBy))];
 		const versionUsers = await Promise.all(
-			versionUserIds.map(id => ctx.db.get(id))
+			versionUserIds.map((id) => ctx.db.get(id)),
 		);
 		const versionUserMap = new Map(
 			versionUsers
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
 		// Combine and format activity items using cached user data
-		const versionActivity = recentVersions.map(version => {
+		const versionActivity = recentVersions.map((version) => {
 			const user = versionUserMap.get(version.createdBy);
 			return {
 				type: "version_created" as const,
@@ -427,24 +424,26 @@ export const subscribeToDocumentActivity = query({
 		// Optimize user fetching for join activity
 		const joinUserIds = [...new Set(Array.from(userFirstSeen.keys()))];
 		const joinUsers = await Promise.all(
-			joinUserIds.map(id => ctx.db.get(id))
+			joinUserIds.map((id) => ctx.db.get(id)),
 		);
 		const joinUserMap = new Map(
 			joinUsers
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
-		const joinActivity = Array.from(userFirstSeen.entries()).map(([userId, timestamp]) => {
-			const user = joinUserMap.get(userId);
-			return {
-				type: "user_joined" as const,
-				timestamp,
-				userId,
-				userName: user?.name || user?.email || "Anonymous",
-				data: { documentId },
-			};
-		});
+		const joinActivity = Array.from(userFirstSeen.entries()).map(
+			([userId, timestamp]) => {
+				const user = joinUserMap.get(userId);
+				return {
+					type: "user_joined" as const,
+					timestamp,
+					userId,
+					userName: user?.name || user?.email || "Anonymous",
+					data: { documentId },
+				};
+			},
+		);
 
 		// Combine all activities and sort by timestamp
 		const allActivity = [...versionActivity, ...joinActivity].sort(
@@ -485,7 +484,9 @@ export const getCollaborationSummary = query({
 		const activeCollaborators = new Set(recentSessions.map((s) => s.userId));
 
 		// Get latest version info
-		const latestVersion = totalVersions.sort((a, b) => b.createdAt - a.createdAt)[0];
+		const latestVersion = totalVersions.sort(
+			(a, b) => b.createdAt - a.createdAt,
+		)[0];
 		const latestVersionUser = latestVersion
 			? await ctx.db.get(latestVersion.createdBy)
 			: null;
@@ -502,9 +503,12 @@ export const getCollaborationSummary = query({
 						createdAt: latestVersion.createdAt,
 						createdBy: {
 							_id: latestVersion.createdBy,
-							name: latestVersionUser?.name || latestVersionUser?.email || "Anonymous",
+							name:
+								latestVersionUser?.name ||
+								latestVersionUser?.email ||
+								"Anonymous",
 						},
-				  }
+					}
 				: null,
 		};
 	},

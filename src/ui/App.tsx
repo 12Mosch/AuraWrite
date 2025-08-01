@@ -2,8 +2,8 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import CollaborativeEditingTest from "../components/CollaborativeEditingTest";
 import "./index.css";
-import { ErrorProvider } from "@/contexts/ErrorContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorProvider } from "@/contexts/ErrorContext";
 
 function App() {
 	return (

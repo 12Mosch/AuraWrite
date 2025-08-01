@@ -1,6 +1,6 @@
-import {getAuthUserId} from "@convex-dev/auth/server";
-import {v} from "convex/values";
-import {mutation, query} from "./_generated/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 // Query to get current user information
 export const getCurrentUser = query({

@@ -1,8 +1,8 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query, MutationCtx } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
 import * as Y from "yjs";
-import { getCurrentUser, checkDocumentAccess } from "./authHelpers";
+import type { Id } from "./_generated/dataModel";
+import { type MutationCtx, mutation, query } from "./_generated/server";
+import { checkDocumentAccess, getCurrentUser } from "./authHelpers";
 
 // Type definitions for Y.js Delta operations
 interface DeltaOperation {
@@ -46,7 +46,10 @@ interface DocumentPatchData {
  * This is needed for Convex compatibility as it expects ArrayBuffer
  */
 function toArrayBuffer(uint8Array: Uint8Array): ArrayBuffer {
-	return uint8Array.buffer.slice(uint8Array.byteOffset, uint8Array.byteOffset + uint8Array.byteLength);
+	return uint8Array.buffer.slice(
+		uint8Array.byteOffset,
+		uint8Array.byteOffset + uint8Array.byteLength,
+	);
 }
 
 /**
@@ -56,26 +59,28 @@ function toArrayBuffer(uint8Array: Uint8Array): ArrayBuffer {
  */
 export function deltaToSlateNodes(delta: DeltaOperation[]): SlateNode[] {
 	if (!delta || delta.length === 0) {
-		return [{
-			type: "paragraph",
-			children: [{ text: "" }]
-		}];
+		return [
+			{
+				type: "paragraph",
+				children: [{ text: "" }],
+			},
+		];
 	}
 
 	const nodes: SlateNode[] = [];
 	let currentParagraph: SlateParagraphNode = {
 		type: "paragraph",
-		children: []
+		children: [],
 	};
 
 	for (const op of delta) {
-		if (typeof op.insert === 'string') {
+		if (typeof op.insert === "string") {
 			// Handle text insertion
 			const text = op.insert;
 			const attributes = op.attributes || {};
 
 			// Split text by newlines to create separate paragraphs
-			const lines = text.split('\n');
+			const lines = text.split("\n");
 
 			for (let i = 0; i < lines.length; i++) {
 				const line = lines[i];
@@ -103,14 +108,17 @@ export function deltaToSlateNodes(delta: DeltaOperation[]): SlateNode[] {
 					nodes.push(currentParagraph);
 					currentParagraph = {
 						type: "paragraph",
-						children: []
+						children: [],
 					};
 				}
 			}
-		} else if (typeof op.insert === 'object') {
+		} else if (typeof op.insert === "object") {
 			// Handle embedded objects (like images, links, etc.)
 			// For now, we'll skip these or convert them to text
-			console.warn('Embedded objects in Y.js delta not fully supported:', op.insert);
+			console.warn(
+				"Embedded objects in Y.js delta not fully supported:",
+				op.insert,
+			);
 		}
 	}
 
@@ -121,7 +129,7 @@ export function deltaToSlateNodes(delta: DeltaOperation[]): SlateNode[] {
 		// Ensure we always have at least one paragraph
 		nodes.push({
 			type: "paragraph",
-			children: [{ text: "" }]
+			children: [{ text: "" }],
 		});
 	}
 
@@ -135,7 +143,7 @@ async function createDocumentVersion(
 	ctx: MutationCtx,
 	documentId: Id<"documents">,
 	yjsState: ArrayBuffer,
-	userId: Id<"users">
+	userId: Id<"users">,
 ) {
 	// Create Y.Doc before try block to ensure it's available for cleanup
 	const tempDoc = new Y.Doc();
@@ -143,7 +151,7 @@ async function createDocumentVersion(
 	try {
 		// Convert Y.js state to a temporary Y.Doc to extract content
 		Y.applyUpdate(tempDoc, new Uint8Array(yjsState));
-		const sharedType = tempDoc.get('content', Y.XmlText);
+		const sharedType = tempDoc.get("content", Y.XmlText);
 
 		// Extract the full Slate.js structure from Y.XmlText
 		// This preserves all formatting, links, and rich content
@@ -161,20 +169,25 @@ async function createDocumentVersion(
 			if (slateNodes.length === 0) {
 				slateNodes.push({
 					type: "paragraph",
-					children: [{ text: "" }]
+					children: [{ text: "" }],
 				});
 			}
 
 			slateContent = JSON.stringify(slateNodes);
 		} catch (deltaError) {
-			console.warn('Failed to extract rich content from Y.XmlText, falling back to plain text:', deltaError);
+			console.warn(
+				"Failed to extract rich content from Y.XmlText, falling back to plain text:",
+				deltaError,
+			);
 
 			// Fallback to plain text if delta conversion fails
 			const textContent = sharedType.toString();
-			slateContent = JSON.stringify([{
-				type: "paragraph",
-				children: [{ text: textContent || "" }]
-			}]);
+			slateContent = JSON.stringify([
+				{
+					type: "paragraph",
+					children: [{ text: textContent || "" }],
+				},
+			]);
 		}
 
 		// Get the next version number
@@ -195,10 +208,12 @@ async function createDocumentVersion(
 			createdAt: Date.now(),
 		});
 
-		console.log(`Created document version ${nextVersion} for document ${documentId}`);
+		console.log(
+			`Created document version ${nextVersion} for document ${documentId}`,
+		);
 		return versionId;
 	} catch (error) {
-		console.error('Failed to create document version:', error);
+		console.error("Failed to create document version:", error);
 		// Don't throw - versioning failure shouldn't break sync
 		return null;
 	} finally {
@@ -282,7 +297,9 @@ export const updateYjsState = mutation({
 
 		try {
 			let mergedUpdate: Uint8Array;
-			let newStateVector: Uint8Array | undefined = stateVector ? new Uint8Array(stateVector) : undefined;
+			let newStateVector: Uint8Array | undefined = stateVector
+				? new Uint8Array(stateVector)
+				: undefined;
 
 			if (document.yjsState) {
 				// Existing state exists - merge the updates properly
@@ -313,7 +330,9 @@ export const updateYjsState = mutation({
 			// Store the merged update (convert Uint8Array to ArrayBuffer for Convex)
 			await ctx.db.patch(documentId, {
 				yjsState: toArrayBuffer(mergedUpdate),
-				yjsStateVector: newStateVector ? toArrayBuffer(newStateVector) : undefined,
+				yjsStateVector: newStateVector
+					? toArrayBuffer(newStateVector)
+					: undefined,
 				yjsUpdatedAt: now,
 				updatedAt: now,
 			});
@@ -321,8 +340,13 @@ export const updateYjsState = mutation({
 			// Create a document version periodically (every few updates)
 			// We'll create a version roughly every 30 seconds of activity
 			const lastVersionTime = document.yjsUpdatedAt || document.createdAt;
-			if (!lastVersionTime || (now - lastVersionTime) > 30000) {
-				await createDocumentVersion(ctx, documentId, toArrayBuffer(mergedUpdate), userId);
+			if (!lastVersionTime || now - lastVersionTime > 30000) {
+				await createDocumentVersion(
+					ctx,
+					documentId,
+					toArrayBuffer(mergedUpdate),
+					userId,
+				);
 			}
 
 			return {
@@ -415,15 +439,22 @@ export const applyYjsUpdate = mutation({
 			// Store the merged update and updated state vector (convert Uint8Array to ArrayBuffer)
 			await ctx.db.patch(documentId, {
 				yjsState: toArrayBuffer(mergedUpdate),
-				yjsStateVector: newStateVector ? toArrayBuffer(newStateVector) : undefined,
+				yjsStateVector: newStateVector
+					? toArrayBuffer(newStateVector)
+					: undefined,
 				yjsUpdatedAt: now,
 				updatedAt: now,
 			});
 
 			// Create a document version periodically
 			const lastVersionTime = document.yjsUpdatedAt || document.createdAt;
-			if (!lastVersionTime || (now - lastVersionTime) > 30000) {
-				await createDocumentVersion(ctx, documentId, toArrayBuffer(mergedUpdate), userId);
+			if (!lastVersionTime || now - lastVersionTime > 30000) {
+				await createDocumentVersion(
+					ctx,
+					documentId,
+					toArrayBuffer(mergedUpdate),
+					userId,
+				);
 			}
 
 			return {
@@ -469,12 +500,11 @@ export const applyBatchedYjsUpdates = mutation({
 			}
 
 			// Convert ArrayBuffers to Uint8Arrays for Yjs
-			const uint8Updates = updates.map(update => new Uint8Array(update));
+			const uint8Updates = updates.map((update) => new Uint8Array(update));
 
 			// Merge all incoming updates first
-			const mergedIncomingUpdate = updates.length > 1 ?
-				Y.mergeUpdates(uint8Updates) :
-				uint8Updates[0];
+			const mergedIncomingUpdate =
+				updates.length > 1 ? Y.mergeUpdates(uint8Updates) : uint8Updates[0];
 
 			let finalUpdate: Uint8Array;
 
@@ -488,7 +518,9 @@ export const applyBatchedYjsUpdates = mutation({
 			}
 
 			// Generate new state vector if not provided
-			let newStateVector: Uint8Array | undefined = stateVector ? new Uint8Array(stateVector) : undefined;
+			let newStateVector: Uint8Array | undefined = stateVector
+				? new Uint8Array(stateVector)
+				: undefined;
 			if (!stateVector) {
 				const tempDoc = new Y.Doc();
 				try {
@@ -515,7 +547,12 @@ export const applyBatchedYjsUpdates = mutation({
 			// Create a document version for significant updates (every 10 updates or more)
 			// This helps with version history without creating too many versions
 			if (updates.length >= 5) {
-				await createDocumentVersion(ctx, documentId, toArrayBuffer(finalUpdate), userId);
+				await createDocumentVersion(
+					ctx,
+					documentId,
+					toArrayBuffer(finalUpdate),
+					userId,
+				);
 			}
 
 			return {
@@ -524,7 +561,7 @@ export const applyBatchedYjsUpdates = mutation({
 				appliedUpdates: updates.length,
 			};
 		} catch (error) {
-			console.error('Failed to apply batched updates:', error);
+			console.error("Failed to apply batched updates:", error);
 			throw new ConvexError("Failed to apply batched document updates");
 		}
 	},

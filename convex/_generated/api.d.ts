@@ -9,9 +9,9 @@
  */
 
 import type {
-  ApiFromModules,
-  FilterApi,
-  FunctionReference,
+	ApiFromModules,
+	FilterApi,
+	FunctionReference,
 } from "convex/server";
 import type * as auth from "../auth.js";
 import type * as authHelpers from "../authHelpers.js";
@@ -31,20 +31,20 @@ import type * as yjsSync from "../yjsSync.js";
  * ```
  */
 declare const fullApi: ApiFromModules<{
-  auth: typeof auth;
-  authHelpers: typeof authHelpers;
-  collaboration: typeof collaboration;
-  documents: typeof documents;
-  http: typeof http;
-  subscriptions: typeof subscriptions;
-  users: typeof users;
-  yjsSync: typeof yjsSync;
+	auth: typeof auth;
+	authHelpers: typeof authHelpers;
+	collaboration: typeof collaboration;
+	documents: typeof documents;
+	http: typeof http;
+	subscriptions: typeof subscriptions;
+	users: typeof users;
+	yjsSync: typeof yjsSync;
 }>;
 export declare const api: FilterApi<
-  typeof fullApi,
-  FunctionReference<any, "public">
+	typeof fullApi,
+	FunctionReference<any, "public">
 >;
 export declare const internal: FilterApi<
-  typeof fullApi,
-  FunctionReference<any, "internal">
+	typeof fullApi,
+	FunctionReference<any, "internal">
 >;

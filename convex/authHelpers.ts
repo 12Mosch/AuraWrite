@@ -1,13 +1,15 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
-import { QueryCtx, MutationCtx } from "./_generated/server";
-import { Id, Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 /**
  * Helper function to get current authenticated user
  * Throws error if user is not authenticated
  */
-export async function getCurrentUser(ctx: QueryCtx | MutationCtx): Promise<Id<"users">> {
+export async function getCurrentUser(
+	ctx: QueryCtx | MutationCtx,
+): Promise<Id<"users">> {
 	const userId = await getAuthUserId(ctx);
 	if (!userId) {
 		throw new ConvexError("Authentication required to access this resource");
@@ -35,7 +37,9 @@ export async function checkDocumentAccess(
 		document.collaborators?.includes(userId);
 
 	if (!hasAccess) {
-		throw new ConvexError("Access denied: You don't have permission to access this document");
+		throw new ConvexError(
+			"Access denied: You don't have permission to access this document",
+		);
 	}
 
 	return document;
