@@ -4,6 +4,55 @@ import * as Y from "yjs";
 import { getCurrentUser, checkDocumentAccess } from "./authHelpers";
 
 /**
+ * Helper function to create a document version from Y.js state
+ */
+async function createDocumentVersion(ctx: any, documentId: any, yjsState: ArrayBuffer, userId: any) {
+	try {
+		// Convert Y.js state to a temporary Y.Doc to extract content
+		const tempDoc = new Y.Doc();
+		Y.applyUpdate(tempDoc, new Uint8Array(yjsState));
+		const sharedType = tempDoc.get('content', Y.XmlText);
+
+		// Convert Y.XmlText to a simple text representation for versioning
+		// This is a simplified approach - in a full implementation you might want
+		// to preserve the full Slate.js structure
+		const textContent = sharedType.toString();
+
+		// Create a basic Slate.js structure for the version
+		const slateContent = JSON.stringify([{
+			type: "paragraph",
+			children: [{ text: textContent || "" }]
+		}]);
+
+		// Get the next version number
+		const lastVersion = await ctx.db
+			.query("documentVersions")
+			.withIndex("by_document", (q: any) => q.eq("documentId", documentId))
+			.order("desc")
+			.first();
+
+		const nextVersion = lastVersion ? lastVersion.version + 1 : 1;
+
+		// Create the version record
+		const versionId = await ctx.db.insert("documentVersions", {
+			documentId,
+			content: slateContent,
+			version: nextVersion,
+			createdBy: userId,
+			createdAt: Date.now(),
+		});
+
+		console.log(`Created document version ${nextVersion} for document ${documentId}`);
+		tempDoc.destroy();
+		return versionId;
+	} catch (error) {
+		console.error('Failed to create document version:', error);
+		// Don't throw - versioning failure shouldn't break sync
+		return null;
+	}
+}
+
+/**
  * Query to get Y.Doc state for synchronization
  * Returns the current Y.Doc binary state and state vector
  */
@@ -103,13 +152,20 @@ export const updateYjsState = mutation({
 				mergedUpdate = new Uint8Array(update);
 			}
 
-			// Store the merged update
+			// Store the merged update (convert Uint8Array to ArrayBuffer for Convex)
 			await ctx.db.patch(documentId, {
-				yjsState: mergedUpdate,
-				yjsStateVector: newStateVector,
+				yjsState: mergedUpdate.buffer.slice(mergedUpdate.byteOffset, mergedUpdate.byteOffset + mergedUpdate.byteLength),
+				yjsStateVector: newStateVector ? newStateVector.buffer.slice(newStateVector.byteOffset, newStateVector.byteOffset + newStateVector.byteLength) : undefined,
 				yjsUpdatedAt: now,
 				updatedAt: now,
 			});
+
+			// Create a document version periodically (every few updates)
+			// We'll create a version roughly every 30 seconds of activity
+			const lastVersionTime = document.yjsUpdatedAt || document.createdAt;
+			if (!lastVersionTime || (now - lastVersionTime) > 30000) {
+				await createDocumentVersion(ctx, documentId, mergedUpdate.buffer.slice(mergedUpdate.byteOffset, mergedUpdate.byteOffset + mergedUpdate.byteLength), userId);
+			}
 
 			return {
 				success: true,
@@ -143,8 +199,8 @@ export const initializeYjsState = mutation({
 
 		const now = Date.now();
 		await ctx.db.patch(documentId, {
-			yjsState: initialState,
-			yjsStateVector: stateVector,
+			yjsState: initialState, // Already converted to ArrayBuffer on client side
+			yjsStateVector: stateVector, // Already converted to ArrayBuffer on client side
 			yjsUpdatedAt: now,
 			updatedAt: now,
 		});
@@ -194,13 +250,19 @@ export const applyYjsUpdate = mutation({
 			const newStateVector = Y.encodeStateVector(tempDoc);
 			tempDoc.destroy();
 
-			// Store the merged update and updated state vector
+			// Store the merged update and updated state vector (convert Uint8Array to ArrayBuffer)
 			await ctx.db.patch(documentId, {
-				yjsState: mergedUpdate,
-				yjsStateVector: newStateVector,
+				yjsState: mergedUpdate.buffer.slice(mergedUpdate.byteOffset, mergedUpdate.byteOffset + mergedUpdate.byteLength),
+				yjsStateVector: newStateVector ? newStateVector.buffer.slice(newStateVector.byteOffset, newStateVector.byteOffset + newStateVector.byteLength) : undefined,
 				yjsUpdatedAt: now,
 				updatedAt: now,
 			});
+
+			// Create a document version periodically
+			const lastVersionTime = document.yjsUpdatedAt || document.createdAt;
+			if (!lastVersionTime || (now - lastVersionTime) > 30000) {
+				await createDocumentVersion(ctx, documentId, mergedUpdate.buffer.slice(mergedUpdate.byteOffset, mergedUpdate.byteOffset + mergedUpdate.byteLength), userId);
+			}
 
 			return {
 				success: true,
@@ -272,13 +334,24 @@ export const applyBatchedYjsUpdates = mutation({
 				tempDoc.destroy();
 			}
 
-			// Apply the final merged update to the document
-			await ctx.db.patch(documentId, {
-				yjsState: finalUpdate,
-				yjsStateVector: newStateVector,
+			// Apply the final merged update to the document (convert Uint8Array to ArrayBuffer)
+			const patchData: any = {
+				yjsState: finalUpdate.buffer.slice(finalUpdate.byteOffset, finalUpdate.byteOffset + finalUpdate.byteLength),
 				yjsUpdatedAt: now,
 				updatedAt: now,
-			});
+			};
+
+			if (newStateVector) {
+				patchData.yjsStateVector = newStateVector.buffer.slice(newStateVector.byteOffset, newStateVector.byteOffset + newStateVector.byteLength);
+			}
+
+			await ctx.db.patch(documentId, patchData);
+
+			// Create a document version for significant updates (every 10 updates or more)
+			// This helps with version history without creating too many versions
+			if (updates.length >= 5) {
+				await createDocumentVersion(ctx, documentId, finalUpdate.buffer.slice(finalUpdate.byteOffset, finalUpdate.byteOffset + finalUpdate.byteLength), userId);
+			}
 
 			return {
 				success: true,

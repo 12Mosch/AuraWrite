@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
-import { useMutation, useConvex } from 'convex/react';
+import { useMutation, useConvex, useQuery } from 'convex/react';
 import * as Y from 'yjs';
 import { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
@@ -87,8 +87,12 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
   // Network status
   const { isOnline } = useNetworkStatus();
 
-  // Convex client and mutations
+  // Convex client, queries, and mutations
   const convex = useConvex();
+  const serverState = useQuery(
+    api.yjsSync.subscribeToYjsState,
+    enabled && documentId ? { documentId } : "skip"
+  );
   const applyBatchedUpdatesMutation = useMutation(api.yjsSync.applyBatchedYjsUpdates);
 
   // Connection management with automatic reconnection
@@ -112,6 +116,8 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const forceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSyncedStateRef = useRef<Uint8Array | null>(null);
+  const lastSyncTimestampRef = useRef<number | null>(null);
+  const isInitializedRef = useRef(false);
   const statsRef = useRef<SyncStats>({
     totalUpdates: 0,
     batchedUpdates: 0,
@@ -121,7 +127,89 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
     lastSyncTime: 0,
   });
 
+  /**
+   * Browser-compatible utility function to compare two Uint8Array instances
+   */
+  const areUint8ArraysEqual = useCallback((a: Uint8Array, b: Uint8Array): boolean => {
+    if (a.length !== b.length) {
+      return false;
+    }
 
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        return false;
+      }
+    }
+
+    return true;
+  }, []);
+
+  /**
+   * Apply server updates to local Y.Doc with conflict resolution
+   */
+  const applyServerUpdate = useCallback((serverState: Uint8Array, origin: string = 'server') => {
+    if (!serverState || serverState.length === 0) return;
+
+    try {
+      // Create a test document to see if applying the server state would change anything
+      const testDoc = new Y.Doc();
+
+      // First apply our current state to the test doc
+      const currentState = Y.encodeStateAsUpdate(yDoc);
+      Y.applyUpdate(testDoc, currentState);
+
+      // Get the content before applying server update
+      const contentBefore = testDoc.get('content', Y.XmlText).toString();
+
+      // Now apply the server state
+      Y.applyUpdate(testDoc, serverState);
+
+      // Get the content after applying server update
+      const contentAfter = testDoc.get('content', Y.XmlText).toString();
+
+      // Check if the content actually changed
+      const hasNewContent = contentBefore !== contentAfter;
+
+      console.log('Checking if server update should be applied:', {
+        documentId,
+        origin,
+        contentBefore: contentBefore.substring(0, 100) + (contentBefore.length > 100 ? '...' : ''),
+        contentAfter: contentAfter.substring(0, 100) + (contentAfter.length > 100 ? '...' : ''),
+        hasNewContent,
+        currentStateSize: currentState.length,
+        serverStateSize: serverState.length
+      });
+
+      // Clean up test document
+      testDoc.destroy();
+
+      if (!hasNewContent) {
+        console.log('Server state would not change content, skipping update');
+        return;
+      }
+
+      console.log('Applying server update to Y.Doc', {
+        origin,
+        currentStateSize: currentState.length,
+        serverStateSize: serverState.length,
+        documentId
+      });
+
+      // Apply the server update with origin tracking
+      yDoc.transact(() => {
+        Y.applyUpdate(yDoc, serverState);
+      }, origin);
+
+      lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
+
+      console.log('Successfully applied server update to Y.Doc');
+      setIsSynced(true);
+      setSyncError(null);
+    } catch (error) {
+      console.error('Failed to apply server update:', error);
+      setSyncError(`Failed to apply update: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [yDoc, areUint8ArraysEqual, documentId]);
 
   /**
    * Send batched updates to server with retry logic
@@ -137,10 +225,11 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
       const stateVector = Y.encodeStateVector(yDoc);
 
       // Send batched updates to server
+      // Convert Uint8Array to ArrayBuffer for Convex compatibility
       const result = await applyBatchedUpdatesMutation({
         documentId,
-        updates: batch.updates,
-        stateVector: stateVector,
+        updates: batch.updates.map(update => update.buffer.slice(update.byteOffset, update.byteOffset + update.byteLength)),
+        stateVector: stateVector.buffer.slice(stateVector.byteOffset, stateVector.byteOffset + stateVector.byteLength),
         clientId: yDoc.clientID,
       });
 
@@ -157,8 +246,9 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
           (statsRef.current.averageLatency * (sampleCount - 1) + latency) / sampleCount;
         statsRef.current.lastSyncTime = Date.now();
 
-        // Update last synced state
+        // Update last synced state and timestamp
         lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
+        lastSyncTimestampRef.current = Date.now();
         setIsSynced(true);
         setSyncError(null);
 
@@ -269,10 +359,16 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
       setIsSyncing(true);
       console.log('Starting full resync from server...');
 
-      // Fetch the latest document state from server
-      const serverData = await convex.query(api.yjsSync.getYjsState, {
-        documentId
-      });
+      // Use serverState from subscription if available, otherwise fetch directly
+      let serverData;
+      if (serverState) {
+        serverData = serverState;
+      } else {
+        const fetchedData = await convex.query(api.yjsSync.getYjsState, {
+          documentId
+        });
+        serverData = fetchedData;
+      }
 
       if (!serverData) {
         throw new Error('Failed to fetch document state from server');
@@ -285,13 +381,13 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
         // Convert ArrayBuffer to Uint8Array for Y.js
         const serverStateBytes = new Uint8Array(serverData.yjsState);
 
-        // Apply server state to local Y.Doc with proper origin tracking
-        yDoc.transact(() => {
-          Y.applyUpdate(yDoc, serverStateBytes);
-        }, 'server-resync');
+        // Apply server state using our helper function
+        applyServerUpdate(serverStateBytes, 'server-resync');
 
-        // Update last synced state reference
-        lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
+        // Update sync timestamp
+        if (serverData.yjsUpdatedAt) {
+          lastSyncTimestampRef.current = serverData.yjsUpdatedAt;
+        }
 
         console.log('Successfully applied server state during resync');
         setIsSynced(true);
@@ -310,7 +406,7 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
     } finally {
       setIsSyncing(false);
     }
-  }, [enabled, isOnline, convex, documentId, yDoc]);
+  }, [enabled, isOnline, convex, documentId, serverState, applyServerUpdate]);
 
   /**
    * Get current sync statistics
@@ -376,6 +472,51 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
 
     connectionManager.setConnectionTest(connectionTest);
   }, [connectionManager]);
+
+  // Handle real-time server state updates
+  useEffect(() => {
+    if (!enabled || !serverState) return;
+
+    // Apply server updates when they arrive
+    if (serverState.yjsState && isInitializedRef.current) {
+      const serverStateBytes = new Uint8Array(serverState.yjsState);
+
+      // Check if server state is newer than our last sync
+      const shouldApplyUpdate = !lastSyncTimestampRef.current ||
+        (serverState.yjsUpdatedAt && serverState.yjsUpdatedAt > lastSyncTimestampRef.current);
+
+      if (shouldApplyUpdate) {
+        console.log('Applying server state update from subscription (optimized sync)', {
+          documentId,
+          serverTimestamp: serverState.yjsUpdatedAt,
+          lastSyncTimestamp: lastSyncTimestampRef.current,
+          serverStateSize: serverStateBytes.length
+        });
+
+        // Apply the server update
+        applyServerUpdate(serverStateBytes, 'server-subscription');
+
+        // Update our sync timestamp
+        if (serverState.yjsUpdatedAt) {
+          lastSyncTimestampRef.current = serverState.yjsUpdatedAt;
+        }
+      } else {
+        console.log('Skipping server state update (not newer)', {
+          documentId,
+          serverTimestamp: serverState.yjsUpdatedAt,
+          lastSyncTimestamp: lastSyncTimestampRef.current
+        });
+      }
+    }
+  }, [enabled, serverState, applyServerUpdate]);
+
+  // Initialize server state when component mounts
+  useEffect(() => {
+    if (enabled && !isInitializedRef.current && serverState) {
+      isInitializedRef.current = true;
+      console.log('Optimized sync initialized');
+    }
+  }, [enabled, serverState]);
 
   return {
     isSyncing,

@@ -173,10 +173,11 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
       const stateVector = Y.encodeStateVector(yDoc);
 
       // Try to initialize the server state
+      // Convert Uint8Array to ArrayBuffer for Convex compatibility
       const wasInitialized = await initializeYjsStateMutation({
         documentId,
-        initialState: currentState,
-        stateVector: stateVector,
+        initialState: currentState.buffer.slice(currentState.byteOffset, currentState.byteOffset + currentState.byteLength),
+        stateVector: stateVector.buffer.slice(stateVector.byteOffset, stateVector.byteOffset + stateVector.byteLength),
       });
 
       if (wasInitialized) {
@@ -206,12 +207,49 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
     if (!serverState || serverState.length === 0) return;
 
     try {
-      // Check if we need to apply this update
+      // Create a test document to see if applying the server state would change anything
+      const testDoc = new Y.Doc();
+
+      // First apply our current state to the test doc
       const currentState = Y.encodeStateAsUpdate(yDoc);
-      if (lastSyncedStateRef.current &&
-          areUint8ArraysEqual(currentState, lastSyncedStateRef.current)) {
-        return; // No changes needed
+      Y.applyUpdate(testDoc, currentState);
+
+      // Get the content before applying server update
+      const contentBefore = testDoc.get('content', Y.XmlText).toString();
+
+      // Now apply the server state
+      Y.applyUpdate(testDoc, serverState);
+
+      // Get the content after applying server update
+      const contentAfter = testDoc.get('content', Y.XmlText).toString();
+
+      // Check if the content actually changed
+      const hasNewContent = contentBefore !== contentAfter;
+
+      console.log('Checking if server update should be applied:', {
+        documentId,
+        origin,
+        contentBefore: contentBefore.substring(0, 100) + (contentBefore.length > 100 ? '...' : ''),
+        contentAfter: contentAfter.substring(0, 100) + (contentAfter.length > 100 ? '...' : ''),
+        hasNewContent,
+        currentStateSize: currentState.length,
+        serverStateSize: serverState.length
+      });
+
+      // Clean up test document
+      testDoc.destroy();
+
+      if (!hasNewContent) {
+        console.log('Server state would not change content, skipping update');
+        return;
       }
+
+      console.log('Applying server update to Y.Doc', {
+        origin,
+        currentStateSize: currentState.length,
+        serverStateSize: serverState.length,
+        documentId
+      });
 
       // Apply the server update with origin tracking
       yDoc.transact(() => {
@@ -220,14 +258,14 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
 
       lastSyncedStateRef.current = Y.encodeStateAsUpdate(yDoc);
 
-      console.log('Applied server update to Y.Doc');
+      console.log('Successfully applied server update to Y.Doc');
       setIsSynced(true);
       setSyncError(null);
     } catch (error) {
       console.error('Failed to apply server update:', error);
       setSyncError(`Failed to apply update: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [yDoc]);
+  }, [yDoc, documentId]);
 
   /**
    * Send local updates to server with debouncing
@@ -242,10 +280,11 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
       const stateVector = Y.encodeStateVector(yDoc);
 
       // Send update to server
+      // Convert Uint8Array to ArrayBuffer for Convex compatibility
       const result = await updateYjsStateMutation({
         documentId,
-        update: update,
-        stateVector: stateVector,
+        update: update.buffer.slice(update.byteOffset, update.byteOffset + update.byteLength),
+        stateVector: stateVector.buffer.slice(stateVector.byteOffset, stateVector.byteOffset + stateVector.byteLength),
       });
 
       if (result.success) {
@@ -398,8 +437,10 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
 
       if (shouldApplyUpdate) {
         console.log('Applying server state update from subscription', {
+          documentId,
           serverTimestamp: serverState.yjsUpdatedAt,
-          lastSyncTimestamp: lastSyncTimestampRef.current
+          lastSyncTimestamp: lastSyncTimestampRef.current,
+          serverStateSize: serverStateBytes.length
         });
 
         // Apply the server update
@@ -409,6 +450,12 @@ export const useConvexYjsSync = (options: UseConvexYjsSyncOptions): UseConvexYjs
         if (serverState.yjsUpdatedAt) {
           lastSyncTimestampRef.current = serverState.yjsUpdatedAt;
         }
+      } else {
+        console.log('Skipping server state update (not newer)', {
+          documentId,
+          serverTimestamp: serverState.yjsUpdatedAt,
+          lastSyncTimestamp: lastSyncTimestampRef.current
+        });
       }
     }
 

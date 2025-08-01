@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Descendant } from 'slate';
+import React, { useEffect, useMemo } from 'react';
+import { Descendant, Editor } from 'slate';
 import { Slate, Editable, withReact } from 'slate-react';
 import { createEditor } from 'slate';
 import { withYjs, YjsEditor } from '@slate-yjs/core';
-import { useYjsDocument } from '../hooks/useYjsDocument';
+import { useSharedYjsDocument } from '../hooks/useSharedYjsDocument';
 import { useConvexYjsSync, SyncHookReturn } from '../hooks/useConvexYjsSync';
 import { useOptimizedSync as useOptimizedSyncHook } from '../hooks/useOptimizedSync';
 import { ConnectionState } from '../hooks/useConnectionManager';
 import { usePresence } from '../hooks/usePresence';
-import { useConvexErrorHandler } from '../hooks/useConvexErrorHandler';
 import { useOfflineMode } from '../hooks/useOfflineMode';
 import { useError } from '../contexts/ErrorContext';
 import { DocumentHeader } from './DocumentHeader';
@@ -68,10 +67,9 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
   ];
 
   // Error handling
-  const { handleConvexError } = useConvexErrorHandler();
-  const { error: globalError, clearError } = useError();
+  const { error: globalError } = useError();
 
-  // Initialize Y.Doc and shared types using the existing hook
+  // Initialize Y.Doc and shared types using the shared document hook
   const {
     yDoc,
     sharedType,
@@ -79,7 +77,7 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
     isSynced: isLocalSynced,
     persistenceError,
     persistenceAvailable
-  } = useYjsDocument({
+  } = useSharedYjsDocument({
     documentId,
     initialValue,
     enablePersistence: true,
@@ -140,7 +138,7 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
   // Create Slate editor with Yjs integration
   const editor = useMemo(() => {
     const e = withReact(withYjs(createEditor(), sharedType));
-    
+
     // Ensure editor has a consistent structure
     const { normalizeNode } = e;
     e.normalizeNode = (entry) => {
@@ -149,42 +147,96 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
         e.insertNode({ type: 'paragraph', children: [{ text: '' }] });
         return;
       }
-      
+
       normalizeNode(entry);
     };
-    
+
     return e;
   }, [sharedType]);
 
-  // Manage editor value state
-  const [value, setValue] = useState<Descendant[]>(initialValue);
+  // Get editor value from Y.js shared type instead of maintaining separate state
+  const value = useMemo(() => {
+    if (!isLocalSynced) {
+      return initialValue;
+    }
+
+    // Get the current value from the Y.js shared type
+    try {
+      return editor.children.length > 0 ? editor.children : initialValue;
+    } catch (error) {
+      console.warn('Error getting editor value from Y.js:', error);
+      return initialValue;
+    }
+  }, [editor.children, isLocalSynced, initialValue]);
 
   // Connect/disconnect the Yjs editor
   useEffect(() => {
+    // Only connect after the shared document is synced
+    if (!isLocalSynced) {
+      console.log('Waiting for Y.Doc to sync before connecting editor...');
+      return;
+    }
+
+    console.log('Connecting Y.js editor to shared document:', documentId, {
+      sharedTypeLength: sharedType.length,
+      yDocClientId: yDoc.clientID
+    });
     // Connect the editor to start synchronizing with the shared type
     YjsEditor.connect(editor);
 
     // Wait for IndexedDB to sync if persistence is enabled
     if (indexeddbProvider) {
       indexeddbProvider.whenSynced.then(() => {
-        console.log('Y.Doc synced with IndexedDB');
+        console.log('Y.Doc synced with IndexedDB for document:', documentId);
       });
     }
 
     // Cleanup function to disconnect the editor
     return () => {
-      YjsEditor.disconnect(editor);
+      try {
+        console.log('Disconnecting Y.js editor from shared document:', documentId);
+        YjsEditor.disconnect(editor);
+      } catch (error) {
+        console.warn('Error disconnecting Y.js editor:', error);
+      }
     };
-  }, [editor, indexeddbProvider]);
+  }, [editor, indexeddbProvider, isLocalSynced, documentId]);
+
+  // Handle Y.js updates to prevent DOM sync issues
+  useEffect(() => {
+    if (!sharedType || !isLocalSynced) return;
+
+    const handleYjsUpdate = () => {
+      // Force editor to re-normalize after Y.js updates
+      try {
+        Editor.normalize(editor, { force: true });
+      } catch (error) {
+        console.warn('Error normalizing editor after Y.js update:', error);
+      }
+    };
+
+    sharedType.observeDeep(handleYjsUpdate);
+
+    return () => {
+      sharedType.unobserveDeep(handleYjsUpdate);
+    };
+  }, [editor, sharedType, isLocalSynced]);
 
   // Handle editor value changes
   const handleChange = (newValue: Descendant[]) => {
-    setValue(newValue);
+    // With Y.js integration, the value is managed by the shared type
+    // We only need to call the onChange callback and update presence
     onChange?.(newValue);
 
-    // Update presence with current selection
-    if (enableSync && editor.selection) {
-      updatePresence(undefined, editor.selection);
+    // Update presence with current selection (safely)
+    if (enableSync) {
+      try {
+        if (editor.selection) {
+          updatePresence(undefined, editor.selection);
+        }
+      } catch (error) {
+        console.warn('Error updating presence:', error);
+      }
     }
   };
 
@@ -303,6 +355,7 @@ export const ConvexCollaborativeEditor: React.FC<ConvexCollaborativeEditorProps>
       {/* Editor */}
       <div className="relative">
         <Slate
+          key={documentId} // Force re-render when document changes
           editor={editor}
           value={value}
           onChange={handleChange}
