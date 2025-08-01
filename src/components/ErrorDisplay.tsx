@@ -7,12 +7,7 @@
 
 import React, { useState } from "react";
 import { useError } from "../contexts/ErrorContext";
-import {
-	type AppError,
-	ErrorCategory,
-	ErrorSeverity,
-	RecoveryStrategy,
-} from "../types/errors";
+import { type AppError, ErrorCategory, ErrorSeverity } from "../types/errors";
 
 /**
  * Error display props
@@ -192,6 +187,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
 					<div className="flex items-center space-x-1">
 						{showRetry && error.retryable && (
 							<button
+								type="button"
 								onClick={retry}
 								disabled={isRetrying}
 								className={`${colors.button} px-2 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50`}
@@ -202,6 +198,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
 
 						{dismissible && (
 							<button
+								type="button"
 								onClick={clearError}
 								className={`${colors.text} hover:opacity-75 text-sm`}
 							>
@@ -243,6 +240,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
 						{showDetails && (
 							<div className="mt-3">
 								<button
+									type="button"
 									onClick={() => setDetailsExpanded(!detailsExpanded)}
 									className={`${colors.text} text-sm underline hover:no-underline`}
 								>
@@ -278,6 +276,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
 
 				{dismissible && (
 					<button
+						type="button"
 						onClick={clearError}
 						className={`${colors.text} hover:opacity-75 text-xl leading-none ml-2`}
 					>
@@ -289,9 +288,10 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
 			{/* Action buttons */}
 			{allActions.length > 0 && (
 				<div className="mt-4 flex flex-wrap gap-2">
-					{allActions.map((action, index) => (
+					{allActions.map((action) => (
 						<button
-							key={index}
+							key={action.label}
+							type="button"
 							onClick={action.handler}
 							disabled={
 								isRetrying && action.label.toLowerCase().includes("retry")
@@ -382,6 +382,7 @@ export const ErrorToast: React.FC<{
 				</div>
 
 				<button
+					type="button"
 					onClick={onDismiss}
 					className={`${colors.text} hover:opacity-75 ml-2`}
 				>
@@ -399,7 +400,7 @@ export const ErrorNotificationContainer: React.FC<{
 	position?: "top-right" | "top-left" | "bottom-right" | "bottom-left";
 	maxNotifications?: number;
 }> = ({ position = "top-right", maxNotifications = 5 }) => {
-	const { errorHistory, clearError } = useError();
+	const { errorHistory } = useError();
 	const [visibleErrors, setVisibleErrors] = useState<AppError[]>([]);
 
 	// Update visible errors when error history changes

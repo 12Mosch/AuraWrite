@@ -47,9 +47,9 @@ interface SyncOperationContext {
  */
 interface ConflictInfo {
 	path: string;
-	localValue: any;
-	remoteValue: any;
-	resolution: any;
+	localValue: unknown;
+	remoteValue: unknown;
+	resolution: unknown;
 	conflictType?: string;
 	similarity?: number;
 	canAutoResolve?: boolean;
@@ -97,6 +97,78 @@ interface SyncErrorHandlerReturn {
 export const useSyncErrorHandler = (): SyncErrorHandlerReturn => {
 	const handleError = useErrorHandler();
 	const conflictHistoryRef = useRef<Map<string, number>>(new Map());
+
+	/**
+	 * Check if error is a sync conflict
+	 */
+	const isSyncConflict = useCallback((error: unknown): boolean => {
+		if (error instanceof Error) {
+			// Check for specific error types first
+			if (
+				error.name === "SyncConflictError" ||
+				error.name === "ConflictError"
+			) {
+				return true;
+			}
+
+			const message = error.message.toLowerCase();
+			return (
+				message.includes("conflict") ||
+				message.includes("version mismatch") ||
+				message.includes("concurrent modification") ||
+				message.includes("write conflict")
+			);
+		}
+		return false;
+	}, []);
+
+	/**
+	 * Get conflict type from error
+	 */
+	const getConflictType = useCallback(
+		(error: unknown): SyncConflictType | null => {
+			if (!(error instanceof Error)) return null;
+
+			const message = error.message.toLowerCase();
+
+			if (message.includes("write conflict")) {
+				return SyncConflictType.WRITE_CONFLICT;
+			} else if (message.includes("version mismatch")) {
+				return SyncConflictType.VERSION_MISMATCH;
+			} else if (message.includes("schema")) {
+				return SyncConflictType.SCHEMA_CONFLICT;
+			} else if (
+				message.includes("permission") ||
+				message.includes("unauthorized")
+			) {
+				return SyncConflictType.PERMISSION_DENIED;
+			}
+
+			return null;
+		},
+		[],
+	);
+
+	/**
+	 * Get resolution strategy based on conflict type
+	 */
+	const getResolutionStrategy = useCallback(
+		(conflictType: SyncConflictType): ConflictResolutionStrategy => {
+			switch (conflictType) {
+				case SyncConflictType.WRITE_CONFLICT:
+					return ConflictResolutionStrategy.MERGE;
+				case SyncConflictType.VERSION_MISMATCH:
+					return ConflictResolutionStrategy.LAST_WRITE_WINS;
+				case SyncConflictType.SCHEMA_CONFLICT:
+					return ConflictResolutionStrategy.MANUAL;
+				case SyncConflictType.PERMISSION_DENIED:
+					return ConflictResolutionStrategy.MANUAL;
+				default:
+					return ConflictResolutionStrategy.MANUAL;
+			}
+		},
+		[],
+	);
 
 	/**
 	 * Handle sync errors with proper categorization and resolution
@@ -192,7 +264,7 @@ export const useSyncErrorHandler = (): SyncErrorHandlerReturn => {
 
 			return syncError;
 		},
-		[handleError],
+		[handleError, getConflictType, getResolutionStrategy, isSyncConflict],
 	);
 
 	/**
@@ -246,8 +318,6 @@ export const useSyncErrorHandler = (): SyncErrorHandlerReturn => {
 							mergedDoc,
 						};
 					}
-
-					case ConflictResolutionStrategy.MANUAL:
 					default: {
 						// Return conflicts for manual resolution
 						const conflicts = detectConflicts(localDoc, remoteDoc);
@@ -274,78 +344,6 @@ export const useSyncErrorHandler = (): SyncErrorHandlerReturn => {
 						},
 					],
 				};
-			}
-		},
-		[],
-	);
-
-	/**
-	 * Check if error is a sync conflict
-	 */
-	const isSyncConflict = useCallback((error: unknown): boolean => {
-		if (error instanceof Error) {
-			// Check for specific error types first
-			if (
-				error.name === "SyncConflictError" ||
-				error.name === "ConflictError"
-			) {
-				return true;
-			}
-
-			const message = error.message.toLowerCase();
-			return (
-				message.includes("conflict") ||
-				message.includes("version mismatch") ||
-				message.includes("concurrent modification") ||
-				message.includes("write conflict")
-			);
-		}
-		return false;
-	}, []);
-
-	/**
-	 * Get conflict type from error
-	 */
-	const getConflictType = useCallback(
-		(error: unknown): SyncConflictType | null => {
-			if (!(error instanceof Error)) return null;
-
-			const message = error.message.toLowerCase();
-
-			if (message.includes("write conflict")) {
-				return SyncConflictType.WRITE_CONFLICT;
-			} else if (message.includes("version mismatch")) {
-				return SyncConflictType.VERSION_MISMATCH;
-			} else if (message.includes("schema")) {
-				return SyncConflictType.SCHEMA_CONFLICT;
-			} else if (
-				message.includes("permission") ||
-				message.includes("unauthorized")
-			) {
-				return SyncConflictType.PERMISSION_DENIED;
-			}
-
-			return null;
-		},
-		[],
-	);
-
-	/**
-	 * Get resolution strategy based on conflict type
-	 */
-	const getResolutionStrategy = useCallback(
-		(conflictType: SyncConflictType): ConflictResolutionStrategy => {
-			switch (conflictType) {
-				case SyncConflictType.WRITE_CONFLICT:
-					return ConflictResolutionStrategy.MERGE;
-				case SyncConflictType.VERSION_MISMATCH:
-					return ConflictResolutionStrategy.LAST_WRITE_WINS;
-				case SyncConflictType.SCHEMA_CONFLICT:
-					return ConflictResolutionStrategy.MANUAL;
-				case SyncConflictType.PERMISSION_DENIED:
-					return ConflictResolutionStrategy.MANUAL;
-				default:
-					return ConflictResolutionStrategy.MANUAL;
 			}
 		},
 		[],
@@ -447,7 +445,7 @@ function analyzeConflictType(
 	remoteContent: Y.XmlText,
 ): {
 	resolution: string;
-	metadata: Record<string, any>;
+	metadata: Record<string, unknown>;
 } {
 	const localText = localContent.toString();
 	const remoteText = remoteContent.toString();

@@ -120,6 +120,11 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
 		);
 	}
 
+	// Early return if metadata is still undefined (shouldn't happen due to loading check above)
+	if (!metadata) {
+		return null;
+	}
+
 	const collaboratorNames = getCollaboratorNames(metadata);
 	const lastUpdatedText = getLastUpdatedText(metadata);
 
@@ -136,7 +141,6 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
 							onBlur={handleTitleSave}
 							onKeyDown={handleTitleKeyDown}
 							className="text-2xl font-bold bg-transparent border-b-2 border-blue-500 focus:outline-none flex-1"
-							autoFocus
 							disabled={isSaving}
 						/>
 						{isSaving && <div className="text-sm text-gray-500">Saving...</div>}
@@ -149,6 +153,18 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
 								: ""
 						} flex-1`}
 						onClick={handleTitleClick}
+						onKeyDown={
+							editable
+								? (e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											handleTitleClick();
+										}
+									}
+								: undefined
+						}
+						role={editable ? "button" : undefined}
+						tabIndex={editable ? 0 : undefined}
 						title={editable ? "Click to edit title" : undefined}
 					>
 						{metadata.title}
@@ -177,7 +193,9 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
 							fill="none"
 							stroke="currentColor"
 							viewBox="0 0 24 24"
+							aria-label="Collaborators"
 						>
+							<title>Collaborators</title>
 							<path
 								strokeLinecap="round"
 								strokeLinejoin="round"
@@ -201,7 +219,9 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
 							fill="none"
 							stroke="currentColor"
 							viewBox="0 0 24 24"
+							aria-label="Last updated"
 						>
+							<title>Last updated</title>
 							<path
 								strokeLinecap="round"
 								strokeLinejoin="round"

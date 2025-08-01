@@ -76,7 +76,7 @@ export const subscribeToDocument = query({
 		documentId: v.id("documents"),
 		limit: v.optional(v.number()),
 	},
-	handler: async (ctx, { documentId, limit = 50 }) => {
+	handler: async (ctx, { documentId, limit: _limit = 50 }) => {
 		const userId = await getCurrentUser(ctx);
 		const document = await checkDocumentAccess(ctx, documentId, userId);
 
@@ -120,7 +120,7 @@ export const subscribeToMultipleDocumentMetadata = query({
 				try {
 					const document = await checkDocumentAccess(ctx, documentId, userId);
 					return await enrichDocumentWithUserDetails(ctx, document);
-				} catch (error) {
+				} catch (_error) {
 					// If user doesn't have access to a document, skip it
 					// This allows partial results for mixed access scenarios
 					return null;

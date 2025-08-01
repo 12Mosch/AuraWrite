@@ -12,7 +12,7 @@ interface DeltaOperation {
 		italic?: boolean;
 		underline?: boolean;
 		code?: boolean;
-		[key: string]: any;
+		[key: string]: unknown;
 	};
 }
 
@@ -23,7 +23,7 @@ interface SlateTextNode {
 	italic?: boolean;
 	underline?: boolean;
 	code?: boolean;
-	[key: string]: any;
+	[key: string]: unknown;
 }
 
 interface SlateParagraphNode {

@@ -66,7 +66,11 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 				return {
 					color: "text-green-600",
 					bgColor: "bg-green-100",
-					icon: <span aria-label="Connected status indicator">🟢</span>,
+					icon: (
+						<span role="img" aria-label="Connected status indicator">
+							🟢
+						</span>
+					),
 					label: isSyncing ? "Syncing..." : "Connected",
 					description: "Real-time sync active",
 				};
@@ -75,7 +79,11 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 				return {
 					color: "text-blue-600",
 					bgColor: "bg-blue-100",
-					icon: <span aria-label="Connecting status indicator">🔵</span>,
+					icon: (
+						<span role="img" aria-label="Connecting status indicator">
+							🔵
+						</span>
+					),
 					label: "Connecting...",
 					description: "Establishing connection",
 				};
@@ -84,7 +92,11 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 				return {
 					color: "text-yellow-600",
 					bgColor: "bg-yellow-100",
-					icon: <span aria-label="Reconnecting status indicator">🟡</span>,
+					icon: (
+						<span role="img" aria-label="Reconnecting status indicator">
+							🟡
+						</span>
+					),
 					label: `Reconnecting... (${retryCount})`,
 					description:
 						nextRetryIn > 0
@@ -96,7 +108,11 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 				return {
 					color: "text-gray-600",
 					bgColor: "bg-gray-100",
-					icon: <span aria-label="Disconnected status indicator">⚪</span>,
+					icon: (
+						<span role="img" aria-label="Disconnected status indicator">
+							⚪
+						</span>
+					),
 					label: "Disconnected",
 					description: "Not connected to server",
 				};
@@ -105,7 +121,11 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 				return {
 					color: "text-red-600",
 					bgColor: "bg-red-100",
-					icon: <span aria-label="Connection failed status indicator">🔴</span>,
+					icon: (
+						<span role="img" aria-label="Connection failed status indicator">
+							🔴
+						</span>
+					),
 					label: "Connection Failed",
 					description: error || "Unable to connect after multiple attempts",
 				};
@@ -115,7 +135,9 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 					color: "text-gray-600",
 					bgColor: "bg-gray-100",
 					icon: (
-						<span aria-label="Unknown connection status indicator">❓</span>
+						<span role="img" aria-label="Unknown connection status indicator">
+							❓
+						</span>
 					),
 					label: "Unknown",
 					description: "Unknown connection state",
@@ -141,6 +163,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 				</span>
 				{onReconnect && connectionState === ConnectionState.FAILED && (
 					<button
+						type="button"
 						onClick={onReconnect}
 						className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"
 					>
@@ -191,6 +214,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 							(connectionState === ConnectionState.FAILED ||
 								connectionState === ConnectionState.DISCONNECTED) && (
 								<button
+									type="button"
 									onClick={onReconnect}
 									className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded font-medium"
 								>
@@ -236,7 +260,11 @@ export const SimpleConnectionIndicator: React.FC<
 	const getIndicator = () => {
 		if (isSyncing) {
 			return {
-				icon: <span aria-label="Syncing status indicator">🔄</span>,
+				icon: (
+					<span role="img" aria-label="Syncing status indicator">
+						🔄
+					</span>
+				),
 				color: "text-blue-500",
 				label: "Syncing",
 			};
@@ -245,38 +273,60 @@ export const SimpleConnectionIndicator: React.FC<
 		switch (connectionState) {
 			case ConnectionState.CONNECTED:
 				return {
-					icon: <span aria-label="Connected status indicator">🟢</span>,
+					icon: (
+						<span role="img" aria-label="Connected status indicator">
+							🟢
+						</span>
+					),
 					color: "text-green-500",
 					label: "Online",
 				};
 			case ConnectionState.CONNECTING:
 				return {
-					icon: <span aria-label="Connecting status indicator">🔵</span>,
+					icon: (
+						<span role="img" aria-label="Connecting status indicator">
+							🔵
+						</span>
+					),
 					color: "text-blue-500",
 					label: "Connecting",
 				};
 			case ConnectionState.RECONNECTING:
 				return {
-					icon: <span aria-label="Reconnecting status indicator">🟡</span>,
+					icon: (
+						<span role="img" aria-label="Reconnecting status indicator">
+							🟡
+						</span>
+					),
 					color: "text-yellow-500",
 					label: "Reconnecting",
 				};
 			case ConnectionState.DISCONNECTED:
 				return {
-					icon: <span aria-label="Disconnected status indicator">⚪</span>,
+					icon: (
+						<span role="img" aria-label="Disconnected status indicator">
+							⚪
+						</span>
+					),
 					color: "text-gray-500",
 					label: "Offline",
 				};
 			case ConnectionState.FAILED:
 				return {
-					icon: <span aria-label="Connection failed status indicator">🔴</span>,
+					icon: (
+						<span role="img" aria-label="Connection failed status indicator">
+							🔴
+						</span>
+					),
 					color: "text-red-500",
 					label: "Failed",
 				};
 			default:
 				return {
 					icon: (
-						<span aria-label="Unknown connection status indicator">❓</span>
+						<span role="img" aria-label="Unknown connection status indicator">
+							❓
+						</span>
 					),
 					color: "text-gray-500",
 					label: "Unknown",

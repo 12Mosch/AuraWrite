@@ -35,7 +35,7 @@ export type ConvexOperationType = "query" | "mutation" | "action";
 interface ConvexErrorContext {
 	operation: ConvexOperationType;
 	functionName: string;
-	args?: Record<string, any>;
+	args?: Record<string, unknown>;
 	retryCount?: number;
 }
 
@@ -76,7 +76,7 @@ export const useConvexErrorHandler = () => {
 	 * Wrapper for Convex mutations with error handling
 	 */
 	const withMutationErrorHandling = useCallback(
-		<T extends any[], R>(
+		<T extends unknown[], R>(
 			mutationFn: (...args: T) => Promise<R>,
 			functionName: string,
 		) => {
@@ -100,7 +100,7 @@ export const useConvexErrorHandler = () => {
 	 * Supports both synchronous and asynchronous query functions
 	 */
 	const withQueryErrorHandling = useCallback(
-		<T extends any[], R>(
+		<T extends unknown[], R>(
 			queryFn: (...args: T) => R | Promise<R>,
 			functionName: string,
 		) => {
@@ -138,7 +138,7 @@ export const useConvexErrorHandler = () => {
 	 * Wrapper for Convex actions with error handling
 	 */
 	const withActionErrorHandling = useCallback(
-		<T extends any[], R>(
+		<T extends unknown[], R>(
 			actionFn: (...args: T) => Promise<R>,
 			functionName: string,
 		) => {
@@ -220,7 +220,9 @@ function createConvexAppError(
 		retryable = true;
 	}
 
-	return {
+	// Use appropriate error factory based on category
+	const baseError = {
+		name: "ConvexError",
 		code: `CONVEX_${context.operation.toUpperCase()}_ERROR`,
 		message: `${context.operation} "${context.functionName}" failed: ${convexData.message}`,
 		category,
@@ -237,6 +239,34 @@ function createConvexAppError(
 			convexErrorData: convexData,
 		},
 	};
+
+	// Return appropriate error type based on category
+	if (category === ErrorCategory.NETWORK) {
+		return {
+			...baseError,
+			category: ErrorCategory.NETWORK,
+			isOffline: !navigator.onLine,
+		} as AppError;
+	} else if (category === ErrorCategory.AUTHENTICATION) {
+		return {
+			...baseError,
+			category: ErrorCategory.AUTHENTICATION,
+		} as AppError;
+	} else if (category === ErrorCategory.VALIDATION) {
+		return {
+			...baseError,
+			category: ErrorCategory.VALIDATION,
+		} as AppError;
+	} else if (category === ErrorCategory.CONFLICT) {
+		return {
+			...baseError,
+			category: ErrorCategory.CONFLICT,
+			conflictType: "write" as const,
+			operations: [],
+		} as AppError;
+	} else {
+		return baseError as AppError;
+	}
 }
 
 /**
@@ -294,6 +324,7 @@ function createUnknownAppError(
 	context: ConvexErrorContext,
 ): AppError {
 	return {
+		name: "ConvexUnknownError",
 		code: `CONVEX_${context.operation.toUpperCase()}_UNKNOWN_ERROR`,
 		message: `${context.operation} "${context.functionName}" unknown error: ${String(error)}`,
 		category: ErrorCategory.SYSTEM,
@@ -309,7 +340,7 @@ function createUnknownAppError(
 			args: context.args,
 			unknownError: error,
 		},
-	};
+	} as AppError;
 }
 
 /**

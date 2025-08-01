@@ -3,6 +3,7 @@
  * Replaces local backup system with cloud-based recovery using Convex
  */
 
+import type { ConvexReactClient } from "convex/react";
 import { useConvex } from "convex/react";
 import * as Y from "yjs";
 import { api } from "../../convex/_generated/api";
@@ -13,7 +14,7 @@ import type { Id } from "../../convex/_generated/dataModel";
  * This replaces the local backup system with cloud-based recovery
  */
 export const recoverDocumentFromCloud = async (
-	convex: any,
+	convex: ConvexReactClient,
 	documentId: Id<"documents">,
 ): Promise<Y.Doc | null> => {
 	try {
@@ -34,7 +35,8 @@ export const recoverDocumentFromCloud = async (
 
 		if (document.yjsState) {
 			// Apply Y.js binary state if available
-			Y.applyUpdate(recoveredDoc, document.yjsState);
+			// Convert ArrayBuffer to Uint8Array for Y.js compatibility
+			Y.applyUpdate(recoveredDoc, new Uint8Array(document.yjsState));
 			console.log("Document recovered from Y.js cloud state");
 		} else if (document.content) {
 			// Fallback to legacy Slate content if available
@@ -64,12 +66,20 @@ export const recoverDocumentFromCloud = async (
 };
 
 /**
+ * Slate node interface for text extraction
+ */
+interface SlateNode {
+	text?: string;
+	children?: SlateNode[];
+}
+
+/**
  * Extract plain text from Slate.js content structure
  */
-const extractTextFromSlate = (slateNodes: any[]): string => {
+const extractTextFromSlate = (slateNodes: SlateNode[]): string => {
 	let text = "";
 
-	const extractFromNode = (node: any): void => {
+	const extractFromNode = (node: SlateNode): void => {
 		if (node.text !== undefined) {
 			text += node.text;
 		}

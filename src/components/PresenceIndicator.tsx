@@ -119,7 +119,9 @@ export const PresenceIndicator: React.FC<PresenceIndicatorProps> = ({
 					fill="none"
 					stroke="currentColor"
 					viewBox="0 0 24 24"
+					aria-label="User"
 				>
+					<title>User</title>
 					<path
 						strokeLinecap="round"
 						strokeLinejoin="round"

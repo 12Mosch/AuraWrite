@@ -100,6 +100,7 @@ export const useConnectionManager = (
 	const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 	const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
 	const connectionTestRef = useRef<(() => Promise<boolean>) | null>(null);
+	const attemptConnectionRef = useRef<(() => Promise<boolean>) | null>(null);
 
 	// Derived state
 	const isConnected = connectionState === ConnectionState.CONNECTED;
@@ -161,6 +162,42 @@ export const useConnectionManager = (
 			}
 		}, 1000);
 	}, []);
+
+	/**
+	 * Perform health check
+	 */
+	const performHealthCheck = useCallback(async () => {
+		if (!enabled || !isOnline || !connectionTestRef.current) {
+			return;
+		}
+
+		try {
+			const isHealthy = await connectionTestRef.current();
+
+			if (isHealthy) {
+				// Schedule next health check
+				if (healthCheckInterval > 0) {
+					healthCheckTimerRef.current = setTimeout(() => {
+						performHealthCheck();
+					}, healthCheckInterval);
+				}
+			} else {
+				// Connection is unhealthy, trigger reconnection
+				setConnectionState(ConnectionState.DISCONNECTED);
+				// Use ref to avoid circular dependency
+				if (attemptConnectionRef.current) {
+					attemptConnectionRef.current();
+				}
+			}
+		} catch (_error) {
+			// Health check failed, trigger reconnection
+			setConnectionState(ConnectionState.DISCONNECTED);
+			// Use ref to avoid circular dependency
+			if (attemptConnectionRef.current) {
+				attemptConnectionRef.current();
+			}
+		}
+	}, [enabled, isOnline, healthCheckInterval]);
 
 	/**
 	 * Attempt to establish connection
@@ -262,37 +299,11 @@ export const useConnectionManager = (
 		getRetryDelay,
 		startCountdown,
 		handleError,
+		performHealthCheck,
 	]);
 
-	/**
-	 * Perform health check
-	 */
-	const performHealthCheck = useCallback(async () => {
-		if (!enabled || !isOnline || !connectionTestRef.current) {
-			return;
-		}
-
-		try {
-			const isHealthy = await connectionTestRef.current();
-
-			if (isHealthy) {
-				// Schedule next health check
-				if (healthCheckInterval > 0) {
-					healthCheckTimerRef.current = setTimeout(() => {
-						performHealthCheck();
-					}, healthCheckInterval);
-				}
-			} else {
-				// Connection is unhealthy, trigger reconnection
-				setConnectionState(ConnectionState.DISCONNECTED);
-				attemptConnection();
-			}
-		} catch (error) {
-			// Health check failed, trigger reconnection
-			setConnectionState(ConnectionState.DISCONNECTED);
-			attemptConnection();
-		}
-	}, [enabled, isOnline, healthCheckInterval, attemptConnection]);
+	// Set the ref to break circular dependency
+	attemptConnectionRef.current = attemptConnection;
 
 	/**
 	 * Force a reconnection attempt

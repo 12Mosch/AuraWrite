@@ -85,7 +85,7 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
 					setIsOnline(actuallyOnline);
 					setLastStatusChange(new Date());
 				}
-			} catch (error) {
+			} catch (_error) {
 				// If fetch fails and we think we're online, we might actually be offline
 				if (isOnline) {
 					if (process.env.NODE_ENV === "development") {
@@ -113,7 +113,7 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
 			window.removeEventListener("offline", handleOffline);
 			clearInterval(connectivityInterval);
 		};
-	}, []); // Empty dependency array - effect only runs once
+	}, [isOnline]); // Empty dependency array - effect only runs once
 
 	return {
 		isOnline,

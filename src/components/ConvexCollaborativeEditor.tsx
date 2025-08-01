@@ -180,7 +180,7 @@ export const ConvexCollaborativeEditor: React.FC<
 			console.warn("Error getting editor value from Y.js:", error);
 			return initialValue;
 		}
-	}, [editor, isLocalSynced, initialValue]);
+	}, [editor, isLocalSynced]);
 
 	// Connect/disconnect the Yjs editor
 	useEffect(() => {
@@ -216,7 +216,14 @@ export const ConvexCollaborativeEditor: React.FC<
 				console.warn("Error disconnecting Y.js editor:", error);
 			}
 		};
-	}, [editor, indexeddbProvider, isLocalSynced, documentId]);
+	}, [
+		editor,
+		indexeddbProvider,
+		isLocalSynced,
+		documentId,
+		sharedType.length,
+		yDoc.clientID,
+	]);
 
 	// Handle Y.js updates to prevent DOM sync issues
 	useEffect(() => {
