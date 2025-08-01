@@ -4,4 +4,3 @@ export { EditorLayout } from "./EditorLayout";
 export { EditorMenuBar } from "./EditorMenuBar";
 export { EditorStatusBar } from "./EditorStatusBar";
 export { EditorToolbar } from "./EditorToolbar";
-export { TextEditor } from "./TextEditor";

@@ -1,15 +1,15 @@
 import type React from "react";
-import {useCallback, useMemo, useState} from "react";
-import type {Descendant} from "slate";
+import {useCallback, useMemo, useRef, useState} from "react";
+import type {Descendant, Editor} from "slate";
+import {HistoryEditor} from "slate-history";
 import type {Id} from "../../../convex/_generated/dataModel";
+import {ConvexCollaborativeEditor} from "../ConvexCollaborativeEditor";
 import {EditorLayout} from "./EditorLayout";
-import {TextEditor} from "./TextEditor";
 
 interface AuraTextEditorProps {
-	documentId?: Id<"documents">;
+	documentId: Id<"documents">; // Required for collaboration
 	initialValue?: Descendant[];
 	className?: string;
-	readOnly?: boolean;
 	showMenuBar?: boolean;
 	showToolbar?: boolean;
 	showStatusBar?: boolean;
@@ -20,9 +20,9 @@ interface AuraTextEditorProps {
 }
 
 export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
+	documentId,
 	initialValue,
 	className = "",
-	readOnly = false,
 	showMenuBar = true,
 	showToolbar = true,
 	showStatusBar = true,
@@ -37,6 +37,12 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	);
 	const [isModified, setIsModified] = useState(false);
 	const [lastSaved, setLastSaved] = useState<Date>(new Date());
+	const [syncStatus, setSyncStatus] = useState<
+		"synced" | "syncing" | "error" | "offline"
+	>("synced");
+
+	// Editor instance ref for undo/redo operations
+	const editorRef = useRef<Editor | null>(null);
 
 	// Calculate document statistics
 	const documentStats = useMemo(() => {
@@ -67,14 +73,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		[onChange],
 	);
 
-	// Handle format changes
-	const handleFormatChange = useCallback(() => {
-		// Format changes are handled by the TextEditor component
-	}, []);
-
-	// Handle selection changes
-	const handleSelectionChange = useCallback(() => {
-		// Selection changes are handled by the TextEditor component
+	// Handle editor ready callback
+	const handleEditorReady = useCallback((editor: Editor) => {
+		editorRef.current = editor;
 	}, []);
 
 	// Handle menu actions
@@ -93,10 +94,20 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					setIsModified(false);
 					break;
 				case "edit.undo":
-					// This would be handled by the editor's history plugin
+					if (
+						editorRef.current &&
+						HistoryEditor.isHistoryEditor(editorRef.current)
+					) {
+						HistoryEditor.undo(editorRef.current);
+					}
 					break;
 				case "edit.redo":
-					// This would be handled by the editor's history plugin
+					if (
+						editorRef.current &&
+						HistoryEditor.isHistoryEditor(editorRef.current)
+					) {
+						HistoryEditor.redo(editorRef.current);
+					}
 					break;
 				default:
 					console.log("Menu action:", action, data);
@@ -105,7 +116,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		[editorValue, onSave],
 	);
 
-	// Handle toolbar actions
+	// TODO: Handle toolbar actions
 	const handleToolbarAction = useCallback((action: string, data?: unknown) => {
 		switch (action) {
 			case "format.bold":
@@ -119,12 +130,31 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			case "format.alignCenter":
 			case "format.alignRight":
 			case "format.alignJustify":
-				// These are handled by the TextEditor component
+				// These are handled by the ConvexCollaborativeEditor component
 				break;
 			default:
 				console.log("Toolbar action:", action, data);
 		}
 	}, []);
+
+	// Handle sync status changes from the collaboration system
+	const handleSyncStatusChange = useCallback(
+		(
+			status:
+				| "synced"
+				| "syncing"
+				| "error"
+				| "offline"
+				| "pending"
+				| "disabled",
+		) => {
+			// Map the extended status types to the ones expected by DocumentStatus
+			const mappedStatus: "synced" | "syncing" | "error" | "offline" =
+				status === "pending" || status === "disabled" ? "offline" : status;
+			setSyncStatus(mappedStatus);
+		},
+		[],
+	);
 
 	return (
 		<div className={`aura-text-editor h-full ${className}`}>
@@ -141,18 +171,18 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					characterCount: documentStats.characterCount,
 					isModified,
 					lastSaved,
-					syncStatus: "synced", // This would come from the collaboration system
+					syncStatus,
 				}}
 			>
-				<TextEditor
-					value={editorValue}
-					onChange={handleEditorChange}
-					onFormatChange={handleFormatChange}
-					onSelectionChange={handleSelectionChange}
-					readOnly={readOnly}
-					autoFocus={!readOnly}
+				<ConvexCollaborativeEditor
+					documentId={documentId}
 					placeholder="Start writing your document..."
+					onChange={handleEditorChange}
+					onEditorReady={handleEditorReady}
+					enableSync={true}
+					showHeader={false}
 					className="h-full"
+					onSyncStatusChange={handleSyncStatusChange}
 				/>
 			</EditorLayout>
 		</div>

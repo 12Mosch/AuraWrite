@@ -1,9 +1,12 @@
 import {useAuthActions} from "@convex-dev/auth/react";
-import {Authenticated, AuthLoading, Unauthenticated} from "convex/react";
-import {AuraTextEditor} from "@/components/editor";
-import "./index.css";
+import {Authenticated, AuthLoading, Unauthenticated, useMutation, useQuery,} from "convex/react";
+import {useEffect, useState} from "react";
 import {ErrorBoundary} from "@/components/ErrorBoundary";
+import {AuraTextEditor} from "@/components/editor";
 import {ErrorProvider} from "@/contexts/ErrorContext";
+import {api} from "../../convex/_generated/api";
+import type {Id} from "../../convex/_generated/dataModel";
+import "./index.css";
 
 function App() {
 	return (
@@ -107,10 +110,55 @@ function SignInForm() {
 
 function AuthenticatedApp() {
 	const { signOut } = useAuthActions();
+	const [documentId, setDocumentId] = useState<Id<"documents"> | null>(null);
+
+	// Get user's documents
+	const userDocuments = useQuery(api.documents.getUserDocuments);
+
+	// Create document mutation
+	const createDocument = useMutation(api.documents.createDocument);
+
+	// Create or get the demo document
+	useEffect(() => {
+		if (userDocuments && userDocuments.length === 0) {
+			// No documents exist, create a demo document
+			createDocument({
+				title: "My First Document",
+				content: JSON.stringify([
+					{
+						type: "paragraph",
+						children: [
+							{ text: "Welcome to AuraWrite! Start typing to begin..." },
+						],
+					},
+				]),
+				isPublic: false,
+			})
+				.then((newDocumentId) => {
+					setDocumentId(newDocumentId);
+				})
+				.catch((error) => {
+					console.error("Failed to create demo document:", error);
+				});
+		} else if (userDocuments && userDocuments.length > 0) {
+			// Use the first document
+			setDocumentId(userDocuments[0]._id);
+		}
+	}, [userDocuments, createDocument]);
+
+	// Show loading while we determine which document to use
+	if (!documentId) {
+		return (
+			<div className="flex items-center justify-center min-h-screen">
+				<div className="text-lg">Loading document...</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="h-screen">
 			<AuraTextEditor
+				documentId={documentId}
 				documentTitle="My Document"
 				showMenuBar={true}
 				showToolbar={true}
@@ -119,11 +167,11 @@ function AuthenticatedApp() {
 				onSignOut={() => void signOut()}
 				onSave={(value) => {
 					console.log("Saving document:", value);
-					// Here you would integrate with your backend/Convex
+					// Document saving is now handled automatically by the collaboration system
 				}}
 				onChange={(value) => {
 					console.log("Document changed:", value);
-					// Here you would handle real-time collaboration
+					// Real-time collaboration is now handled automatically!
 				}}
 			/>
 		</div>

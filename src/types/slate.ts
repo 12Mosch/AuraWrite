@@ -32,7 +32,12 @@ export type NumberedListElement = {
 
 export type ListItemElement = {
 	type: "list-item";
-	children: CustomText[];
+	children: (
+		| CustomText
+		| BulletedListElement
+		| NumberedListElement
+		| ParagraphElement
+	)[];
 };
 
 export type CodeBlockElement = {

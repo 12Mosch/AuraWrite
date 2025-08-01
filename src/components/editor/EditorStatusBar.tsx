@@ -40,49 +40,45 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
 		return date.toLocaleDateString();
 	};
 
-	const getSyncStatusIcon = () => {
-		switch (syncStatus) {
-			case "synced":
-				return <CheckCircle className="h-3 w-3 text-green-600" />;
-			case "syncing":
-				return <RotateCw className="h-3 w-3 text-blue-600 animate-spin" />;
-			case "error":
-				return <AlertCircle className="h-3 w-3 text-red-600" />;
-			case "offline":
-				return <WifiOff className="h-3 w-3 text-yellow-600" />;
-			default:
-				return <Wifi className="h-3 w-3 text-gray-600" />;
-		}
-	};
+	const syncStatusConfig = {
+		synced: {
+			icon: <CheckCircle className="h-3 w-3 text-green-600" />,
+			text: "Synced",
+			color: "bg-green-100 text-green-800 border-green-200",
+			badgeText: "SYNCED",
+			badgeTextShort: "S",
+		},
+		syncing: {
+			icon: <RotateCw className="h-3 w-3 text-blue-600 animate-spin" />,
+			text: "Syncing...",
+			color: "bg-blue-100 text-blue-800 border-blue-200",
+			badgeText: "SYNCING",
+			badgeTextShort: "S",
+		},
+		error: {
+			icon: <AlertCircle className="h-3 w-3 text-red-600" />,
+			text: "Sync Error",
+			color: "bg-red-100 text-red-800 border-red-200",
+			badgeText: "ERROR",
+			badgeTextShort: "E",
+		},
+		offline: {
+			icon: <WifiOff className="h-3 w-3 text-yellow-600" />,
+			text: "Offline",
+			color: "bg-yellow-100 text-yellow-800 border-yellow-200",
+			badgeText: "OFFLINE",
+			badgeTextShort: "O",
+		},
+	} as const;
 
-	const getSyncStatusText = () => {
-		switch (syncStatus) {
-			case "synced":
-				return "Synced";
-			case "syncing":
-				return "Syncing...";
-			case "error":
-				return "Sync Error";
-			case "offline":
-				return "Offline";
-			default:
-				return "Unknown";
-		}
-	};
-
-	const getSyncStatusColor = () => {
-		switch (syncStatus) {
-			case "synced":
-				return "bg-green-100 text-green-800 border-green-200";
-			case "syncing":
-				return "bg-blue-100 text-blue-800 border-blue-200";
-			case "error":
-				return "bg-red-100 text-red-800 border-red-200";
-			case "offline":
-				return "bg-yellow-100 text-yellow-800 border-yellow-200";
-			default:
-				return "bg-gray-100 text-gray-800 border-gray-200";
-		}
+	const currentSyncConfig = syncStatusConfig[
+		syncStatus as keyof typeof syncStatusConfig
+	] || {
+		icon: <Wifi className="h-3 w-3 text-gray-600" />,
+		text: "Unknown",
+		color: "bg-gray-100 text-gray-800 border-gray-200",
+		badgeText: "UNKNOWN",
+		badgeTextShort: "U",
 	};
 
 	return (
@@ -139,17 +135,19 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
 				{/* Sync status */}
 				<div className="flex items-center gap-1 sm:gap-2">
 					<div className="flex items-center gap-1">
-						{getSyncStatusIcon()}
-						<span className="hidden sm:inline">{getSyncStatusText()}</span>
+						{currentSyncConfig.icon}
+						<span className="hidden sm:inline">{currentSyncConfig.text}</span>
 					</div>
 
 					<Badge
 						variant="outline"
-						className={`text-xs px-1 sm:px-2 py-0 ${getSyncStatusColor()}`}
+						className={`text-xs px-1 sm:px-2 py-0 ${currentSyncConfig.color}`}
 					>
-						<span className="hidden sm:inline">{syncStatus.toUpperCase()}</span>
+						<span className="hidden sm:inline">
+							{currentSyncConfig.badgeText}
+						</span>
 						<span className="sm:hidden">
-							{syncStatus.charAt(0).toUpperCase()}
+							{currentSyncConfig.badgeTextShort}
 						</span>
 					</Badge>
 				</div>

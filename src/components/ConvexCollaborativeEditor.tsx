@@ -1,30 +1,22 @@
-import { withYjs, YjsEditor } from "@slate-yjs/core";
+import {withYjs, YjsEditor} from "@slate-yjs/core";
 import type React from "react";
-import { useEffect, useMemo } from "react";
-import { createEditor, type Descendant, Editor } from "slate";
-import { Editable, Slate, withReact } from "slate-react";
-import type { Id } from "../../convex/_generated/dataModel";
-import { useError } from "../contexts/ErrorContext";
-import { ConnectionState } from "../hooks/useConnectionManager";
-import {
-	type SyncHookReturn,
-	useConvexYjsSync,
-} from "../hooks/useConvexYjsSync";
-import { useOfflineMode } from "../hooks/useOfflineMode";
-import { useOptimizedSync as useOptimizedSyncHook } from "../hooks/useOptimizedSync";
-import { usePresence } from "../hooks/usePresence";
-import { useSharedYjsDocument } from "../hooks/useSharedYjsDocument";
-import {
-	ConnectionStatus,
-	SimpleConnectionIndicator,
-} from "./ConnectionStatus";
-import { DocumentHeader } from "./DocumentHeader";
-import { EnhancedErrorDisplay } from "./EnhancedErrorDisplay";
-import { PresenceIndicator } from "./PresenceIndicator";
-import {
-	CompactPerformanceIndicator,
-	SyncPerformanceMonitor,
-} from "./SyncPerformanceMonitor";
+import {useEffect, useMemo} from "react";
+import {createEditor, type Descendant, Editor} from "slate";
+import {withHistory} from "slate-history";
+import {Editable, Slate, withReact} from "slate-react";
+import type {Id} from "../../convex/_generated/dataModel";
+import {useError} from "../contexts/ErrorContext";
+import {ConnectionState} from "../hooks/useConnectionManager";
+import {type SyncHookReturn, useConvexYjsSync,} from "../hooks/useConvexYjsSync";
+import {useOfflineMode} from "../hooks/useOfflineMode";
+import {useOptimizedSync as useOptimizedSyncHook} from "../hooks/useOptimizedSync";
+import {usePresence} from "../hooks/usePresence";
+import {useSharedYjsDocument} from "../hooks/useSharedYjsDocument";
+import {ConnectionStatus, SimpleConnectionIndicator,} from "./ConnectionStatus";
+import {DocumentHeader} from "./DocumentHeader";
+import {EnhancedErrorDisplay} from "./EnhancedErrorDisplay";
+import {PresenceIndicator} from "./PresenceIndicator";
+import {CompactPerformanceIndicator, SyncPerformanceMonitor,} from "./SyncPerformanceMonitor";
 
 /**
  * Props for the ConvexCollaborativeEditor component
@@ -38,6 +30,8 @@ interface ConvexCollaborativeEditorProps {
 	placeholder?: string;
 	/** Callback when editor content changes */
 	onChange?: (value: Descendant[]) => void;
+	/** Callback when editor instance is ready */
+	onEditorReady?: (editor: Editor) => void;
 	/** Whether to enable real-time synchronization */
 	enableSync?: boolean;
 	/** Whether to show the document header with real-time metadata */
@@ -48,6 +42,10 @@ interface ConvexCollaborativeEditorProps {
 	useOptimizedSync?: boolean;
 	/** Whether to show performance monitoring (default: false) */
 	showPerformanceMonitor?: boolean;
+	/** Callback when sync status changes */
+	onSyncStatusChange?: (
+		status: "synced" | "syncing" | "error" | "offline" | "pending" | "disabled",
+	) => void;
 }
 
 /**
@@ -66,11 +64,13 @@ export const ConvexCollaborativeEditor: React.FC<
 	className = "",
 	placeholder = "Start typing...",
 	onChange,
+	onEditorReady,
 	enableSync = true,
 	showHeader = true,
 	headerClassName = "",
 	useOptimizedSync = true,
 	showPerformanceMonitor = false,
+	onSyncStatusChange,
 }) => {
 	// Initial editor value
 	const initialValue: Descendant[] = [
@@ -148,9 +148,9 @@ export const ConvexCollaborativeEditor: React.FC<
 		trackSelection: true,
 	});
 
-	// Create Slate editor with Yjs integration
+	// Create Slate editor with Yjs integration and history
 	const editor = useMemo(() => {
-		const e = withReact(withYjs(createEditor(), sharedType));
+		const e = withReact(withYjs(withHistory(createEditor()), sharedType));
 
 		// Ensure editor has a consistent structure
 		const { normalizeNode } = e;
@@ -166,6 +166,13 @@ export const ConvexCollaborativeEditor: React.FC<
 
 		return e;
 	}, [sharedType]);
+
+	// Notify parent when editor is ready
+	useEffect(() => {
+		if (editor && onEditorReady) {
+			onEditorReady(editor);
+		}
+	}, [editor, onEditorReady]);
 
 	// Get editor value from Y.js shared type instead of maintaining separate state
 	const value = useMemo(() => {
@@ -279,6 +286,21 @@ export const ConvexCollaborativeEditor: React.FC<
 		isLocalSynced,
 		isServerSynced,
 	]);
+
+	// Notify parent component of sync status changes
+	useEffect(() => {
+		if (onSyncStatusChange) {
+			onSyncStatusChange(
+				overallSyncStatus as
+					| "synced"
+					| "syncing"
+					| "error"
+					| "offline"
+					| "pending"
+					| "disabled",
+			);
+		}
+	}, [overallSyncStatus, onSyncStatusChange]);
 
 	// Sync status indicator component
 	const SyncStatusIndicator = () => {

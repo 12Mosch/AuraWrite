@@ -70,7 +70,6 @@ export type ToolbarAction =
 	| "format.paragraph"
 	| "format.blockquote"
 	| "format.bulletList"
-	| "format.numberList"
 	| "format.numberedList"
 	| "insert.link"
 	| "insert.image"
