@@ -278,12 +278,15 @@ export const useSharedYjsDocument = (options: UseSharedYjsDocumentOptions): UseS
     return () => clearInterval(interval)
   }, [docInfo])
 
+  const isDebug = process.env.NODE_ENV === 'development';
+
   // Set up event listeners for debugging
   useEffect(() => {
     const { yDoc } = docInfo
     const docIdString = typeof documentId === 'string' ? documentId : String(documentId)
 
     const handleUpdate = (update: Uint8Array, origin: any) => {
+      if (!isDebug) return;
       console.log('Shared Y.Doc update received:', {
         documentId: docIdString,
         updateSize: update.length,
@@ -294,6 +297,7 @@ export const useSharedYjsDocument = (options: UseSharedYjsDocumentOptions): UseS
     }
 
     const handleAfterTransaction = (transaction: Y.Transaction) => {
+      if (!isDebug) return;
       if (transaction.changed.size > 0) {
         console.log('Shared Y.Doc transaction completed:', {
           documentId: docIdString,
@@ -309,6 +313,7 @@ export const useSharedYjsDocument = (options: UseSharedYjsDocumentOptions): UseS
 
     // Cleanup function
     return () => {
+      if (!isDebug) return;
       console.log(`Cleaning up shared Y.Doc event listeners for document: ${docIdString}`)
       yDoc.off('update', handleUpdate)
       yDoc.off('afterTransaction', handleAfterTransaction)

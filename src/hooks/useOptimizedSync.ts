@@ -62,6 +62,15 @@ interface UpdateBatch {
   retryCount: number;
 }
 
+  /**
+   * Browser-compatible utility function to compare two Uint8Array instances
+   */
+  const areUint8ArraysEqual = useCallback((a: Uint8Array, b: Uint8Array): boolean => {
+    if (a.length !== b.length) return false;
+    // Use every() for early termination on first mismatch
+    return a.every((value, index) => value === b[index]);
+  }, []);
+
 /**
  * Enhanced hook for optimized real-time synchronization
  * 
@@ -128,15 +137,6 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
   });
 
   /**
-   * Browser-compatible utility function to compare two Uint8Array instances
-   */
-  const areUint8ArraysEqual = useCallback((a: Uint8Array, b: Uint8Array): boolean => {
-    if (a.length !== b.length) return false;
-    // Use every() for early termination on first mismatch
-    return a.every((value, index) => value === b[index]);
-  }, []);
-
-  /**
    * Apply server updates to local Y.Doc with conflict resolution
    */
   const applyServerUpdate = useCallback((serverState: Uint8Array, origin: string = 'server') => {
@@ -201,7 +201,7 @@ export const useOptimizedSync = (options: OptimizedSyncOptions): OptimizedSyncRe
       console.error('Failed to apply server update:', error);
       setSyncError(`Failed to apply update: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [yDoc, areUint8ArraysEqual, documentId]);
+  }, [yDoc, documentId]);
 
   /**
    * Send batched updates to server with retry logic
