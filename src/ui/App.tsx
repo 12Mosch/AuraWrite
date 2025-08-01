@@ -1,6 +1,6 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
-import CollaborativeEditorDemo from "../components/CollaborativeEditorDemo";
+import CollaborativeEditingTest from "../components/CollaborativeEditingTest";
 import "./index.css";
 import { ErrorProvider } from "@/contexts/ErrorContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -126,7 +126,7 @@ function AuthenticatedApp() {
 			</header>
 
 			<main className="py-8">
-				<CollaborativeEditorDemo />
+				<CollaborativeEditingTest />
 			</main>
 		</div>
 	);

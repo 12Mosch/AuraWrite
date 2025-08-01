@@ -1,37 +1,88 @@
-import React, { useState } from 'react'
-import CollaborativeEditor from './CollaborativeEditor'
-import { createDocumentId, isValidDocumentId } from '../hooks/useYjsDocument'
+import React, { useState, useEffect } from 'react'
+import { ConvexCollaborativeEditor } from './ConvexCollaborativeEditor'
+import { useMutation, useQuery } from 'convex/react'
+import { api } from '../../convex/_generated/api'
+import { Id } from '../../convex/_generated/dataModel'
 import { Descendant } from 'slate'
 
 /**
- * Demo component to showcase Y.Doc initialization and collaborative editing features
+ * Demo component to showcase collaborative editing with Convex
  * This component demonstrates:
- * - Y.Doc creation with unique document IDs
- * - Shared type configuration for collaborative text editing
- * - IndexedDB persistence for offline editing
+ * - Creating real Convex documents
+ * - Real-time collaborative editing with Yjs and Convex
+ * - Document management (create, list, switch)
  * - Multiple editor instances sharing the same document
  */
 const CollaborativeEditorDemo: React.FC = () => {
-  const [documentId, setDocumentId] = useState(() => createDocumentId('demo'))
+  const [documentId, setDocumentId] = useState<Id<"documents"> | null>(null)
   const [customDocumentId, setCustomDocumentId] = useState('')
   const [validationError, setValidationError] = useState('')
   const [showMultipleEditors, setShowMultipleEditors] = useState(false)
   const [editorContent, setEditorContent] = useState<Descendant[]>([])
+  const [isCreatingDocument, setIsCreatingDocument] = useState(false)
+
+  // Convex mutations and queries
+  const createDocument = useMutation(api.documents.createDocument)
+  const userDocuments = useQuery(api.documents.getUserDocuments)
+
+  // Create initial document on mount
+  useEffect(() => {
+    const createInitialDocument = async () => {
+      if (documentId || isCreatingDocument) return
+
+      setIsCreatingDocument(true)
+      try {
+        const docId = await createDocument({
+          title: "Demo Document",
+          content: JSON.stringify([{type: "paragraph", children: [{text: "Start typing to test collaborative editing..."}]}]),
+          isPublic: false,
+        })
+        setDocumentId(docId)
+      } catch (error) {
+        console.error('Failed to create initial document:', error)
+        setValidationError('Failed to create document. Please try again.')
+      } finally {
+        setIsCreatingDocument(false)
+      }
+    }
+
+    createInitialDocument()
+  }, [createDocument, documentId, isCreatingDocument])
 
   // Handle creating a new document
-  const handleNewDocument = () => {
-    const newDocId = createDocumentId('demo')
-    setDocumentId(newDocId)
-    setEditorContent([])
+  const handleNewDocument = async () => {
+    setIsCreatingDocument(true)
+    setValidationError('')
+    try {
+      const docId = await createDocument({
+        title: `Demo Document ${new Date().toLocaleTimeString()}`,
+        content: JSON.stringify([{type: "paragraph", children: [{text: "New document - start typing..."}]}]),
+        isPublic: false,
+      })
+      setDocumentId(docId)
+      setEditorContent([])
+    } catch (error) {
+      console.error('Failed to create document:', error)
+      setValidationError('Failed to create document. Please try again.')
+    } finally {
+      setIsCreatingDocument(false)
+    }
   }
 
   // Handle switching to a custom document ID
   const handleCustomDocument = () => {
-    if (customDocumentId && isValidDocumentId(customDocumentId)) {
-      setDocumentId(customDocumentId)
-      setEditorContent([])
+    if (customDocumentId) {
+      try {
+        // Try to parse as Convex ID
+        const docId = customDocumentId as Id<"documents">
+        setDocumentId(docId)
+        setEditorContent([])
+        setValidationError('')
+      } catch (error) {
+        setValidationError('Please enter a valid Convex document ID')
+      }
     } else {
-      setValidationError('Please enter a valid document ID (alphanumeric characters, hyphens, and underscores only)')
+      setValidationError('Please enter a document ID')
     }
   }
 
@@ -40,38 +91,46 @@ const CollaborativeEditorDemo: React.FC = () => {
     setEditorContent(value)
   }
 
+  // Handle switching to an existing document
+  const handleSelectDocument = (docId: Id<"documents">) => {
+    setDocumentId(docId)
+    setEditorContent([])
+    setValidationError('')
+  }
+
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">
-          Collaborative Editor Demo - Y.Doc Initialization
+          Collaborative Editor Demo - Real-time Convex Sync
         </h1>
-        
+
         <div className="mb-6 p-4 bg-blue-50 rounded-lg">
           <h2 className="text-lg font-semibold text-blue-900 mb-2">
-            Y.Doc Features Demonstrated:
+            Features Demonstrated:
           </h2>
           <ul className="list-disc list-inside text-blue-800 space-y-1">
-            <li><strong>Y.Doc Initialization:</strong> Each editor creates a Y.Doc instance with unique client ID</li>
-            <li><strong>Shared Types:</strong> Using Y.XmlText for Slate.js compatibility</li>
-            <li><strong>IndexedDB Persistence:</strong> Documents persist across browser sessions</li>
-            <li><strong>Real-time Sync:</strong> Multiple editors can share the same document</li>
-            <li><strong>Proper Cleanup:</strong> Y.Doc instances are properly destroyed on unmount</li>
+            <li><strong>Real Convex Documents:</strong> Documents are stored in Convex database</li>
+            <li><strong>Y.js + Convex Sync:</strong> Real-time collaborative editing with server persistence</li>
+            <li><strong>CRDT Conflict Resolution:</strong> Y.Doc handles concurrent edits automatically</li>
+            <li><strong>IndexedDB Persistence:</strong> Local caching for offline editing</li>
+            <li><strong>Multi-user Collaboration:</strong> Open multiple tabs to test real-time sync</li>
           </ul>
         </div>
 
         {/* Document Controls */}
         <div className="mb-6 p-4 bg-gray-50 rounded-lg">
           <h3 className="text-lg font-semibold text-gray-900 mb-3">Document Controls</h3>
-          
-          <div className="flex flex-wrap gap-4 items-center">
+
+          <div className="flex flex-wrap gap-4 items-center mb-4">
             <button
               onClick={handleNewDocument}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              disabled={isCreatingDocument}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              New Document
+              {isCreatingDocument ? 'Creating...' : 'New Document'}
             </button>
-            
+
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -80,11 +139,9 @@ const CollaborativeEditorDemo: React.FC = () => {
                   setCustomDocumentId(e.target.value)
                   setValidationError('')
                 }}
-
-                placeholder="Enter custom document ID"
+                placeholder="Enter Convex document ID"
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              {validationError && <div className="text-red-500">{validationError}</div>}
               <button
                 onClick={handleCustomDocument}
                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
@@ -92,7 +149,7 @@ const CollaborativeEditorDemo: React.FC = () => {
                 Load Document
               </button>
             </div>
-            
+
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -103,36 +160,85 @@ const CollaborativeEditorDemo: React.FC = () => {
               <span className="text-gray-700">Show Multiple Editors</span>
             </label>
           </div>
+
+          {validationError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+              <p className="text-red-700 text-sm">{validationError}</p>
+            </div>
+          )}
+
+          <div className="mb-4 text-sm text-gray-600">
+            <p><strong>Current Document ID:</strong> <code className="bg-gray-200 px-2 py-1 rounded">{documentId || 'Loading...'}</code></p>
+          </div>
+
+          {/* Document List */}
+          {userDocuments && userDocuments.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-900 mb-2">Your Documents:</h4>
+              <div className="flex flex-wrap gap-2">
+                {userDocuments.slice(0, 5).map((doc) => (
+                  <button
+                    key={doc._id}
+                    onClick={() => handleSelectDocument(doc._id)}
+                    className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                      doc._id === documentId
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    {doc.title}
+                  </button>
+                ))}
+                {userDocuments.length > 5 && (
+                  <span className="px-3 py-1 text-xs text-gray-500">
+                    +{userDocuments.length - 5} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Primary Editor */}
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">
-            Primary Editor
-          </h3>
-          <CollaborativeEditor
-            documentId={documentId}
-            placeholder="Start typing to see Y.Doc in action..."
-            onChange={handleEditorChange}
-            className="w-full"
-          />
-        </div>
+        {documentId && (
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">
+              Primary Editor
+            </h3>
+            <ConvexCollaborativeEditor
+              documentId={documentId}
+              placeholder="Start typing to test collaborative editing..."
+              onChange={handleEditorChange}
+              className="w-full"
+              showHeader={true}
+              enableSync={true}
+            />
+          </div>
+        )}
 
         {/* Secondary Editor (for testing collaboration) */}
-        {showMultipleEditors && (
+        {showMultipleEditors && documentId && (
           <div className="mb-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-3">
               Secondary Editor (Same Document)
             </h3>
             <p className="text-sm text-gray-600 mb-3">
-              This editor shares the same Y.Doc instance. Changes made in one editor 
-              will appear in the other, demonstrating collaborative editing.
+              This editor shares the same Convex document. Changes made in one editor
+              will sync in real-time to the other, demonstrating collaborative editing.
             </p>
-            <CollaborativeEditor
+            <ConvexCollaborativeEditor
               documentId={documentId}
               placeholder="This editor shares the same document..."
               className="w-full border-2 border-green-200"
+              showHeader={false}
+              enableSync={true}
             />
+          </div>
+        )}
+
+        {!documentId && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p className="text-yellow-700">Creating document... Please wait.</p>
           </div>
         )}
 

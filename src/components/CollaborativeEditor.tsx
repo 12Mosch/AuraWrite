@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react'
+import React, { useCallback, useMemo, useEffect } from 'react'
 import { createEditor, Descendant, BaseEditor, Editor, Transforms } from 'slate'
 import { Slate, Editable, withReact, ReactEditor, RenderElementProps, RenderLeafProps } from 'slate-react'
 import { withYjs, YjsEditor } from '@slate-yjs/core'
@@ -105,8 +105,20 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
     return e
   }, [sharedType])
 
-  // Manage editor value state
-  const [value, setValue] = useState<Descendant[]>([])
+  // Get editor value from Y.js shared type instead of maintaining separate state
+  const value = useMemo(() => {
+    if (!isSynced) {
+      return initialValue;
+    }
+
+    // Get the current value from the Y.js shared type
+    try {
+      return editor.children.length > 0 ? editor.children : initialValue;
+    } catch (error) {
+      console.warn('Error getting editor value from Y.js:', error);
+      return initialValue;
+    }
+  }, [editor.children, isSynced, initialValue]);
 
   // Connect/disconnect the Yjs editor
   useEffect(() => {
@@ -128,7 +140,11 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 
     // Cleanup function to disconnect the editor
     return () => {
-      YjsEditor.disconnect(editor)
+      try {
+        YjsEditor.disconnect(editor)
+      } catch (error) {
+        console.warn('Error disconnecting Y.js editor:', error);
+      }
       // Note: Y.Doc cleanup is handled by the useYjsDocument hook
     }
   }, [editor, indexeddbProvider])
@@ -141,7 +157,8 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 
   // Handle editor value changes
   const handleChange = (newValue: Descendant[]) => {
-    setValue(newValue)
+    // With Y.js integration, the value is managed by the shared type
+    // We only need to call the onChange callback
     onChange?.(newValue)
   }
 
@@ -200,6 +217,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
       )}
 
       <Slate
+        key={documentId} // Force re-render when document changes
         editor={editor}
         value={value}
         onChange={handleChange}

@@ -1,7 +1,211 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, MutationCtx } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 import * as Y from "yjs";
 import { getCurrentUser, checkDocumentAccess } from "./authHelpers";
+
+// Type definitions for Y.js Delta operations
+interface DeltaOperation {
+	insert: string | object;
+	attributes?: {
+		bold?: boolean;
+		italic?: boolean;
+		underline?: boolean;
+		code?: boolean;
+		[key: string]: any;
+	};
+}
+
+// Type definitions for Slate.js nodes
+interface SlateTextNode {
+	text: string;
+	bold?: boolean;
+	italic?: boolean;
+	underline?: boolean;
+	code?: boolean;
+	[key: string]: any;
+}
+
+interface SlateParagraphNode {
+	type: "paragraph";
+	children: SlateTextNode[];
+}
+
+type SlateNode = SlateParagraphNode;
+
+// Type for document patch data
+interface DocumentPatchData {
+	yjsState: ArrayBuffer;
+	yjsStateVector?: ArrayBuffer;
+	yjsUpdatedAt: number;
+	updatedAt: number;
+}
+
+/**
+ * Helper function to convert Uint8Array to ArrayBuffer
+ * This is needed for Convex compatibility as it expects ArrayBuffer
+ */
+function toArrayBuffer(uint8Array: Uint8Array): ArrayBuffer {
+	return uint8Array.buffer.slice(uint8Array.byteOffset, uint8Array.byteOffset + uint8Array.byteLength);
+}
+
+/**
+ * Convert Y.js Delta format to Slate.js nodes
+ * Delta format: [{ insert: "text", attributes: { bold: true } }, ...]
+ * Slate format: [{ type: "paragraph", children: [{ text: "text", bold: true }] }]
+ */
+export function deltaToSlateNodes(delta: DeltaOperation[]): SlateNode[] {
+	if (!delta || delta.length === 0) {
+		return [{
+			type: "paragraph",
+			children: [{ text: "" }]
+		}];
+	}
+
+	const nodes: SlateNode[] = [];
+	let currentParagraph: SlateParagraphNode = {
+		type: "paragraph",
+		children: []
+	};
+
+	for (const op of delta) {
+		if (typeof op.insert === 'string') {
+			// Handle text insertion
+			const text = op.insert;
+			const attributes = op.attributes || {};
+
+			// Split text by newlines to create separate paragraphs
+			const lines = text.split('\n');
+
+			for (let i = 0; i < lines.length; i++) {
+				const line = lines[i];
+
+				if (line.length > 0) {
+					// Add text to current paragraph
+					const textNode: SlateTextNode = { text: line };
+
+					// Apply formatting attributes
+					if (attributes.bold) textNode.bold = true;
+					if (attributes.italic) textNode.italic = true;
+					if (attributes.underline) textNode.underline = true;
+					if (attributes.code) textNode.code = true;
+
+					currentParagraph.children.push(textNode);
+				}
+
+				// If there's a newline (except for the last line), finish current paragraph
+				if (i < lines.length - 1) {
+					// Ensure paragraph has at least empty text if no children
+					if (currentParagraph.children.length === 0) {
+						currentParagraph.children.push({ text: "" });
+					}
+
+					nodes.push(currentParagraph);
+					currentParagraph = {
+						type: "paragraph",
+						children: []
+					};
+				}
+			}
+		} else if (typeof op.insert === 'object') {
+			// Handle embedded objects (like images, links, etc.)
+			// For now, we'll skip these or convert them to text
+			console.warn('Embedded objects in Y.js delta not fully supported:', op.insert);
+		}
+	}
+
+	// Add the final paragraph if it has content
+	if (currentParagraph.children.length > 0) {
+		nodes.push(currentParagraph);
+	} else if (nodes.length === 0) {
+		// Ensure we always have at least one paragraph
+		nodes.push({
+			type: "paragraph",
+			children: [{ text: "" }]
+		});
+	}
+
+	return nodes;
+}
+
+/**
+ * Helper function to create a document version from Y.js state
+ */
+async function createDocumentVersion(
+	ctx: MutationCtx,
+	documentId: Id<"documents">,
+	yjsState: ArrayBuffer,
+	userId: Id<"users">
+) {
+	// Create Y.Doc before try block to ensure it's available for cleanup
+	const tempDoc = new Y.Doc();
+
+	try {
+		// Convert Y.js state to a temporary Y.Doc to extract content
+		Y.applyUpdate(tempDoc, new Uint8Array(yjsState));
+		const sharedType = tempDoc.get('content', Y.XmlText);
+
+		// Extract the full Slate.js structure from Y.XmlText
+		// This preserves all formatting, links, and rich content
+		let slateContent: string;
+
+		try {
+			// Use Y.XmlText's toDelta() method to get the rich content with formatting
+			const delta = sharedType.toDelta();
+
+			// Convert delta to Slate.js nodes
+			// Delta format: [{ insert: "text", attributes: { bold: true } }, ...]
+			const slateNodes = deltaToSlateNodes(delta);
+
+			// Ensure we have at least one paragraph
+			if (slateNodes.length === 0) {
+				slateNodes.push({
+					type: "paragraph",
+					children: [{ text: "" }]
+				});
+			}
+
+			slateContent = JSON.stringify(slateNodes);
+		} catch (deltaError) {
+			console.warn('Failed to extract rich content from Y.XmlText, falling back to plain text:', deltaError);
+
+			// Fallback to plain text if delta conversion fails
+			const textContent = sharedType.toString();
+			slateContent = JSON.stringify([{
+				type: "paragraph",
+				children: [{ text: textContent || "" }]
+			}]);
+		}
+
+		// Get the next version number
+		const lastVersion = await ctx.db
+			.query("documentVersions")
+			.withIndex("by_document", (q) => q.eq("documentId", documentId))
+			.order("desc")
+			.first();
+
+		const nextVersion = lastVersion ? lastVersion.version + 1 : 1;
+
+		// Create the version record
+		const versionId = await ctx.db.insert("documentVersions", {
+			documentId,
+			content: slateContent,
+			version: nextVersion,
+			createdBy: userId,
+			createdAt: Date.now(),
+		});
+
+		console.log(`Created document version ${nextVersion} for document ${documentId}`);
+		return versionId;
+	} catch (error) {
+		console.error('Failed to create document version:', error);
+		// Don't throw - versioning failure shouldn't break sync
+		return null;
+	} finally {
+		// Always destroy the temporary Y.Doc to prevent memory leaks
+		tempDoc.destroy();
+	}
+}
 
 /**
  * Query to get Y.Doc state for synchronization
@@ -24,6 +228,34 @@ export const getYjsState = query({
 			yjsStateVector: document.yjsStateVector,
 			yjsUpdatedAt: document.yjsUpdatedAt,
 			_creationTime: document._creationTime,
+		};
+	},
+});
+
+/**
+ * Real-time subscription query for Y.js state changes
+ * This query will automatically re-run when the document's Y.js state changes,
+ * enabling real-time collaboration between clients
+ */
+export const subscribeToYjsState = query({
+	args: { documentId: v.id("documents") },
+	returns: v.object({
+		yjsState: v.optional(v.bytes()),
+		yjsStateVector: v.optional(v.bytes()),
+		yjsUpdatedAt: v.optional(v.number()),
+		_creationTime: v.number(),
+		documentId: v.id("documents"),
+	}),
+	handler: async (ctx, { documentId }) => {
+		const userId = await getCurrentUser(ctx);
+		const document = await checkDocumentAccess(ctx, documentId, userId);
+
+		return {
+			yjsState: document.yjsState,
+			yjsStateVector: document.yjsStateVector,
+			yjsUpdatedAt: document.yjsUpdatedAt,
+			_creationTime: document._creationTime,
+			documentId: document._id,
 		};
 	},
 });
@@ -66,22 +298,32 @@ export const updateYjsState = mutation({
 				if (!stateVector) {
 					// Create a temporary Y.Doc to generate the state vector
 					const tempDoc = new Y.Doc();
-					Y.applyUpdate(tempDoc, mergedUpdate);
-					newStateVector = Y.encodeStateVector(tempDoc);
-					tempDoc.destroy();
+					try {
+						Y.applyUpdate(tempDoc, mergedUpdate);
+						newStateVector = Y.encodeStateVector(tempDoc);
+					} finally {
+						tempDoc.destroy();
+					}
 				}
 			} else {
 				// No existing state - use the update directly
 				mergedUpdate = new Uint8Array(update);
 			}
 
-			// Store the merged update
+			// Store the merged update (convert Uint8Array to ArrayBuffer for Convex)
 			await ctx.db.patch(documentId, {
-				yjsState: mergedUpdate,
-				yjsStateVector: newStateVector,
+				yjsState: toArrayBuffer(mergedUpdate),
+				yjsStateVector: newStateVector ? toArrayBuffer(newStateVector) : undefined,
 				yjsUpdatedAt: now,
 				updatedAt: now,
 			});
+
+			// Create a document version periodically (every few updates)
+			// We'll create a version roughly every 30 seconds of activity
+			const lastVersionTime = document.yjsUpdatedAt || document.createdAt;
+			if (!lastVersionTime || (now - lastVersionTime) > 30000) {
+				await createDocumentVersion(ctx, documentId, toArrayBuffer(mergedUpdate), userId);
+			}
 
 			return {
 				success: true,
@@ -115,8 +357,8 @@ export const initializeYjsState = mutation({
 
 		const now = Date.now();
 		await ctx.db.patch(documentId, {
-			yjsState: initialState,
-			yjsStateVector: stateVector,
+			yjsState: initialState, // Already converted to ArrayBuffer on client side
+			yjsStateVector: stateVector, // Already converted to ArrayBuffer on client side
 			yjsUpdatedAt: now,
 			updatedAt: now,
 		});
@@ -162,17 +404,27 @@ export const applyYjsUpdate = mutation({
 
 			// Create a temporary Y.Doc to compute the new state vector
 			const tempDoc = new Y.Doc();
-			Y.applyUpdate(tempDoc, mergedUpdate);
-			const newStateVector = Y.encodeStateVector(tempDoc);
-			tempDoc.destroy();
+			let newStateVector: Uint8Array;
+			try {
+				Y.applyUpdate(tempDoc, mergedUpdate);
+				newStateVector = Y.encodeStateVector(tempDoc);
+			} finally {
+				tempDoc.destroy();
+			}
 
-			// Store the merged update and updated state vector
+			// Store the merged update and updated state vector (convert Uint8Array to ArrayBuffer)
 			await ctx.db.patch(documentId, {
-				yjsState: mergedUpdate,
-				yjsStateVector: newStateVector,
+				yjsState: toArrayBuffer(mergedUpdate),
+				yjsStateVector: newStateVector ? toArrayBuffer(newStateVector) : undefined,
 				yjsUpdatedAt: now,
 				updatedAt: now,
 			});
+
+			// Create a document version periodically
+			const lastVersionTime = document.yjsUpdatedAt || document.createdAt;
+			if (!lastVersionTime || (now - lastVersionTime) > 30000) {
+				await createDocumentVersion(ctx, documentId, toArrayBuffer(mergedUpdate), userId);
+			}
 
 			return {
 				success: true,
@@ -239,18 +491,32 @@ export const applyBatchedYjsUpdates = mutation({
 			let newStateVector: Uint8Array | undefined = stateVector ? new Uint8Array(stateVector) : undefined;
 			if (!stateVector) {
 				const tempDoc = new Y.Doc();
-				Y.applyUpdate(tempDoc, finalUpdate);
-				newStateVector = Y.encodeStateVector(tempDoc);
-				tempDoc.destroy();
+				try {
+					Y.applyUpdate(tempDoc, finalUpdate);
+					newStateVector = Y.encodeStateVector(tempDoc);
+				} finally {
+					tempDoc.destroy();
+				}
 			}
 
-			// Apply the final merged update to the document
-			await ctx.db.patch(documentId, {
-				yjsState: finalUpdate,
-				yjsStateVector: newStateVector,
+			// Apply the final merged update to the document (convert Uint8Array to ArrayBuffer)
+			const patchData: DocumentPatchData = {
+				yjsState: toArrayBuffer(finalUpdate),
 				yjsUpdatedAt: now,
 				updatedAt: now,
-			});
+			};
+
+			if (newStateVector) {
+				patchData.yjsStateVector = toArrayBuffer(newStateVector);
+			}
+
+			await ctx.db.patch(documentId, patchData);
+
+			// Create a document version for significant updates (every 10 updates or more)
+			// This helps with version history without creating too many versions
+			if (updates.length >= 5) {
+				await createDocumentVersion(ctx, documentId, toArrayBuffer(finalUpdate), userId);
+			}
 
 			return {
 				success: true,
