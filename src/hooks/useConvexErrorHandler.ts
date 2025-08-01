@@ -244,7 +244,6 @@ function createConvexAppError(
 	if (category === ErrorCategory.NETWORK) {
 		return {
 			...baseError,
-			category: ErrorCategory.NETWORK,
 			isOffline: !navigator.onLine,
 		} as AppError;
 	} else if (category === ErrorCategory.AUTHENTICATION) {

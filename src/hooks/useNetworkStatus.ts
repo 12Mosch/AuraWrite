@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Return type for the useNetworkStatus hook
@@ -32,6 +32,14 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
 	const [lastStatusChange, setLastStatusChange] = useState<Date | undefined>(
 		undefined,
 	);
+
+	// Use ref to store current isOnline value for use in effect
+	const isOnlineRef = useRef(isOnline);
+
+	// Update ref when isOnline changes
+	useEffect(() => {
+		isOnlineRef.current = isOnline;
+	}, [isOnline]);
 
 	useEffect(() => {
 		// Set initial loading state to false after first render
@@ -76,7 +84,7 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
 				});
 
 				const actuallyOnline = response.ok;
-				if (actuallyOnline !== isOnline) {
+				if (actuallyOnline !== isOnlineRef.current) {
 					if (process.env.NODE_ENV === "development") {
 						console.log(
 							`Network status corrected: ${actuallyOnline ? "Online" : "Offline"}`,
@@ -87,7 +95,7 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
 				}
 			} catch (_error) {
 				// If fetch fails and we think we're online, we might actually be offline
-				if (isOnline) {
+				if (isOnlineRef.current) {
 					if (process.env.NODE_ENV === "development") {
 						console.log("Network connectivity check failed, assuming offline");
 					}
@@ -113,7 +121,7 @@ export const useNetworkStatus = (): UseNetworkStatusReturn => {
 			window.removeEventListener("offline", handleOffline);
 			clearInterval(connectivityInterval);
 		};
-	}, [isOnline]); // Empty dependency array - effect only runs once
+	}, []);
 
 	return {
 		isOnline,

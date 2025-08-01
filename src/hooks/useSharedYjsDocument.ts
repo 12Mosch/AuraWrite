@@ -82,14 +82,12 @@ class YjsDocumentManager {
 					console.log(
 						"Loading initial value into shared Y.Doc (no persistence)",
 					);
-					if (options.initialValue) {
-						const initialValue = options.initialValue;
-						docInfo.yDoc.transact(() => {
-							docInfo.sharedType.applyDelta(
-								slateNodesToInsertDelta(initialValue),
-							);
-						});
-					}
+					const initialValue = options.initialValue;
+					docInfo.yDoc.transact(() => {
+						docInfo.sharedType.applyDelta(
+							slateNodesToInsertDelta(initialValue),
+						);
+					});
 				}
 				docInfo.isSynced = true;
 			}
