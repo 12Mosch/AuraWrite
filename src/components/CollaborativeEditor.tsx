@@ -1,38 +1,11 @@
-import { withYjs, YjsEditor } from "@slate-yjs/core";
+import {withYjs, YjsEditor} from "@slate-yjs/core";
 import type React from "react";
-import { useCallback, useEffect, useMemo } from "react";
-import {
-	type BaseEditor,
-	createEditor,
-	type Descendant,
-	Editor,
-	Transforms,
-} from "slate";
-import {
-	Editable,
-	type ReactEditor,
-	type RenderElementProps,
-	type RenderLeafProps,
-	Slate,
-	withReact,
-} from "slate-react";
-import {
-	useNetworkStatus,
-	useNetworkStatusMessage,
-} from "../hooks/useNetworkStatus";
-import { useYjsDocument } from "../hooks/useYjsDocument";
-
-// TypeScript type definitions for Slate
-type CustomElement = { type: "paragraph"; children: CustomText[] };
-type CustomText = { text: string; bold?: boolean; italic?: boolean };
-
-declare module "slate" {
-	interface CustomTypes {
-		Editor: BaseEditor & ReactEditor;
-		Element: CustomElement;
-		Text: CustomText;
-	}
-}
+import {useCallback, useEffect, useMemo, useState} from "react";
+import {createEditor, type Descendant, Editor, Transforms} from "slate";
+import {Editable, type RenderElementProps, type RenderLeafProps, Slate, withReact,} from "slate-react";
+import {useNetworkStatus, useNetworkStatusMessage,} from "../hooks/useNetworkStatus";
+import {useYjsDocument} from "../hooks/useYjsDocument";
+import "../types/slate"; // Import shared Slate types
 
 // Initial value for the editor
 const initialValue: Descendant[] = [
@@ -129,20 +102,8 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 		return e;
 	}, [sharedType]);
 
-	// Get editor value from Y.js shared type instead of maintaining separate state
-	const value = useMemo(() => {
-		if (!isSynced) {
-			return initialValue;
-		}
-
-		// Get the current value from the Y.js shared type
-		try {
-			return editor.children.length > 0 ? editor.children : initialValue;
-		} catch (error) {
-			console.warn("Error getting editor value from Y.js:", error);
-			return initialValue;
-		}
-	}, [editor.children, isSynced]);
+	// Manage editor value state
+	const [value, setValue] = useState<Descendant[]>([]);
 
 	// Connect/disconnect the Yjs editor
 	useEffect(() => {
@@ -164,11 +125,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 
 		// Cleanup function to disconnect the editor
 		return () => {
-			try {
-				YjsEditor.disconnect(editor);
-			} catch (error) {
-				console.warn("Error disconnecting Y.js editor:", error);
-			}
+			YjsEditor.disconnect(editor);
 			// Note: Y.Doc cleanup is handled by the useYjsDocument hook
 		};
 	}, [editor, indexeddbProvider]);
@@ -187,8 +144,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 
 	// Handle editor value changes
 	const handleChange = (newValue: Descendant[]) => {
-		// With Y.js integration, the value is managed by the shared type
-		// We only need to call the onChange callback
+		setValue(newValue);
 		onChange?.(newValue);
 	};
 
@@ -248,12 +204,7 @@ export const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
 				</div>
 			)}
 
-			<Slate
-				key={documentId} // Force re-render when document changes
-				editor={editor}
-				value={value}
-				onChange={handleChange}
-			>
+			<Slate editor={editor} value={value} onChange={handleChange}>
 				<Editable
 					renderElement={renderElement}
 					renderLeaf={renderLeaf}

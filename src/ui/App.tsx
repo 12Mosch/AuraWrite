@@ -1,9 +1,9 @@
-import { useAuthActions } from "@convex-dev/auth/react";
-import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
-import CollaborativeEditingTest from "../components/CollaborativeEditingTest";
+import {useAuthActions} from "@convex-dev/auth/react";
+import {Authenticated, AuthLoading, Unauthenticated} from "convex/react";
+import {AuraTextEditor} from "@/components/editor";
 import "./index.css";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { ErrorProvider } from "@/contexts/ErrorContext";
+import {ErrorBoundary} from "@/components/ErrorBoundary";
+import {ErrorProvider} from "@/contexts/ErrorContext";
 
 function App() {
 	return (
@@ -109,25 +109,23 @@ function AuthenticatedApp() {
 	const { signOut } = useAuthActions();
 
 	return (
-		<div className="min-h-screen">
-			<header className="bg-white shadow-sm border-b">
-				<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-					<div className="flex justify-between items-center py-4">
-						<h1 className="text-xl font-semibold text-gray-900">AuraWrite</h1>
-						<button
-							type="button"
-							onClick={() => void signOut()}
-							className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700"
-						>
-							Sign Out
-						</button>
-					</div>
-				</div>
-			</header>
-
-			<main className="py-8">
-				<CollaborativeEditingTest />
-			</main>
+		<div className="h-screen">
+			<AuraTextEditor
+				documentTitle="My Document"
+				showMenuBar={true}
+				showToolbar={true}
+				showStatusBar={true}
+				className="h-full"
+				onSignOut={() => void signOut()}
+				onSave={(value) => {
+					console.log("Saving document:", value);
+					// Here you would integrate with your backend/Convex
+				}}
+				onChange={(value) => {
+					console.log("Document changed:", value);
+					// Here you would handle real-time collaboration
+				}}
+			/>
 		</div>
 	);
 }

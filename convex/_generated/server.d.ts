@@ -9,17 +9,17 @@
  */
 
 import {
-	ActionBuilder,
-	HttpActionBuilder,
-	MutationBuilder,
-	QueryBuilder,
-	GenericActionCtx,
-	GenericMutationCtx,
-	GenericQueryCtx,
-	GenericDatabaseReader,
-	GenericDatabaseWriter,
+    ActionBuilder,
+    GenericActionCtx,
+    GenericDatabaseReader,
+    GenericDatabaseWriter,
+    GenericMutationCtx,
+    GenericQueryCtx,
+    HttpActionBuilder,
+    MutationBuilder,
+    QueryBuilder,
 } from "convex/server";
-import type { DataModel } from "./dataModel.js";
+import type {DataModel} from "./dataModel.js";
 
 /**
  * Define a query in this Convex app's public API.
