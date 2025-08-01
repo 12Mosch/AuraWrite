@@ -1,7 +1,12 @@
-import {ConvexError, v} from "convex/values";
-import {mutation, MutationCtx, query, QueryCtx} from "./_generated/server";
-import {Doc, Id} from "./_generated/dataModel";
-import {getCurrentUser, checkDocumentAccess} from "./authHelpers";
+import { ConvexError, v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+	type MutationCtx,
+	mutation,
+	type QueryCtx,
+	query,
+} from "./_generated/server";
+import { checkDocumentAccess, getCurrentUser } from "./authHelpers";
 
 // Helper function to check document edit permissions
 async function checkDocumentEditAccess(
@@ -18,7 +23,9 @@ async function checkDocumentEditAccess(
 		document.ownerId === userId || document.collaborators?.includes(userId);
 
 	if (!canEdit) {
-		throw new ConvexError("Access denied: You don't have permission to edit this document");
+		throw new ConvexError(
+			"Access denied: You don't have permission to edit this document",
+		);
 	}
 
 	return document;
@@ -36,7 +43,9 @@ async function checkDocumentOwnerAccess(
 	}
 
 	if (document.ownerId !== userId) {
-		throw new ConvexError("Access denied: Only the document owner can perform this action");
+		throw new ConvexError(
+			"Access denied: Only the document owner can perform this action",
+		);
 	}
 
 	return document;
@@ -45,20 +54,22 @@ async function checkDocumentOwnerAccess(
 // Query to get all documents for the current user
 export const getUserDocuments = query({
 	args: {},
-	returns: v.array(v.object({
-		_id: v.id("documents"),
-		title: v.string(),
-		content: v.optional(v.string()),
-		yjsState: v.optional(v.bytes()),
-		yjsStateVector: v.optional(v.bytes()),
-		yjsUpdatedAt: v.optional(v.number()),
-		ownerId: v.id("users"),
-		isPublic: v.optional(v.boolean()),
-		collaborators: v.optional(v.array(v.id("users"))),
-		createdAt: v.number(),
-		updatedAt: v.number(),
-		_creationTime: v.number(),
-	})),
+	returns: v.array(
+		v.object({
+			_id: v.id("documents"),
+			title: v.string(),
+			content: v.optional(v.string()),
+			yjsState: v.optional(v.bytes()),
+			yjsStateVector: v.optional(v.bytes()),
+			yjsUpdatedAt: v.optional(v.number()),
+			ownerId: v.id("users"),
+			isPublic: v.optional(v.boolean()),
+			collaborators: v.optional(v.array(v.id("users"))),
+			createdAt: v.number(),
+			updatedAt: v.number(),
+			_creationTime: v.number(),
+		}),
+	),
 	handler: async (ctx) => {
 		const userId = await getCurrentUser(ctx);
 
@@ -108,7 +119,7 @@ export const getDocumentForRecovery = query({
 			yjsUpdatedAt: v.optional(v.number()),
 			_creationTime: v.number(),
 		}),
-		v.null()
+		v.null(),
 	),
 	handler: async (ctx, { documentId }) => {
 		try {
@@ -152,7 +163,7 @@ export const createDocument = mutation({
 			title: title.trim(),
 			content:
 				content ||
-				JSON.stringify([{type: "paragraph", children: [{text: ""}]}]),
+				JSON.stringify([{ type: "paragraph", children: [{ text: "" }] }]),
 			ownerId: userId,
 			isPublic: isPublic || false,
 			collaborators: [],
@@ -303,7 +314,7 @@ export const removeCollaborator = mutation({
 		const sessions = await ctx.db
 			.query("collaborationSessions")
 			.withIndex("by_user_document", (q) =>
-				q.eq("userId", collaboratorId).eq("documentId", documentId)
+				q.eq("userId", collaboratorId).eq("documentId", documentId),
 			)
 			.collect();
 
@@ -338,7 +349,9 @@ export const duplicateDocument = mutation({
 		const now = Date.now();
 		return await ctx.db.insert("documents", {
 			title: newTitle.trim(),
-			content: document.content || JSON.stringify([{type: "paragraph", children: [{text: ""}]}]),
+			content:
+				document.content ||
+				JSON.stringify([{ type: "paragraph", children: [{ text: "" }] }]),
 			ownerId: userId,
 			isPublic: false, // New document is private by default
 			collaborators: [],
@@ -392,7 +405,9 @@ export const transferDocumentOwnership = mutation({
 
 		// Remove new owner from collaborators if they were one
 		const currentCollaborators = document.collaborators || [];
-		const updatedCollaborators = currentCollaborators.filter(id => id !== newOwnerId);
+		const updatedCollaborators = currentCollaborators.filter(
+			(id) => id !== newOwnerId,
+		);
 
 		await ctx.db.patch(documentId, {
 			ownerId: newOwnerId,

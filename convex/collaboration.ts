@@ -30,7 +30,7 @@ export const subscribeToPresence = query({
 		}
 
 		// Get active sessions (last 2 minutes)
-		const activeThreshold = Date.now() - (2 * 60 * 1000);
+		const activeThreshold = Date.now() - 2 * 60 * 1000;
 		const sessions = await ctx.db
 			.query("collaborationSessions")
 			.withIndex("by_document", (q) => q.eq("documentId", documentId))
@@ -38,40 +38,40 @@ export const subscribeToPresence = query({
 			.collect();
 
 		// Optimize user fetching by collecting unique user IDs first
-		const uniqueUserIds = [...new Set(sessions.map(s => s.userId))];
+		const uniqueUserIds = [...new Set(sessions.map((s) => s.userId))];
 
 		// Batch fetch all unique users
-		const users = await Promise.all(
-			uniqueUserIds.map(id => ctx.db.get(id))
-		);
+		const users = await Promise.all(uniqueUserIds.map((id) => ctx.db.get(id)));
 
 		// Create a map for efficient lookups
 		const userMap = new Map(
 			users
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
 		// Map sessions to active users using the cached user data
-		const activeUsers = sessions.map(session => {
-			const user = userMap.get(session.userId);
-			if (!user) return null;
+		const activeUsers = sessions
+			.map((session) => {
+				const user = userMap.get(session.userId);
+				if (!user) return null;
 
-			return {
-				sessionId: session._id,
-				userId: session.userId,
-				user: {
-					_id: user._id,
-					name: user.name || 'Anonymous',
-					email: user.email,
-					image: user.image,
-				},
-				cursor: session.cursor,
-				selection: session.selection,
-				lastSeen: session.lastSeen,
-				isCurrentUser: session.userId === userId,
-			};
-		}).filter(Boolean);
+				return {
+					sessionId: session._id,
+					userId: session.userId,
+					user: {
+						_id: user._id,
+						name: user.name || "Anonymous",
+						email: user.email,
+						image: user.image,
+					},
+					cursor: session.cursor,
+					selection: session.selection,
+					lastSeen: session.lastSeen,
+					isCurrentUser: session.userId === userId,
+				};
+			})
+			.filter(Boolean);
 
 		return {
 			documentId,
@@ -115,7 +115,7 @@ export const getCollaborationSessions = query({
 
 		// Determine time threshold based on includeInactive flag
 		const timeThreshold = includeInactive
-			? Date.now() - 300000  // 5 minutes for inactive sessions
+			? Date.now() - 300000 // 5 minutes for inactive sessions
 			: Date.now() - 120000; // 2 minutes for active sessions only
 
 		// Get collaboration sessions filtered by time threshold
@@ -126,22 +126,20 @@ export const getCollaborationSessions = query({
 			.collect();
 
 		// Optimize user fetching by collecting unique user IDs first
-		const uniqueUserIds = [...new Set(sessions.map(s => s.userId))];
+		const uniqueUserIds = [...new Set(sessions.map((s) => s.userId))];
 
 		// Batch fetch all unique users
-		const users = await Promise.all(
-			uniqueUserIds.map(id => ctx.db.get(id))
-		);
+		const users = await Promise.all(uniqueUserIds.map((id) => ctx.db.get(id)));
 
 		// Create a map for efficient lookups
 		const userMap = new Map(
 			users
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
 		// Map sessions with user data using the cached user data
-		const sessionsWithUsers = sessions.map(session => {
+		const sessionsWithUsers = sessions.map((session) => {
 			const user = userMap.get(session.userId);
 			const isActive = session.lastSeen > Date.now() - 120000; // Active in last 2 minutes
 
@@ -201,25 +199,25 @@ export const getRealtimeCursors = query({
 			.collect();
 
 		// Filter out current user first
-		const otherUserSessions = sessions.filter((session) => session.userId !== userId);
+		const otherUserSessions = sessions.filter(
+			(session) => session.userId !== userId,
+		);
 
 		// Optimize user fetching by collecting unique user IDs first
-		const uniqueUserIds = [...new Set(otherUserSessions.map(s => s.userId))];
+		const uniqueUserIds = [...new Set(otherUserSessions.map((s) => s.userId))];
 
 		// Batch fetch all unique users
-		const users = await Promise.all(
-			uniqueUserIds.map(id => ctx.db.get(id))
-		);
+		const users = await Promise.all(uniqueUserIds.map((id) => ctx.db.get(id)));
 
 		// Create a map for efficient lookups
 		const userMap = new Map(
 			users
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
 		// Return minimal data for efficient real-time updates using cached user data
-		const cursors = otherUserSessions.map(session => {
+		const cursors = otherUserSessions.map((session) => {
 			const user = userMap.get(session.userId);
 			return {
 				userId: session.userId,
@@ -270,7 +268,9 @@ export const getDocumentPresenceCount = query({
 			.collect();
 
 		// Count unique users
-		const uniqueUsers = new Set(activeSessions.map((session) => session.userId));
+		const uniqueUsers = new Set(
+			activeSessions.map((session) => session.userId),
+		);
 
 		return {
 			documentId,
@@ -357,22 +357,20 @@ export const getDocumentVersions = query({
 			.take(limit);
 
 		// Optimize user fetching by collecting unique user IDs first
-		const uniqueUserIds = [...new Set(versions.map(v => v.createdBy))];
+		const uniqueUserIds = [...new Set(versions.map((v) => v.createdBy))];
 
 		// Batch fetch all unique users
-		const users = await Promise.all(
-			uniqueUserIds.map(id => ctx.db.get(id))
-		);
+		const users = await Promise.all(uniqueUserIds.map((id) => ctx.db.get(id)));
 
 		// Create a map for efficient lookups
 		const userMap = new Map(
 			users
 				.filter((user): user is NonNullable<typeof user> => user !== null)
-				.map(user => [user._id, user])
+				.map((user) => [user._id, user]),
 		);
 
 		// Map versions with user data using the cached user data
-		const versionsWithUsers = versions.map(version => {
+		const versionsWithUsers = versions.map((version) => {
 			const user = userMap.get(version.createdBy);
 			return {
 				...version,
@@ -453,7 +451,7 @@ export const updatePresence = mutation({
 					path: v.array(v.number()),
 					offset: v.number(),
 				}),
-			})
+			}),
 		),
 		selection: v.optional(
 			v.object({
@@ -465,7 +463,7 @@ export const updatePresence = mutation({
 					path: v.array(v.number()),
 					offset: v.number(),
 				}),
-			})
+			}),
 		),
 	},
 	handler: async (ctx, { documentId, cursor, selection }) => {
@@ -495,7 +493,7 @@ export const updatePresence = mutation({
 		const existingSession = await ctx.db
 			.query("collaborationSessions")
 			.withIndex("by_user_document", (q) =>
-				q.eq("userId", userId).eq("documentId", documentId)
+				q.eq("userId", userId).eq("documentId", documentId),
 			)
 			.first();
 
