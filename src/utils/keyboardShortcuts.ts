@@ -103,6 +103,14 @@ export const handleKeyboardShortcuts = (
 			}
 			break;
 
+		case "q":
+			if (shiftKey) {
+				event.preventDefault();
+				toggleBlock(editor, "blockquote");
+				return true;
+			}
+			break;
+
 		// Additional useful shortcuts
 		case "`":
 			if (!shiftKey) {

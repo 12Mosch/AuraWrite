@@ -17,6 +17,7 @@ export type HeadingElement = {
 
 export type BlockquoteElement = {
 	type: "blockquote";
+	align?: "left" | "center" | "right" | "justify";
 	children: CustomText[];
 };
 

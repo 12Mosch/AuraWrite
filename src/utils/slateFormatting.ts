@@ -70,7 +70,10 @@ export const getCurrentFontFamily = (editor: Editor): string | undefined => {
 /**
  * Check if an alignment is currently active
  */
-export const isAlignmentActive = (editor: Editor, alignment: AlignmentFormat): boolean => {
+export const isAlignmentActive = (
+	editor: Editor,
+	alignment: AlignmentFormat,
+): boolean => {
 	const { selection } = editor;
 	if (!selection) return alignment === "left"; // Default to left when no selection
 
@@ -90,7 +93,7 @@ export const isAlignmentActive = (editor: Editor, alignment: AlignmentFormat): b
 	const element = node as CustomElement;
 
 	// Check if element has align property (for paragraphs and other alignable elements)
-	if ('align' in element) {
+	if ("align" in element) {
 		return (element.align || "left") === alignment;
 	}
 
@@ -120,7 +123,7 @@ export const getCurrentAlignment = (editor: Editor): AlignmentFormat => {
 	const element = node as CustomElement;
 
 	// Check if element has align property
-	if ('align' in element) {
+	if ("align" in element) {
 		return element.align || "left";
 	}
 
@@ -130,7 +133,10 @@ export const getCurrentAlignment = (editor: Editor): AlignmentFormat => {
 /**
  * Set alignment for selected blocks
  */
-export const setAlignment = (editor: Editor, alignment: AlignmentFormat): void => {
+export const setAlignment = (
+	editor: Editor,
+	alignment: AlignmentFormat,
+): void => {
 	const { selection } = editor;
 	if (!selection) return;
 
@@ -144,7 +150,9 @@ export const setAlignment = (editor: Editor, alignment: AlignmentFormat): void =
 				SlateElement.isElement(n) &&
 				Editor.isBlock(editor, n) &&
 				// Only apply to elements that support alignment
-				(n.type === "paragraph" || n.type === "heading" || n.type === "blockquote"),
+				(n.type === "paragraph" ||
+					n.type === "heading" ||
+					n.type === "blockquote"),
 		},
 	);
 };

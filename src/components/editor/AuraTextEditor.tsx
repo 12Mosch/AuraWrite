@@ -233,6 +233,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			case "format.numberedList":
 				toggleBlock(editor, "numbered-list");
 				break;
+			case "format.blockquote":
+				toggleBlock(editor, "blockquote");
+				break;
 			case "format.alignLeft":
 				setAlignment(editor, "left");
 				break;

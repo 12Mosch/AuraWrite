@@ -327,7 +327,9 @@ export const ConvexCollaborativeEditor: React.FC<
 		const { attributes, children, element } = props;
 
 		// Helper function to get alignment class
-		const getAlignmentClass = (align?: "left" | "center" | "right" | "justify"): string => {
+		const getAlignmentClass = (
+			align?: "left" | "center" | "right" | "justify",
+		): string => {
 			switch (align) {
 				case "center":
 					return "text-center";
@@ -344,29 +346,65 @@ export const ConvexCollaborativeEditor: React.FC<
 			case "heading": {
 				const level =
 					(element as CustomElement & { level?: number }).level || 1;
-				const align = (element as CustomElement & { align?: "left" | "center" | "right" | "justify" }).align;
+				const align = (
+					element as CustomElement & {
+						align?: "left" | "center" | "right" | "justify";
+					}
+				).align;
 				const alignmentClass = getAlignmentClass(align);
 
 				switch (level) {
 					case 1:
-						return <h1 {...attributes} className={alignmentClass}>{children}</h1>;
+						return (
+							<h1 {...attributes} className={alignmentClass}>
+								{children}
+							</h1>
+						);
 					case 2:
-						return <h2 {...attributes} className={alignmentClass}>{children}</h2>;
+						return (
+							<h2 {...attributes} className={alignmentClass}>
+								{children}
+							</h2>
+						);
 					case 3:
-						return <h3 {...attributes} className={alignmentClass}>{children}</h3>;
+						return (
+							<h3 {...attributes} className={alignmentClass}>
+								{children}
+							</h3>
+						);
 					case 4:
-						return <h4 {...attributes} className={alignmentClass}>{children}</h4>;
+						return (
+							<h4 {...attributes} className={alignmentClass}>
+								{children}
+							</h4>
+						);
 					case 5:
-						return <h5 {...attributes} className={alignmentClass}>{children}</h5>;
+						return (
+							<h5 {...attributes} className={alignmentClass}>
+								{children}
+							</h5>
+						);
 					case 6:
-						return <h6 {...attributes} className={alignmentClass}>{children}</h6>;
+						return (
+							<h6 {...attributes} className={alignmentClass}>
+								{children}
+							</h6>
+						);
 					default:
-						return <h1 {...attributes} className={alignmentClass}>{children}</h1>;
+						return (
+							<h1 {...attributes} className={alignmentClass}>
+								{children}
+							</h1>
+						);
 				}
 			}
 
 			case "blockquote": {
-				const align = (element as CustomElement & { align?: "left" | "center" | "right" | "justify" }).align;
+				const align = (
+					element as CustomElement & {
+						align?: "left" | "center" | "right" | "justify";
+					}
+				).align;
 				const alignmentClass = getAlignmentClass(align);
 				return (
 					<blockquote
@@ -407,9 +445,17 @@ export const ConvexCollaborativeEditor: React.FC<
 
 			default: {
 				// Default case handles paragraphs and other block elements
-				const align = (element as CustomElement & { align?: "left" | "center" | "right" | "justify" }).align;
+				const align = (
+					element as CustomElement & {
+						align?: "left" | "center" | "right" | "justify";
+					}
+				).align;
 				const alignmentClass = getAlignmentClass(align);
-				return <p {...attributes} className={alignmentClass}>{children}</p>;
+				return (
+					<p {...attributes} className={alignmentClass}>
+						{children}
+					</p>
+				);
 			}
 		}
 	}, []);

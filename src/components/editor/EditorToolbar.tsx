@@ -309,15 +309,15 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
+							<Toggle
+								pressed={activeFormats.blockType === "blockquote"}
+								onPressedChange={() => handleAction("format.blockquote")}
 								size="sm"
-								onClick={() => handleAction("format.blockquote")}
 							>
 								<Quote className="h-4 w-4" />
-							</Button>
+							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Quote</TooltipContent>
+						<TooltipContent>Quote (Ctrl+Shift+Q)</TooltipContent>
 					</Tooltip>
 				</div>
 
