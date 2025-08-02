@@ -13,6 +13,9 @@ export type TextFormat =
 	| "strikethrough"
 	| "code";
 
+// Alignment formats
+export type AlignmentFormat = "left" | "center" | "right" | "justify";
+
 /**
  * Check if a text format is currently active
  */
@@ -62,6 +65,88 @@ export const getCurrentFontSize = (editor: Editor): string | undefined => {
 export const getCurrentFontFamily = (editor: Editor): string | undefined => {
 	const marks = Editor.marks(editor);
 	return marks?.fontFamily;
+};
+
+/**
+ * Check if an alignment is currently active
+ */
+export const isAlignmentActive = (editor: Editor, alignment: AlignmentFormat): boolean => {
+	const { selection } = editor;
+	if (!selection) return alignment === "left"; // Default to left when no selection
+
+	const [match] = Array.from(
+		Editor.nodes(editor, {
+			at: Editor.unhangRange(editor, selection),
+			match: (n) =>
+				!Editor.isEditor(n) &&
+				SlateElement.isElement(n) &&
+				Editor.isBlock(editor, n),
+		}),
+	);
+
+	if (!match) return alignment === "left";
+
+	const [node] = match;
+	const element = node as CustomElement;
+
+	// Check if element has align property (for paragraphs and other alignable elements)
+	if ('align' in element) {
+		return (element.align || "left") === alignment;
+	}
+
+	return alignment === "left"; // Default alignment
+};
+
+/**
+ * Get current alignment from the selected block
+ */
+export const getCurrentAlignment = (editor: Editor): AlignmentFormat => {
+	const { selection } = editor;
+	if (!selection) return "left";
+
+	const [match] = Array.from(
+		Editor.nodes(editor, {
+			at: Editor.unhangRange(editor, selection),
+			match: (n) =>
+				!Editor.isEditor(n) &&
+				SlateElement.isElement(n) &&
+				Editor.isBlock(editor, n),
+		}),
+	);
+
+	if (!match) return "left";
+
+	const [node] = match;
+	const element = node as CustomElement;
+
+	// Check if element has align property
+	if ('align' in element) {
+		return element.align || "left";
+	}
+
+	return "left"; // Default alignment
+};
+
+/**
+ * Set alignment for selected blocks
+ */
+export const setAlignment = (editor: Editor, alignment: AlignmentFormat): void => {
+	const { selection } = editor;
+	if (!selection) return;
+
+	// Apply alignment to all selected block elements
+	Transforms.setNodes(
+		editor,
+		{ align: alignment === "left" ? undefined : alignment }, // Don't store "left" as it's the default
+		{
+			match: (n) =>
+				!Editor.isEditor(n) &&
+				SlateElement.isElement(n) &&
+				Editor.isBlock(editor, n) &&
+				// Only apply to elements that support alignment
+				(n.type === "paragraph" || n.type === "heading" || n.type === "blockquote"),
+		},
+	);
 };
 
 // Block element types
@@ -215,6 +300,7 @@ export const getActiveFormats = (editor: Editor) => {
 		fontSize: marks.fontSize,
 		fontFamily: marks.fontFamily,
 		color: marks.color,
+		alignment: getCurrentAlignment(editor),
 	};
 };
 

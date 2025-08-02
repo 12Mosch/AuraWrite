@@ -234,7 +234,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<AlignLeft className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Align Left</TooltipContent>
+						<TooltipContent>Align Left (Ctrl+Shift+L)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>
@@ -247,7 +247,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<AlignCenter className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Align Center</TooltipContent>
+						<TooltipContent>Align Center (Ctrl+Shift+E)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>
@@ -260,7 +260,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<AlignRight className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Align Right</TooltipContent>
+						<TooltipContent>Align Right (Ctrl+Shift+R)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>
@@ -273,7 +273,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<AlignJustify className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Justify</TooltipContent>
+						<TooltipContent>Justify (Ctrl+Shift+J)</TooltipContent>
 					</Tooltip>
 				</div>
 

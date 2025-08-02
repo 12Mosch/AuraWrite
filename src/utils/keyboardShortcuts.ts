@@ -1,6 +1,7 @@
 import type { Editor } from "slate";
 import {
 	handleListEnterKey,
+	setAlignment,
 	toggleBlock,
 	toggleFormat,
 } from "./slateFormatting";
@@ -110,6 +111,39 @@ export const handleKeyboardShortcuts = (
 				return true;
 			}
 			break;
+
+		// Alignment shortcuts (Ctrl+Shift+L/E/R/J)
+		case "l":
+			if (shiftKey) {
+				event.preventDefault();
+				setAlignment(editor, "left");
+				return true;
+			}
+			break;
+
+		case "e":
+			if (shiftKey) {
+				event.preventDefault();
+				setAlignment(editor, "center");
+				return true;
+			}
+			break;
+
+		case "r":
+			if (shiftKey) {
+				event.preventDefault();
+				setAlignment(editor, "right");
+				return true;
+			}
+			break;
+
+		case "j":
+			if (shiftKey) {
+				event.preventDefault();
+				setAlignment(editor, "justify");
+				return true;
+			}
+			break;
 	}
 
 	return false;
@@ -140,6 +174,14 @@ export const getShortcutText = (action: string): string => {
 			return `${modifier}+Z`;
 		case "redo":
 			return isMac() ? `${modifier}+Shift+Z` : `${modifier}+Y`;
+		case "alignLeft":
+			return `${modifier}+Shift+L`;
+		case "alignCenter":
+			return `${modifier}+Shift+E`;
+		case "alignRight":
+			return `${modifier}+Shift+R`;
+		case "alignJustify":
+			return `${modifier}+Shift+J`;
 		default:
 			return "";
 	}

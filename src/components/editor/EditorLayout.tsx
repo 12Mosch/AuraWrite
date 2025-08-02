@@ -56,8 +56,9 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 					<EditorToolbar
 						onAction={onToolbarAction}
 						activeFormats={activeFormats}
-						currentFontSize={activeFormats.fontSize}
-						currentFontFamily={activeFormats.fontFamily}
+						currentAlignment={activeFormats?.alignment}
+						currentFontSize={activeFormats?.fontSize}
+						currentFontFamily={activeFormats?.fontFamily}
 					/>
 				</div>
 			)}

@@ -5,6 +5,7 @@ import { HistoryEditor } from "slate-history";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
 	type getActiveFormats,
+	setAlignment,
 	setFontFamily,
 	setFontSize,
 	toggleBlock,
@@ -78,6 +79,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		fontSize: undefined,
 		fontFamily: undefined,
 		color: undefined,
+		alignment: "left",
 	});
 
 	// Calculate document statistics
@@ -232,11 +234,16 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				toggleBlock(editor, "numbered-list");
 				break;
 			case "format.alignLeft":
+				setAlignment(editor, "left");
+				break;
 			case "format.alignCenter":
+				setAlignment(editor, "center");
+				break;
 			case "format.alignRight":
+				setAlignment(editor, "right");
+				break;
 			case "format.alignJustify":
-				// TODO: Implement text alignment
-				console.log("Alignment not yet implemented:", action);
+				setAlignment(editor, "justify");
 				break;
 			default:
 				console.log("Toolbar action:", action, data);
