@@ -1,6 +1,6 @@
 import type React from "react";
 import { useCallback, useState } from "react";
-import { createEditor, type Descendant, Editor } from "slate";
+import { createEditor, type Descendant } from "slate";
 import {
 	Editable,
 	type RenderElementProps,
@@ -9,6 +9,7 @@ import {
 	withReact,
 } from "slate-react";
 import "../types/slate"; // Import shared Slate types
+import { handleKeyboardShortcuts } from "../utils/keyboardShortcuts";
 
 // Initial value for the editor
 const initialValue: Descendant[] = [
@@ -18,11 +19,25 @@ const initialValue: Descendant[] = [
 	},
 ];
 
-// Component to render paragraph elements
+// Component to render elements
 const Element = ({ attributes, children, element }: RenderElementProps) => {
 	switch (element.type) {
 		case "paragraph":
 			return <p {...attributes}>{children}</p>;
+		case "bulleted-list":
+			return (
+				<ul {...attributes} className="list-disc list-inside">
+					{children}
+				</ul>
+			);
+		case "numbered-list":
+			return (
+				<ol {...attributes} className="list-decimal list-inside">
+					{children}
+				</ol>
+			);
+		case "list-item":
+			return <li {...attributes}>{children}</li>;
 		default:
 			return <div {...attributes}>{children}</div>;
 	}
@@ -76,43 +91,17 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
 		onChange?.(newValue);
 	};
 
-	// Handle key down events for basic formatting
-	const handleKeyDown = (event: React.KeyboardEvent) => {
-		if (!event.ctrlKey) {
-			return;
-		}
-
-		switch (event.key) {
-			case "b": {
-				event.preventDefault();
-				// Toggle bold formatting
-				const marks = Editor.marks(editor);
-				const isActive = marks ? marks.bold === true : false;
-				if (isActive) {
-					editor.removeMark("bold");
-				} else {
-					editor.addMark("bold", true);
-				}
-				break;
-			}
-			case "i": {
-				event.preventDefault();
-				// Toggle italic formatting
-				const marks = Editor.marks(editor);
-				const isActive = marks ? marks.italic === true : false;
-				if (isActive) {
-					editor.removeMark("italic");
-				} else {
-					editor.addMark("italic", true);
-				}
-				break;
-			}
-		}
-	};
+	// Handle key down events using centralized keyboard shortcuts
+	const handleKeyDown = useCallback(
+		(event: React.KeyboardEvent) => {
+			handleKeyboardShortcuts(event, editor);
+		},
+		[editor],
+	);
 
 	return (
 		<div className={`slate-editor ${className}`}>
-			<Slate editor={editor} value={value} onChange={handleChange}>
+			<Slate editor={editor} initialValue={value} onChange={handleChange}>
 				<Editable
 					renderElement={renderElement}
 					renderLeaf={renderLeaf}

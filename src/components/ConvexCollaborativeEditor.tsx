@@ -1,9 +1,15 @@
 import { withYjs, YjsEditor } from "@slate-yjs/core";
 import type React from "react";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { createEditor, type Descendant, Editor } from "slate";
 import { withHistory } from "slate-history";
-import { Editable, Slate, withReact } from "slate-react";
+import {
+	Editable,
+	type RenderElementProps,
+	type RenderLeafProps,
+	Slate,
+	withReact,
+} from "slate-react";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useError } from "../contexts/ErrorContext";
 import { ConnectionState } from "../hooks/useConnectionManager";
@@ -15,6 +21,12 @@ import { useOfflineMode } from "../hooks/useOfflineMode";
 import { useOptimizedSync as useOptimizedSyncHook } from "../hooks/useOptimizedSync";
 import { usePresence } from "../hooks/usePresence";
 import { useSharedYjsDocument } from "../hooks/useSharedYjsDocument";
+import type { CustomElement, CustomText } from "../types/slate";
+import { handleKeyboardShortcuts } from "../utils/keyboardShortcuts";
+import {
+	getActiveFormats,
+	getCurrentBlockType,
+} from "../utils/slateFormatting";
 import {
 	ConnectionStatus,
 	SimpleConnectionIndicator,
@@ -55,6 +67,11 @@ interface ConvexCollaborativeEditorProps {
 	onSyncStatusChange?: (
 		status: "synced" | "syncing" | "error" | "offline" | "pending" | "disabled",
 	) => void;
+	/** Callback when formatting state changes */
+	onFormattingChange?: (
+		activeFormats: ReturnType<typeof getActiveFormats>,
+		currentBlockType: string,
+	) => void;
 }
 
 /**
@@ -80,6 +97,7 @@ export const ConvexCollaborativeEditor: React.FC<
 	useOptimizedSync = true,
 	showPerformanceMonitor = false,
 	onSyncStatusChange,
+	onFormattingChange,
 }) => {
 	// Initial editor value
 	const initialValue: Descendant[] = [
@@ -212,7 +230,9 @@ export const ConvexCollaborativeEditor: React.FC<
 	useEffect(() => {
 		// Only connect after the shared document is synced and editor is ready
 		if (!isLocalSynced || !editor) {
-			console.log("Waiting for Y.Doc to sync and editor to be ready before connecting...");
+			console.log(
+				"Waiting for Y.Doc to sync and editor to be ready before connecting...",
+			);
 			return;
 		}
 
@@ -289,7 +309,146 @@ export const ConvexCollaborativeEditor: React.FC<
 				console.warn("Error updating presence:", error);
 			}
 		}
+
+		// Notify about formatting changes
+		if (editor && onFormattingChange) {
+			try {
+				const activeFormats = getActiveFormats(editor);
+				const currentBlockType = getCurrentBlockType(editor);
+				onFormattingChange(activeFormats, currentBlockType);
+			} catch (error) {
+				console.warn("Error getting formatting state:", error);
+			}
+		}
 	};
+
+	// Render element function for different block types
+	const renderElement = useCallback((props: RenderElementProps) => {
+		const { attributes, children, element } = props;
+
+		switch (element.type) {
+			case "heading": {
+				const level =
+					(element as CustomElement & { level?: number }).level || 1;
+				switch (level) {
+					case 1:
+						return <h1 {...attributes}>{children}</h1>;
+					case 2:
+						return <h2 {...attributes}>{children}</h2>;
+					case 3:
+						return <h3 {...attributes}>{children}</h3>;
+					case 4:
+						return <h4 {...attributes}>{children}</h4>;
+					case 5:
+						return <h5 {...attributes}>{children}</h5>;
+					case 6:
+						return <h6 {...attributes}>{children}</h6>;
+					default:
+						return <h1 {...attributes}>{children}</h1>;
+				}
+			}
+
+			case "blockquote":
+				return (
+					<blockquote
+						{...attributes}
+						className="border-l-4 border-gray-300 pl-4 italic text-gray-700"
+					>
+						{children}
+					</blockquote>
+				);
+
+			case "bulleted-list":
+				return (
+					<ul {...attributes} className="list-disc list-inside">
+						{children}
+					</ul>
+				);
+
+			case "numbered-list":
+				return (
+					<ol {...attributes} className="list-decimal list-inside">
+						{children}
+					</ol>
+				);
+
+			case "list-item":
+				return <li {...attributes}>{children}</li>;
+
+			case "code-block":
+				return (
+					<pre
+						{...attributes}
+						className="bg-gray-100 p-2 rounded font-mono text-sm"
+					>
+						<code>{children}</code>
+					</pre>
+				);
+
+			default:
+				return <p {...attributes}>{children}</p>;
+		}
+	}, []);
+
+	// Render leaf function for text formatting
+	const renderLeaf = useCallback((props: RenderLeafProps) => {
+		const { attributes, children, leaf } = props;
+		let element = <span {...attributes}>{children}</span>;
+
+		const customLeaf = leaf as CustomText;
+
+		if (customLeaf.bold) {
+			element = <strong>{element}</strong>;
+		}
+
+		if (customLeaf.italic) {
+			element = <em>{element}</em>;
+		}
+
+		if (customLeaf.underline) {
+			element = <u>{element}</u>;
+		}
+
+		if (customLeaf.strikethrough) {
+			element = <s>{element}</s>;
+		}
+
+		if (customLeaf.code) {
+			element = (
+				<code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">
+					{element}
+				</code>
+			);
+		}
+
+		// Apply font styling
+		const style: React.CSSProperties = {};
+		if (customLeaf.fontSize) {
+			style.fontSize = `${customLeaf.fontSize}px`;
+		}
+		if (customLeaf.fontFamily) {
+			style.fontFamily = customLeaf.fontFamily;
+		}
+		if (customLeaf.color) {
+			style.color = customLeaf.color;
+		}
+
+		if (Object.keys(style).length > 0) {
+			element = <span style={style}>{element}</span>;
+		}
+
+		return element;
+	}, []);
+
+	// Handle keyboard shortcuts
+	const handleKeyDown = useCallback(
+		(event: React.KeyboardEvent) => {
+			if (editor) {
+				handleKeyboardShortcuts(event, editor);
+			}
+		},
+		[editor],
+	);
 
 	// Calculate overall sync status
 	const overallSyncStatus = useMemo(() => {
@@ -457,6 +616,9 @@ export const ConvexCollaborativeEditor: React.FC<
 							className="min-h-[200px] p-4 focus:outline-none"
 							spellCheck
 							autoFocus
+							renderElement={renderElement}
+							renderLeaf={renderLeaf}
+							onKeyDown={handleKeyDown}
 						/>
 					</Slate>
 				) : (

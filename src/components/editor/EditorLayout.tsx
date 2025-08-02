@@ -4,6 +4,7 @@ import { EditorMenuBar } from "./EditorMenuBar";
 import { EditorStatusBar } from "./EditorStatusBar";
 import { EditorToolbar } from "./EditorToolbar";
 import type {
+	ActiveFormats,
 	DocumentStatus,
 	MenuActionHandler,
 	ToolbarActionHandler,
@@ -20,6 +21,7 @@ interface EditorLayoutProps {
 	onSignOut?: () => void;
 	documentTitle?: string;
 	documentStatus?: DocumentStatus;
+	activeFormats?: ActiveFormats;
 }
 
 export const EditorLayout: React.FC<EditorLayoutProps> = ({
@@ -33,6 +35,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 	onSignOut,
 	documentTitle = "Untitled Document",
 	documentStatus = {},
+	activeFormats = {},
 }) => {
 	return (
 		<div className={`editor-layout flex flex-col h-full ${className}`}>
@@ -50,7 +53,12 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 			{/* Toolbar */}
 			{showToolbar && (
 				<div className="border-b bg-background">
-					<EditorToolbar onAction={onToolbarAction} />
+					<EditorToolbar
+						onAction={onToolbarAction}
+						activeFormats={activeFormats}
+						currentFontSize={activeFormats.fontSize}
+						currentFontFamily={activeFormats.fontFamily}
+					/>
 				</div>
 			)}
 

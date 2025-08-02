@@ -3,6 +3,13 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { Descendant, Editor } from "slate";
 import { HistoryEditor } from "slate-history";
 import type { Id } from "../../../convex/_generated/dataModel";
+import {
+	type getActiveFormats,
+	setFontFamily,
+	setFontSize,
+	toggleBlock,
+	toggleFormat,
+} from "../../utils/slateFormatting";
 import { ConvexCollaborativeEditor } from "../ConvexCollaborativeEditor";
 import { Button } from "../ui/button";
 import {
@@ -14,6 +21,7 @@ import {
 	DialogTitle,
 } from "../ui/dialog";
 import { EditorLayout } from "./EditorLayout";
+import type { FontFamilyData, FontSizeData } from "./types";
 
 interface AuraTextEditorProps {
 	documentId: Id<"documents">; // Required for collaboration
@@ -57,6 +65,20 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
+
+	// Active formatting state
+	const [activeFormats, setActiveFormats] = useState<
+		ReturnType<typeof getActiveFormats>
+	>({
+		bold: false,
+		italic: false,
+		underline: false,
+		strikethrough: false,
+		code: false,
+		fontSize: undefined,
+		fontFamily: undefined,
+		color: undefined,
+	});
 
 	// Calculate document statistics
 	const documentStats = useMemo(() => {
@@ -162,21 +184,59 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		[editorValue, onSave, handleNewDocumentWithConfirmation],
 	);
 
-	// TODO: Handle toolbar actions
+	// Handle formatting changes from the editor
+	const handleFormattingChange = useCallback(
+		(formats: ReturnType<typeof getActiveFormats>, _blockType: string) => {
+			setActiveFormats(formats);
+			// Note: blockType tracking removed for now, can be re-added when needed
+		},
+		[],
+	);
+
+	// Handle toolbar actions
 	const handleToolbarAction = useCallback((action: string, data?: unknown) => {
+		if (!editorRef.current) return;
+
+		const editor = editorRef.current;
+
 		switch (action) {
 			case "format.bold":
+				toggleFormat(editor, "bold");
+				break;
 			case "format.italic":
+				toggleFormat(editor, "italic");
+				break;
 			case "format.underline":
+				toggleFormat(editor, "underline");
+				break;
 			case "format.strikethrough":
+				toggleFormat(editor, "strikethrough");
+				break;
 			case "format.code":
+				toggleFormat(editor, "code");
+				break;
 			case "format.fontSize":
+				if (data && typeof data === "object" && "fontSize" in data) {
+					setFontSize(editor, (data as FontSizeData).fontSize);
+				}
+				break;
 			case "format.fontFamily":
+				if (data && typeof data === "object" && "fontFamily" in data) {
+					setFontFamily(editor, (data as FontFamilyData).fontFamily);
+				}
+				break;
+			case "format.bulletList":
+				toggleBlock(editor, "bulleted-list");
+				break;
+			case "format.numberedList":
+				toggleBlock(editor, "numbered-list");
+				break;
 			case "format.alignLeft":
 			case "format.alignCenter":
 			case "format.alignRight":
 			case "format.alignJustify":
-				// These are handled by the ConvexCollaborativeEditor component
+				// TODO: Implement text alignment
+				console.log("Alignment not yet implemented:", action);
 				break;
 			default:
 				console.log("Toolbar action:", action, data);
@@ -222,6 +282,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				onToolbarAction={handleToolbarAction}
 				onSignOut={onSignOut}
 				documentTitle={documentTitle}
+				activeFormats={activeFormats}
 				documentStatus={{
 					wordCount: documentStats.wordCount,
 					characterCount: documentStats.characterCount,
@@ -239,6 +300,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					showHeader={false}
 					className="h-full"
 					onSyncStatusChange={handleSyncStatusChange}
+					onFormattingChange={handleFormattingChange}
 				/>
 			</EditorLayout>
 
