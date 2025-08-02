@@ -159,6 +159,11 @@ export const ConvexCollaborativeEditor: React.FC<
 
 	// Create Slate editor with Yjs integration and history
 	const editor = useMemo(() => {
+		// Don't create editor until sharedType is available
+		if (!sharedType) {
+			return null;
+		}
+
 		const e = withReact(withYjs(withHistory(createEditor()), sharedType));
 
 		// Ensure editor has a consistent structure
@@ -185,13 +190,18 @@ export const ConvexCollaborativeEditor: React.FC<
 
 	// Get editor value from Y.js shared type instead of maintaining separate state
 	const value = useMemo(() => {
-		if (!isLocalSynced) {
+		// Return initial value if editor is not ready or not synced
+		if (!editor || !isLocalSynced) {
 			return initialValue;
 		}
 
 		// Get the current value from the Y.js shared type
 		try {
-			return editor.children.length > 0 ? editor.children : initialValue;
+			// Ensure editor has children before accessing
+			if (editor.children?.length > 0) {
+				return editor.children;
+			}
+			return initialValue;
 		} catch (error) {
 			console.warn("Error getting editor value from Y.js:", error);
 			return initialValue;
@@ -200,9 +210,9 @@ export const ConvexCollaborativeEditor: React.FC<
 
 	// Connect/disconnect the Yjs editor
 	useEffect(() => {
-		// Only connect after the shared document is synced
-		if (!isLocalSynced) {
-			console.log("Waiting for Y.Doc to sync before connecting editor...");
+		// Only connect after the shared document is synced and editor is ready
+		if (!isLocalSynced || !editor) {
+			console.log("Waiting for Y.Doc to sync and editor to be ready before connecting...");
 			return;
 		}
 
@@ -222,14 +232,16 @@ export const ConvexCollaborativeEditor: React.FC<
 
 		// Cleanup function to disconnect the editor
 		return () => {
-			try {
-				console.log(
-					"Disconnecting Y.js editor from shared document:",
-					documentId,
-				);
-				YjsEditor.disconnect(editor);
-			} catch (error) {
-				console.warn("Error disconnecting Y.js editor:", error);
+			if (editor) {
+				try {
+					console.log(
+						"Disconnecting Y.js editor from shared document:",
+						documentId,
+					);
+					YjsEditor.disconnect(editor);
+				} catch (error) {
+					console.warn("Error disconnecting Y.js editor:", error);
+				}
 			}
 		};
 	}, [
@@ -243,7 +255,7 @@ export const ConvexCollaborativeEditor: React.FC<
 
 	// Handle Y.js updates to prevent DOM sync issues
 	useEffect(() => {
-		if (!sharedType || !isLocalSynced) return;
+		if (!sharedType || !isLocalSynced || !editor) return;
 
 		const handleYjsUpdate = () => {
 			// Force editor to re-normalize after Y.js updates
@@ -268,7 +280,7 @@ export const ConvexCollaborativeEditor: React.FC<
 		onChange?.(newValue);
 
 		// Update presence with current selection (safely)
-		if (enableSync) {
+		if (enableSync && editor) {
 			try {
 				if (editor.selection) {
 					updatePresence(undefined, editor.selection);
@@ -433,19 +445,25 @@ export const ConvexCollaborativeEditor: React.FC<
 
 			{/* Editor */}
 			<div className="relative">
-				<Slate
-					key={documentId} // Force re-render when document changes
-					editor={editor}
-					value={value}
-					onChange={handleChange}
-				>
-					<Editable
-						placeholder={placeholder}
-						className="min-h-[200px] p-4 focus:outline-none"
-						spellCheck
-						autoFocus
-					/>
-				</Slate>
+				{editor ? (
+					<Slate
+						key={documentId} // Force re-render when document changes
+						editor={editor}
+						initialValue={value}
+						onChange={handleChange}
+					>
+						<Editable
+							placeholder={placeholder}
+							className="min-h-[200px] p-4 focus:outline-none"
+							spellCheck
+							autoFocus
+						/>
+					</Slate>
+				) : (
+					<div className="min-h-[200px] p-4 flex items-center justify-center text-gray-500">
+						Initializing editor...
+					</div>
+				)}
 
 				{/* Loading overlay */}
 				{!isLocalSynced && (
