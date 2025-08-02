@@ -1,7 +1,14 @@
-import {AlertCircle, CheckCircle, Clock, RotateCw, Wifi, WifiOff,} from "lucide-react";
+import {
+	AlertCircle,
+	CheckCircle,
+	Clock,
+	RotateCw,
+	Wifi,
+	WifiOff,
+} from "lucide-react";
 import type React from "react";
-import {Badge} from "@/components/ui/badge";
-import {Separator} from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
 interface EditorStatusBarProps {
 	wordCount?: number;

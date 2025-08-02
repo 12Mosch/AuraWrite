@@ -1,6 +1,6 @@
 // Shared Slate type definitions
-import type {BaseEditor} from "slate";
-import type {ReactEditor} from "slate-react";
+import type { BaseEditor } from "slate";
+import type { ReactEditor } from "slate-react";
 
 // Custom element types for the rich text editor
 export type ParagraphElement = {

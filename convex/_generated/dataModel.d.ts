@@ -9,12 +9,12 @@
  */
 
 import type {
-    DataModelFromSchemaDefinition,
-    DocumentByName,
-    SystemTableNames,
-    TableNamesInDataModel,
+  DataModelFromSchemaDefinition,
+  DocumentByName,
+  TableNamesInDataModel,
+  SystemTableNames,
 } from "convex/server";
-import type {GenericId} from "convex/values";
+import type { GenericId } from "convex/values";
 import schema from "../schema.js";
 
 /**

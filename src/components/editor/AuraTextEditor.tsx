@@ -1,10 +1,19 @@
 import type React from "react";
-import {useCallback, useMemo, useRef, useState} from "react";
-import type {Descendant, Editor} from "slate";
-import {HistoryEditor} from "slate-history";
-import type {Id} from "../../../convex/_generated/dataModel";
-import {ConvexCollaborativeEditor} from "../ConvexCollaborativeEditor";
-import {EditorLayout} from "./EditorLayout";
+import { useCallback, useMemo, useRef, useState } from "react";
+import type { Descendant, Editor } from "slate";
+import { HistoryEditor } from "slate-history";
+import type { Id } from "../../../convex/_generated/dataModel";
+import { ConvexCollaborativeEditor } from "../ConvexCollaborativeEditor";
+import { Button } from "../ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "../ui/dialog";
+import { EditorLayout } from "./EditorLayout";
 
 interface AuraTextEditorProps {
 	documentId: Id<"documents">; // Required for collaboration
@@ -17,6 +26,7 @@ interface AuraTextEditorProps {
 	onSave?: (value: Descendant[]) => void;
 	onChange?: (value: Descendant[]) => void;
 	onSignOut?: () => void;
+	onNewDocument?: () => Promise<void>; // Callback to create and navigate to a new document
 }
 
 export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
@@ -30,6 +40,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	onSave,
 	onChange,
 	onSignOut,
+	onNewDocument,
 }) => {
 	// Editor state
 	const [editorValue, setEditorValue] = useState<Descendant[]>(
@@ -40,6 +51,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const [syncStatus, setSyncStatus] = useState<
 		"synced" | "syncing" | "error" | "offline"
 	>("synced");
+
+	// Dialog state for unsaved changes confirmation
+	const [showNewDocumentDialog, setShowNewDocumentDialog] = useState(false);
 
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
@@ -55,6 +69,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				}
 				return "";
 			})
+			.filter((text) => text.length > 0)
 			.join(" ");
 
 		const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
@@ -78,6 +93,38 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		editorRef.current = editor;
 	}, []);
 
+	// Handle new document creation
+	const handleNewDocument = useCallback(async () => {
+		if (!onNewDocument) {
+			// Fallback: just clear the editor if no callback is provided
+			setEditorValue([{ type: "paragraph", children: [{ text: "" }] }]);
+			setIsModified(false);
+			return;
+		}
+
+		try {
+			await onNewDocument();
+			// The parent component will handle navigation to the new document
+			// which will cause this component to re-render with the new document
+		} catch (error) {
+			console.error("Failed to create new document:", error);
+			// Fallback to clearing the editor on error
+			setEditorValue([{ type: "paragraph", children: [{ text: "" }] }]);
+			setIsModified(false);
+		}
+	}, [onNewDocument]);
+
+	// Handle new document with unsaved changes check
+	const handleNewDocumentWithConfirmation = useCallback(() => {
+		if (isModified) {
+			// Show confirmation dialog if there are unsaved changes
+			setShowNewDocumentDialog(true);
+		} else {
+			// No unsaved changes, proceed directly
+			handleNewDocument();
+		}
+	}, [isModified, handleNewDocument]);
+
 	// Handle menu actions
 	const handleMenuAction = useCallback(
 		(action: string, data?: unknown) => {
@@ -90,8 +137,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					}
 					break;
 				case "file.new":
-					setEditorValue([{ type: "paragraph", children: [{ text: "" }] }]);
-					setIsModified(false);
+					handleNewDocumentWithConfirmation();
 					break;
 				case "edit.undo":
 					if (
@@ -113,7 +159,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					console.log("Menu action:", action, data);
 			}
 		},
-		[editorValue, onSave],
+		[editorValue, onSave, handleNewDocumentWithConfirmation],
 	);
 
 	// TODO: Handle toolbar actions
@@ -156,6 +202,16 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		[],
 	);
 
+	// Dialog handlers
+	const handleConfirmNewDocument = useCallback(() => {
+		setShowNewDocumentDialog(false);
+		handleNewDocument();
+	}, [handleNewDocument]);
+
+	const handleCancelNewDocument = useCallback(() => {
+		setShowNewDocumentDialog(false);
+	}, []);
+
 	return (
 		<div className={`aura-text-editor h-full ${className}`}>
 			<EditorLayout
@@ -185,6 +241,31 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					onSyncStatusChange={handleSyncStatusChange}
 				/>
 			</EditorLayout>
+
+			{/* New Document Confirmation Dialog */}
+			<Dialog
+				open={showNewDocumentDialog}
+				onOpenChange={setShowNewDocumentDialog}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Create New Document</DialogTitle>
+						<DialogDescription>
+							You have unsaved changes in the current document. Creating a new
+							document will discard these changes. Are you sure you want to
+							continue?
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button variant="outline" onClick={handleCancelNewDocument}>
+							Cancel
+						</Button>
+						<Button onClick={handleConfirmNewDocument}>
+							Create New Document
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 };

@@ -8,7 +8,11 @@
  * @module
  */
 
-import type {ApiFromModules, FilterApi, FunctionReference,} from "convex/server";
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
 import type * as auth from "../auth.js";
 import type * as authHelpers from "../authHelpers.js";
 import type * as collaboration from "../collaboration.js";

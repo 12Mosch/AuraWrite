@@ -1,9 +1,13 @@
 import type React from "react";
-import {Card} from "@/components/ui/card";
-import {EditorMenuBar} from "./EditorMenuBar";
-import {EditorStatusBar} from "./EditorStatusBar";
-import {EditorToolbar} from "./EditorToolbar";
-import type {DocumentStatus, MenuActionHandler, ToolbarActionHandler,} from "./types";
+import { Card } from "@/components/ui/card";
+import { EditorMenuBar } from "./EditorMenuBar";
+import { EditorStatusBar } from "./EditorStatusBar";
+import { EditorToolbar } from "./EditorToolbar";
+import type {
+	DocumentStatus,
+	MenuActionHandler,
+	ToolbarActionHandler,
+} from "./types";
 
 interface EditorLayoutProps {
 	children: React.ReactNode;

@@ -1,7 +1,13 @@
 import type React from "react";
-import {useCallback, useState} from "react";
-import {createEditor, type Descendant, Editor} from "slate";
-import {Editable, type RenderElementProps, type RenderLeafProps, Slate, withReact,} from "slate-react";
+import { useCallback, useState } from "react";
+import { createEditor, type Descendant, Editor } from "slate";
+import {
+	Editable,
+	type RenderElementProps,
+	type RenderLeafProps,
+	Slate,
+	withReact,
+} from "slate-react";
 import "../types/slate"; // Import shared Slate types
 
 // Initial value for the editor

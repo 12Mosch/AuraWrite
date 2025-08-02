@@ -1,22 +1,31 @@
-import {withYjs, YjsEditor} from "@slate-yjs/core";
+import { withYjs, YjsEditor } from "@slate-yjs/core";
 import type React from "react";
-import {useEffect, useMemo} from "react";
-import {createEditor, type Descendant, Editor} from "slate";
-import {withHistory} from "slate-history";
-import {Editable, Slate, withReact} from "slate-react";
-import type {Id} from "../../convex/_generated/dataModel";
-import {useError} from "../contexts/ErrorContext";
-import {ConnectionState} from "../hooks/useConnectionManager";
-import {type SyncHookReturn, useConvexYjsSync,} from "../hooks/useConvexYjsSync";
-import {useOfflineMode} from "../hooks/useOfflineMode";
-import {useOptimizedSync as useOptimizedSyncHook} from "../hooks/useOptimizedSync";
-import {usePresence} from "../hooks/usePresence";
-import {useSharedYjsDocument} from "../hooks/useSharedYjsDocument";
-import {ConnectionStatus, SimpleConnectionIndicator,} from "./ConnectionStatus";
-import {DocumentHeader} from "./DocumentHeader";
-import {EnhancedErrorDisplay} from "./EnhancedErrorDisplay";
-import {PresenceIndicator} from "./PresenceIndicator";
-import {CompactPerformanceIndicator, SyncPerformanceMonitor,} from "./SyncPerformanceMonitor";
+import { useEffect, useMemo } from "react";
+import { createEditor, type Descendant, Editor } from "slate";
+import { withHistory } from "slate-history";
+import { Editable, Slate, withReact } from "slate-react";
+import type { Id } from "../../convex/_generated/dataModel";
+import { useError } from "../contexts/ErrorContext";
+import { ConnectionState } from "../hooks/useConnectionManager";
+import {
+	type SyncHookReturn,
+	useConvexYjsSync,
+} from "../hooks/useConvexYjsSync";
+import { useOfflineMode } from "../hooks/useOfflineMode";
+import { useOptimizedSync as useOptimizedSyncHook } from "../hooks/useOptimizedSync";
+import { usePresence } from "../hooks/usePresence";
+import { useSharedYjsDocument } from "../hooks/useSharedYjsDocument";
+import {
+	ConnectionStatus,
+	SimpleConnectionIndicator,
+} from "./ConnectionStatus";
+import { DocumentHeader } from "./DocumentHeader";
+import { EnhancedErrorDisplay } from "./EnhancedErrorDisplay";
+import { PresenceIndicator } from "./PresenceIndicator";
+import {
+	CompactPerformanceIndicator,
+	SyncPerformanceMonitor,
+} from "./SyncPerformanceMonitor";
 
 /**
  * Props for the ConvexCollaborativeEditor component

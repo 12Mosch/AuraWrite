@@ -1,29 +1,29 @@
 import {
-    Clipboard,
-    Copy,
-    Download,
-    FileText,
-    HelpCircle,
-    LogOut,
-    Redo,
-    Save,
-    Scissors,
-    Search,
-    Settings,
-    Undo,
-    Upload,
+	Clipboard,
+	Copy,
+	Download,
+	FileText,
+	HelpCircle,
+	LogOut,
+	Redo,
+	Save,
+	Scissors,
+	Search,
+	Settings,
+	Undo,
+	Upload,
 } from "lucide-react";
 import type React from "react";
 import {
-    Menubar,
-    MenubarContent,
-    MenubarItem,
-    MenubarMenu,
-    MenubarSeparator,
-    MenubarShortcut,
-    MenubarTrigger,
+	Menubar,
+	MenubarContent,
+	MenubarItem,
+	MenubarMenu,
+	MenubarSeparator,
+	MenubarShortcut,
+	MenubarTrigger,
 } from "@/components/ui/menubar";
-import type {MenuActionHandler} from "./types";
+import type { MenuActionHandler } from "./types";
 
 interface EditorMenuBarProps {
 	onAction?: MenuActionHandler;

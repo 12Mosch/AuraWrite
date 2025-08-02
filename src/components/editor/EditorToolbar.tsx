@@ -1,28 +1,39 @@
 import {
-    AlignCenter,
-    AlignJustify,
-    AlignLeft,
-    AlignRight,
-    Bold,
-    Code,
-    Image,
-    Italic,
-    Link,
-    List,
-    ListOrdered,
-    Quote,
-    Redo,
-    Strikethrough,
-    Underline,
-    Undo,
+	AlignCenter,
+	AlignJustify,
+	AlignLeft,
+	AlignRight,
+	Bold,
+	Code,
+	Image,
+	Italic,
+	Link,
+	List,
+	ListOrdered,
+	Quote,
+	Redo,
+	Strikethrough,
+	Underline,
+	Undo,
 } from "lucide-react";
 import type React from "react";
-import {Button} from "@/components/ui/button";
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from "@/components/ui/select";
-import {Separator} from "@/components/ui/separator";
-import {Toggle} from "@/components/ui/toggle";
-import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,} from "@/components/ui/tooltip";
-import type {ActiveFormats, ToolbarActionHandler} from "./types";
+import { Button } from "@/components/ui/button";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Toggle } from "@/components/ui/toggle";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { ActiveFormats, ToolbarActionHandler } from "./types";
 
 interface EditorToolbarProps {
 	onAction?: ToolbarActionHandler;
