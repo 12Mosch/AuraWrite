@@ -1,9 +1,26 @@
 import { useAuthActions } from "@convex-dev/auth/react";
-import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
-import CollaborativeEditingTest from "../components/CollaborativeEditingTest";
-import "./index.css";
+import {
+	Authenticated,
+	AuthLoading,
+	Unauthenticated,
+	useMutation,
+	useQuery,
+} from "convex/react";
+import { useCallback, useEffect, useState } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AuraTextEditor } from "@/components/editor";
 import { ErrorProvider } from "@/contexts/ErrorContext";
+import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import "./index.css";
+
+// Demo document content constant
+const DEMO_DOCUMENT_CONTENT = JSON.stringify([
+	{
+		type: "paragraph",
+		children: [{ text: "Welcome to AuraWrite! Start typing to begin..." }],
+	},
+]);
 
 function App() {
 	return (
@@ -107,27 +124,127 @@ function SignInForm() {
 
 function AuthenticatedApp() {
 	const { signOut } = useAuthActions();
+	const [documentId, setDocumentId] = useState<Id<"documents"> | null>(null);
+	const [isCreatingDocument, setIsCreatingDocument] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	// Get user's documents
+	const userDocuments = useQuery(api.documents.getUserDocuments);
+
+	// Get current document details
+	const currentDocument = useQuery(
+		api.documents.getDocument,
+		documentId ? { documentId } : "skip",
+	);
+
+	// Create document mutation
+	const createDocument = useMutation(api.documents.createDocument);
+
+	// Handle new document creation
+	const handleNewDocument = useCallback(async () => {
+		try {
+			const newDocumentId = await createDocument({
+				title: "Untitled Document",
+				content: JSON.stringify([
+					{ type: "paragraph", children: [{ text: "" }] },
+				]),
+				isPublic: false,
+			});
+
+			// Navigate to the new document
+			setDocumentId(newDocumentId);
+		} catch (error) {
+			console.error("Failed to create new document:", error);
+			throw error; // Re-throw to let the editor handle the error
+		}
+	}, [createDocument]);
+
+	// Create or get the demo document
+	useEffect(() => {
+		// Clear any previous errors when userDocuments changes
+		setError(null);
+
+		if (userDocuments && userDocuments.length === 0 && !isCreatingDocument) {
+			// No documents exist and we're not already creating one, create a demo document
+			setIsCreatingDocument(true);
+
+			createDocument({
+				title: "My First Document",
+				content: DEMO_DOCUMENT_CONTENT,
+				isPublic: false,
+			})
+				.then((newDocumentId) => {
+					setDocumentId(newDocumentId);
+					setIsCreatingDocument(false);
+				})
+				.catch((error) => {
+					console.error("Failed to create demo document:", error);
+					setError(
+						"Failed to create your first document. Please try refreshing the page.",
+					);
+					setIsCreatingDocument(false);
+				});
+		} else if (userDocuments && userDocuments.length > 0) {
+			// Use the first document
+			setDocumentId(userDocuments[0]._id);
+		}
+	}, [userDocuments, createDocument, isCreatingDocument]);
+
+	// Show error state if there's an error
+	if (error) {
+		return (
+			<div className="flex flex-col items-center justify-center min-h-screen">
+				<div className="text-red-600 text-lg mb-4">{error}</div>
+				<button
+					type="button"
+					onClick={() => {
+						setError(null);
+						// Trigger a retry by clearing the document ID if needed
+						if (!documentId) {
+							setDocumentId(null);
+						}
+					}}
+					className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+				>
+					Try Again
+				</button>
+			</div>
+		);
+	}
+
+	// Show loading while we determine which document to use
+	if (!documentId) {
+		return (
+			<div className="flex items-center justify-center min-h-screen">
+				<div className="text-lg">
+					{isCreatingDocument
+						? "Creating your first document..."
+						: "Loading document..."}
+				</div>
+			</div>
+		);
+	}
 
 	return (
-		<div className="min-h-screen">
-			<header className="bg-white shadow-sm border-b">
-				<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-					<div className="flex justify-between items-center py-4">
-						<h1 className="text-xl font-semibold text-gray-900">AuraWrite</h1>
-						<button
-							type="button"
-							onClick={() => void signOut()}
-							className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700"
-						>
-							Sign Out
-						</button>
-					</div>
-				</div>
-			</header>
-
-			<main className="py-8">
-				<CollaborativeEditingTest />
-			</main>
+		<div className="h-screen">
+			<AuraTextEditor
+				documentId={documentId}
+				documentTitle={currentDocument?.title ?? "Untitled Document"}
+				showMenuBar={true}
+				showToolbar={true}
+				showStatusBar={true}
+				className="h-full"
+				onSignOut={() => void signOut()}
+				onNewDocument={handleNewDocument}
+				onSave={(value) => {
+					console.log("Saving document:", value);
+					// Document saving is now handled automatically by the collaboration system
+				}}
+				onChange={(value) => {
+					console.log("Document changed:", value);
+					// Real-time collaboration is now handled automatically!
+				}}
+			/>
 		</div>
 	);
 }

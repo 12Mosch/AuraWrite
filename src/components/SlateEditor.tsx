@@ -1,26 +1,14 @@
 import type React from "react";
 import { useCallback, useState } from "react";
-import { type BaseEditor, createEditor, type Descendant, Editor } from "slate";
+import { createEditor, type Descendant, Editor } from "slate";
 import {
 	Editable,
-	type ReactEditor,
 	type RenderElementProps,
 	type RenderLeafProps,
 	Slate,
 	withReact,
 } from "slate-react";
-
-// TypeScript type definitions for Slate
-type CustomElement = { type: "paragraph"; children: CustomText[] };
-type CustomText = { text: string; bold?: boolean; italic?: boolean };
-
-declare module "slate" {
-	interface CustomTypes {
-		Editor: BaseEditor & ReactEditor;
-		Element: CustomElement;
-		Text: CustomText;
-	}
-}
+import "../types/slate"; // Import shared Slate types
 
 // Initial value for the editor
 const initialValue: Descendant[] = [
