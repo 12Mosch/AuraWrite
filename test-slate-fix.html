@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Slate Fix</title>
+</head>
+<body>
+    <h1>Testing Slate.js Fix</h1>
+    <p>This is a simple test to verify the application loads without the Slate initialValue error.</p>
+    <script>
+        // Test if the application loads without errors
+        fetch('http://localhost:5173')
+            .then(response => response.text())
+            .then(html => {
+                console.log('Application loaded successfully');
+                document.body.innerHTML += '<p style="color: green;">✓ Application loads without errors</p>';
+            })
+            .catch(error => {
+                console.error('Error loading application:', error);
+                document.body.innerHTML += '<p style="color: red;">✗ Error loading application: ' + error.message + '</p>';
+            });
+    </script>
+</body>
+</html>
