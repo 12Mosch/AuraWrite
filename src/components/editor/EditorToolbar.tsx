@@ -17,6 +17,7 @@ import {
 	Undo,
 } from "lucide-react";
 import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
 	Select,
@@ -54,6 +55,39 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 		onAction?.(action, data);
 	};
 
+	// Horizontal overflow detection for gradient masks
+	const containerRef = useRef<HTMLDivElement | null>(null);
+	const [showLeftMask, setShowLeftMask] = useState(false);
+	const [showRightMask, setShowRightMask] = useState(false);
+
+	useEffect(() => {
+		const el = containerRef.current;
+		if (!el) return;
+
+		const updateMasks = () => {
+			const { scrollLeft, scrollWidth, clientWidth } = el;
+			const hasOverflow = scrollWidth > clientWidth + 1; // tolerance
+			const atStart = scrollLeft <= 1;
+			const atEnd = scrollLeft + clientWidth >= scrollWidth - 1;
+
+			setShowLeftMask(hasOverflow && !atStart);
+			setShowRightMask(hasOverflow && !atEnd);
+		};
+
+		updateMasks();
+
+		const onScroll = () => updateMasks();
+		el.addEventListener("scroll", onScroll, { passive: true });
+
+		const ro = new ResizeObserver(updateMasks);
+		ro.observe(el);
+
+		return () => {
+			el.removeEventListener("scroll", onScroll);
+			ro.disconnect();
+		};
+	}, []);
+
 	const fontSizes = [
 		{ value: "11", label: "11px" },
 		{ value: "12", label: "12px" },
@@ -76,7 +110,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
 	return (
 		<TooltipProvider>
-			<div className="flex items-center gap-1 p-2 bg-background border-b overflow-x-auto">
+			<div
+				ref={containerRef}
+				className="relative flex items-center gap-1 p-2 bg-background border-b overflow-x-auto scroll-smooth"
+			>
 				{/* Undo/Redo */}
 				<div className="flex items-center gap-1 flex-shrink-0">
 					<Tooltip>
@@ -116,7 +153,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 							handleAction("format.fontFamily", { fontFamily: value })
 						}
 					>
-						<SelectTrigger className="w-32">
+						<SelectTrigger className="w-32 h-8" aria-label="Font family">
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
@@ -137,7 +174,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 							handleAction("format.fontSize", { fontSize: value })
 						}
 					>
-						<SelectTrigger className="w-20">
+						<SelectTrigger className="w-20 h-8" aria-label="Font size">
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
@@ -160,6 +197,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={activeFormats.bold}
 								onPressedChange={() => handleAction("format.bold")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<Bold className="h-4 w-4" />
 							</Toggle>
@@ -173,6 +211,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={activeFormats.italic}
 								onPressedChange={() => handleAction("format.italic")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<Italic className="h-4 w-4" />
 							</Toggle>
@@ -186,6 +225,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={activeFormats.underline}
 								onPressedChange={() => handleAction("format.underline")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<Underline className="h-4 w-4" />
 							</Toggle>
@@ -199,6 +239,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={activeFormats.strikethrough}
 								onPressedChange={() => handleAction("format.strikethrough")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<Strikethrough className="h-4 w-4" />
 							</Toggle>
@@ -212,6 +253,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={activeFormats.code}
 								onPressedChange={() => handleAction("format.code")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<Code className="h-4 w-4" />
 							</Toggle>
@@ -230,6 +272,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={currentAlignment === "left"}
 								onPressedChange={() => handleAction("format.alignLeft")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<AlignLeft className="h-4 w-4" />
 							</Toggle>
@@ -243,6 +286,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={currentAlignment === "center"}
 								onPressedChange={() => handleAction("format.alignCenter")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<AlignCenter className="h-4 w-4" />
 							</Toggle>
@@ -256,6 +300,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={currentAlignment === "right"}
 								onPressedChange={() => handleAction("format.alignRight")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<AlignRight className="h-4 w-4" />
 							</Toggle>
@@ -269,6 +314,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={currentAlignment === "justify"}
 								onPressedChange={() => handleAction("format.alignJustify")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<AlignJustify className="h-4 w-4" />
 							</Toggle>
@@ -287,6 +333,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={activeFormats.blockType === "bulleted-list"}
 								onPressedChange={() => handleAction("format.bulletList")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<List className="h-4 w-4" />
 							</Toggle>
@@ -300,6 +347,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={activeFormats.blockType === "numbered-list"}
 								onPressedChange={() => handleAction("format.numberedList")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<ListOrdered className="h-4 w-4" />
 							</Toggle>
@@ -313,6 +361,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								pressed={activeFormats.blockType === "blockquote"}
 								onPressedChange={() => handleAction("format.blockquote")}
 								size="sm"
+								className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
 							>
 								<Quote className="h-4 w-4" />
 							</Toggle>
@@ -351,6 +400,13 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 						<TooltipContent>Insert Image</TooltipContent>
 					</Tooltip>
 				</div>
+				{/* Gradient masks to hint horizontal scroll on small screens */}
+				{showLeftMask && (
+					<div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-background to-transparent md:hidden" />
+				)}
+				{showRightMask && (
+					<div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent md:hidden" />
+				)}
 			</div>
 		</TooltipProvider>
 	);

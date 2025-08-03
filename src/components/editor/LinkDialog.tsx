@@ -76,11 +76,17 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({
 							<Input
 								id="url"
 								type="url"
+								inputMode="url"
 								placeholder="https://example.com"
 								value={url}
 								onChange={(e) => setUrl(e.target.value)}
 								autoFocus
+								aria-invalid={!url.trim() ? "true" : "false"}
+								aria-describedby="url-help"
 							/>
+							<p id="url-help" className="text-xs text-muted-foreground">
+								We’ll add https:// if you omit it.
+							</p>
 						</div>
 						{!hasSelection && (
 							<div className="grid gap-2">

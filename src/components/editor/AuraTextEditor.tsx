@@ -30,13 +30,21 @@ import type { FontFamilyData, FontSizeData } from "./types";
 
 // Type guard functions for better type safety
 const isFontSizeData = (data: unknown): data is FontSizeData => {
-	return typeof data === "object" && data !== null && "fontSize" in data &&
-		typeof (data as FontSizeData).fontSize === "string";
+	return (
+		typeof data === "object" &&
+		data !== null &&
+		"fontSize" in data &&
+		typeof (data as FontSizeData).fontSize === "string"
+	);
 };
 
 const isFontFamilyData = (data: unknown): data is FontFamilyData => {
-	return typeof data === "object" && data !== null && "fontFamily" in data &&
-		typeof (data as FontFamilyData).fontFamily === "string";
+	return (
+		typeof data === "object" &&
+		data !== null &&
+		"fontFamily" in data &&
+		typeof (data as FontFamilyData).fontFamily === "string"
+	);
 };
 
 // Action types for the formats reducer
@@ -103,7 +111,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const [isModified, setIsModified] = useState(false);
 	const [lastSaved, setLastSaved] = useState<Date>(new Date());
 	const [syncStatus, setSyncStatus] = useState<
-		"synced" | "syncing" | "error" | "offline"
+		"synced" | "syncing" | "error" | "offline" | "pending" | "disabled"
 	>("synced");
 
 	// Dialog state for unsaved changes confirmation
@@ -252,7 +260,12 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			case "format.underline":
 			case "format.strikethrough":
 			case "format.code": {
-				const formatType = action.replace("format.", "") as "bold" | "italic" | "underline" | "strikethrough" | "code";
+				const formatType = action.replace("format.", "") as
+					| "bold"
+					| "italic"
+					| "underline"
+					| "strikethrough"
+					| "code";
 				toggleFormat(editor, formatType);
 				break;
 			}
@@ -285,7 +298,11 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			case "format.alignCenter":
 			case "format.alignRight":
 			case "format.alignJustify": {
-				const alignment = action.replace("format.align", "").toLowerCase() as "left" | "center" | "right" | "justify";
+				const alignment = action.replace("format.align", "").toLowerCase() as
+					| "left"
+					| "center"
+					| "right"
+					| "justify";
 				setAlignment(editor, alignment);
 				break;
 			}
@@ -340,10 +357,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				| "pending"
 				| "disabled",
 		) => {
-			// Map the extended status types to the ones expected by DocumentStatus
-			const mappedStatus: "synced" | "syncing" | "error" | "offline" =
-				status === "pending" || status === "disabled" ? "offline" : status;
-			setSyncStatus(mappedStatus);
+			setSyncStatus(status);
 		},
 		[],
 	);
@@ -377,18 +391,22 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					syncStatus,
 				}}
 			>
-				<ConvexCollaborativeEditor
-					documentId={documentId}
-					placeholder="Start writing your document..."
-					onChange={handleEditorChange}
-					onEditorReady={handleEditorReady}
-					enableSync={true}
-					showHeader={false}
-					className="h-full"
-					onSyncStatusChange={handleSyncStatusChange}
-					onFormattingChange={handleFormattingChange}
-					onLinkShortcut={() => setShowLinkDialog(true)}
-				/>
+				<div className="h-full overflow-auto">
+					<div className="mx-auto max-w-[80ch] px-4 sm:px-6 md:px-8 py-6">
+						<ConvexCollaborativeEditor
+							documentId={documentId}
+							placeholder="Start writing your document..."
+							onChange={handleEditorChange}
+							onEditorReady={handleEditorReady}
+							enableSync={true}
+							showHeader={false}
+							className="min-h-[calc(100vh-12rem)]"
+							onSyncStatusChange={handleSyncStatusChange}
+							onFormattingChange={handleFormattingChange}
+							onLinkShortcut={() => setShowLinkDialog(true)}
+						/>
+					</div>
+				</div>
 			</EditorLayout>
 
 			{/* New Document Confirmation Dialog */}
@@ -409,7 +427,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 						<Button variant="outline" onClick={handleCancelNewDocument}>
 							Cancel
 						</Button>
-						<Button onClick={handleConfirmNewDocument}>
+						<Button variant="destructive" onClick={handleConfirmNewDocument}>
 							Create New Document
 						</Button>
 					</DialogFooter>

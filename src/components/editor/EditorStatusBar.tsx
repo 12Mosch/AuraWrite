@@ -1,165 +1,213 @@
 import {
-	AlertCircle,
-	CheckCircle,
+	CheckCircle2,
 	Clock,
-	RotateCw,
+	CloudOff,
+	Loader2,
+	Save,
 	Wifi,
 	WifiOff,
 } from "lucide-react";
 import type React from "react";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
+export type MinimalSyncStatus =
+	| "synced"
+	| "syncing"
+	| "error"
+	| "offline"
+	| "pending"
+	| "disabled";
 
 interface EditorStatusBarProps {
-	wordCount?: number;
-	characterCount?: number;
+	// Connection and sync
+	syncStatus?: MinimalSyncStatus;
+	// Whether the document has unsaved changes locally
 	isModified?: boolean;
+	// Last successful save time
 	lastSaved?: Date;
-	syncStatus?: "synced" | "syncing" | "error" | "offline";
-	currentLine?: number;
-	currentColumn?: number;
-	selectedText?: string;
+	// Optional className to position it in the header container
+	className?: string;
+}
+
+/**
+ * Format a compact relative timestamp, falling back to date for older times.
+ */
+function formatLastSaved(date?: Date) {
+	if (!date) return "Never";
+	const now = Date.now();
+	const diff = now - date.getTime();
+	const minute = 60_000;
+	const hour = 60 * minute;
+	const day = 24 * hour;
+
+	if (diff < minute) return "Just now";
+	if (diff < hour) return `${Math.floor(diff / minute)}m ago`;
+	if (diff < day) return `${Math.floor(diff / hour)}h ago`;
+	return date.toLocaleDateString();
 }
 
 export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
-	wordCount = 0,
-	characterCount = 0,
+	syncStatus = "synced",
 	isModified = false,
 	lastSaved,
-	syncStatus = "synced",
-	currentLine = 1,
-	currentColumn = 1,
-	selectedText,
+	className,
 }) => {
-	const formatLastSaved = (date?: Date) => {
-		if (!date) return "Never";
+	// Normalize sync status to user-facing buckets
+	const normalized: "online" | "offline" | "syncing" | "error" | "synced" =
+		syncStatus === "disabled" || syncStatus === "pending"
+			? "offline"
+			: (syncStatus as "online" | "offline" | "syncing" | "error" | "synced");
 
-		const now = new Date();
-		const diffMs = now.getTime() - date.getTime();
-		const diffMinutes = Math.floor(diffMs / (1000 * 60));
+	const connection = normalized === "offline" ? "offline" : "online";
 
-		if (diffMinutes < 1) return "Just now";
-		if (diffMinutes < 60) return `${diffMinutes}m ago`;
+	const connectionIcon =
+		connection === "online" ? (
+			<Wifi className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+		) : (
+			<WifiOff className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+		);
 
-		const diffHours = Math.floor(diffMinutes / 60);
-		if (diffHours < 24) return `${diffHours}h ago`;
+	const saveState = (() => {
+		if (normalized === "syncing")
+			return {
+				label: "Saving…",
+				icon: (
+					<Loader2
+						className="h-3.5 w-3.5 animate-spin text-blue-600"
+						aria-hidden="true"
+					/>
+				),
+			};
+		if (normalized === "error")
+			return {
+				label: "Sync error",
+				icon: (
+					<CloudOff className="h-3.5 w-3.5 text-red-600" aria-hidden="true" />
+				),
+			};
+		if (isModified)
+			return {
+				label: "Unsaved changes",
+				icon: (
+					<Save className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+				),
+			};
+		return {
+			label: "Saved",
+			icon: (
+				<CheckCircle2
+					className="h-3.5 w-3.5 text-emerald-600"
+					aria-hidden="true"
+				/>
+			),
+		};
+	})();
 
-		return date.toLocaleDateString();
-	};
+	const dotClass = (() => {
+		if (normalized === "syncing") return "bg-blue-500";
+		if (normalized === "error") return "bg-red-500";
+		if (connection === "offline") return "bg-amber-500";
+		if (!isModified) return "bg-emerald-500";
+		return "bg-amber-500";
+	})();
 
-	const syncStatusConfig = {
-		synced: {
-			icon: <CheckCircle className="h-3 w-3 text-green-600" />,
-			text: "Synced",
-			color: "bg-green-100 text-green-800 border-green-200",
-			badgeText: "SYNCED",
-			badgeTextShort: "S",
-		},
-		syncing: {
-			icon: <RotateCw className="h-3 w-3 text-blue-600 animate-spin" />,
-			text: "Syncing...",
-			color: "bg-blue-100 text-blue-800 border-blue-200",
-			badgeText: "SYNCING",
-			badgeTextShort: "S",
-		},
-		error: {
-			icon: <AlertCircle className="h-3 w-3 text-red-600" />,
-			text: "Sync Error",
-			color: "bg-red-100 text-red-800 border-red-200",
-			badgeText: "ERROR",
-			badgeTextShort: "E",
-		},
-		offline: {
-			icon: <WifiOff className="h-3 w-3 text-yellow-600" />,
-			text: "Offline",
-			color: "bg-yellow-100 text-yellow-800 border-yellow-200",
-			badgeText: "OFFLINE",
-			badgeTextShort: "O",
-		},
-	} as const;
-
-	const currentSyncConfig = syncStatusConfig[
-		syncStatus as keyof typeof syncStatusConfig
-	] || {
-		icon: <Wifi className="h-3 w-3 text-gray-600" />,
-		text: "Unknown",
-		color: "bg-gray-100 text-gray-800 border-gray-200",
-		badgeText: "UNKNOWN",
-		badgeTextShort: "U",
-	};
+	const lastSavedLabel = formatLastSaved(lastSaved);
 
 	return (
-		<div className="flex items-center justify-between px-4 py-1 bg-background text-xs text-muted-foreground border-t">
-			{/* Left side - Document stats */}
-			<div className="flex items-center gap-2 sm:gap-4">
-				{/* Word and character count */}
-				<div className="flex items-center gap-1 sm:gap-2">
-					<span className="hidden sm:inline">Words: </span>
-					<span className="sm:hidden">W: </span>
-					<span>{wordCount.toLocaleString()}</span>
-					<Separator orientation="vertical" className="h-3" />
-					<span className="hidden sm:inline">Characters: </span>
-					<span className="sm:hidden">C: </span>
-					<span>{characterCount.toLocaleString()}</span>
-				</div>
-
-				{/* Selection info - Hidden on small screens */}
-				{selectedText && (
-					<div className="hidden md:flex items-center">
-						<Separator orientation="vertical" className="h-3" />
-						<span>Selected: {selectedText.length} chars</span>
-					</div>
+		<TooltipProvider delayDuration={200}>
+			<div
+				className={cn(
+					"flex items-center gap-3 text-xs text-muted-foreground",
+					// compact chip-like container to slot into menu bar header area
+					"px-2 py-1 rounded-md bg-muted/40 ring-1 ring-border/50",
+					"shadow-sm",
+					className,
 				)}
-
-				{/* Cursor position - Hidden on small screens */}
-				<div className="hidden lg:flex items-center">
-					<Separator orientation="vertical" className="h-3" />
-					<span>
-						Ln {currentLine}, Col {currentColumn}
-					</span>
+			>
+				{/* Subtle animated dot to reflect current health */}
+				<div className="relative h-2.5 w-2.5" aria-hidden="true">
+					<span className={cn("absolute inset-0 rounded-full", dotClass)} />
+					<span
+						className={cn(
+							"absolute inset-0 rounded-full opacity-30 animate-ping",
+							dotClass,
+						)}
+					/>
 				</div>
+
+				{/* Connection */}
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<div className="inline-flex items-center gap-1.5">
+							{connectionIcon}
+							<span className="hidden sm:inline">
+								{connection === "online" ? "Online" : "Offline"}
+							</span>
+							<span className="sm:hidden">
+								{connection === "online" ? "On" : "Off"}
+							</span>
+						</div>
+					</TooltipTrigger>
+					<TooltipContent side="bottom" className="text-xs">
+						Connection status:{" "}
+						{connection === "online"
+							? "Online (connected)"
+							: "Offline (changes will sync when online)"}
+					</TooltipContent>
+				</Tooltip>
+
+				{/* Divider */}
+				<span className="h-4 w-px bg-border/80" aria-hidden="true" />
+
+				{/* Save state */}
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<div className="inline-flex items-center gap-1.5">
+							{saveState.icon}
+							<span className="hidden sm:inline">{saveState.label}</span>
+							<span className="sm:hidden">
+								{normalized === "syncing"
+									? "Saving"
+									: normalized === "error"
+										? "Error"
+										: isModified
+											? "Unsaved"
+											: "Saved"}
+							</span>
+						</div>
+					</TooltipTrigger>
+					<TooltipContent side="bottom" className="text-xs">
+						{saveState.label}
+					</TooltipContent>
+				</Tooltip>
+
+				{/* Divider */}
+				<span className="h-4 w-px bg-border/80" aria-hidden="true" />
+
+				{/* Last sync */}
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<div className="inline-flex items-center gap-1.5">
+							<Clock className="h-3.5 w-3.5" aria-hidden="true" />
+							<span className="hidden sm:inline">
+								Last sync: {lastSavedLabel}
+							</span>
+							<span className="sm:hidden">{lastSavedLabel}</span>
+						</div>
+					</TooltipTrigger>
+					<TooltipContent side="bottom" className="text-xs">
+						Last successful save:{" "}
+						{lastSaved ? lastSaved.toLocaleString() : "Never"}
+					</TooltipContent>
+				</Tooltip>
 			</div>
-
-			{/* Right side - Save status and sync */}
-			<div className="flex items-center gap-2 sm:gap-4">
-				{/* Modified indicator */}
-				{isModified && (
-					<div className="flex items-center gap-1">
-						<div className="w-2 h-2 bg-orange-500 rounded-full" />
-						<span className="hidden sm:inline">Unsaved changes</span>
-						<span className="sm:hidden">Unsaved</span>
-					</div>
-				)}
-
-				{/* Last saved - Hidden on small screens */}
-				<div className="hidden md:flex items-center gap-1">
-					<Clock className="h-3 w-3" />
-					<span>Saved: {formatLastSaved(lastSaved)}</span>
-				</div>
-
-				<Separator orientation="vertical" className="h-3 hidden md:block" />
-
-				{/* Sync status */}
-				<div className="flex items-center gap-1 sm:gap-2">
-					<div className="flex items-center gap-1">
-						{currentSyncConfig.icon}
-						<span className="hidden sm:inline">{currentSyncConfig.text}</span>
-					</div>
-
-					<Badge
-						variant="outline"
-						className={`text-xs px-1 sm:px-2 py-0 ${currentSyncConfig.color}`}
-					>
-						<span className="hidden sm:inline">
-							{currentSyncConfig.badgeText}
-						</span>
-						<span className="sm:hidden">
-							{currentSyncConfig.badgeTextShort}
-						</span>
-					</Badge>
-				</div>
-			</div>
-		</div>
+		</TooltipProvider>
 	);
 };
 

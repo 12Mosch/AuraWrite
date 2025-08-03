@@ -1,5 +1,4 @@
 import type React from "react";
-import { Card } from "@/components/ui/card";
 import { EditorMenuBar } from "./EditorMenuBar";
 import { EditorStatusBar } from "./EditorStatusBar";
 import { EditorToolbar } from "./EditorToolbar";
@@ -39,20 +38,31 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 }) => {
 	return (
 		<div className={`editor-layout flex flex-col h-full ${className}`}>
-			{/* Menu Bar */}
+			{/* Menu Bar with compact status on the right */}
 			{showMenuBar && (
-				<div className="border-b bg-background">
-					<EditorMenuBar
-						onAction={onMenuAction}
-						documentTitle={documentTitle}
-						onSignOut={onSignOut}
-					/>
+				<div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30">
+					<div className="flex items-center justify-between">
+						<EditorMenuBar
+							onAction={onMenuAction}
+							documentTitle={documentTitle}
+							onSignOut={onSignOut}
+						/>
+						{showStatusBar && (
+							<div className="px-3 py-1">
+								<EditorStatusBar
+									isModified={documentStatus.isModified}
+									lastSaved={documentStatus.lastSaved}
+									syncStatus={documentStatus.syncStatus}
+								/>
+							</div>
+						)}
+					</div>
 				</div>
 			)}
 
 			{/* Toolbar */}
 			{showToolbar && (
-				<div className="border-b bg-background">
+				<div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-[40px] z-20">
 					<EditorToolbar
 						onAction={onToolbarAction}
 						activeFormats={activeFormats}
@@ -65,23 +75,8 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
 			{/* Main Editor Area */}
 			<div className="flex-1 overflow-hidden">
-				<Card className="h-full border-0 rounded-none">
-					<div className="h-full p-0">{children}</div>
-				</Card>
+				<div className="h-full">{children}</div>
 			</div>
-
-			{/* Status Bar */}
-			{showStatusBar && (
-				<div className="border-t bg-background">
-					<EditorStatusBar
-						wordCount={documentStatus.wordCount}
-						characterCount={documentStatus.characterCount}
-						isModified={documentStatus.isModified}
-						lastSaved={documentStatus.lastSaved}
-						syncStatus={documentStatus.syncStatus}
-					/>
-				</div>
-			)}
 		</div>
 	);
 };

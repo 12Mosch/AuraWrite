@@ -14,6 +14,7 @@ import {
 	Upload,
 } from "lucide-react";
 import type React from "react";
+import { Button } from "@/components/ui/button";
 import {
 	Menubar,
 	MenubarContent,
@@ -41,14 +42,14 @@ export const EditorMenuBar: React.FC<EditorMenuBarProps> = ({
 	};
 
 	return (
-		<div className="flex items-center justify-between px-4 py-2">
+		<div className="flex items-center justify-between px-3 sm:px-4 py-2">
 			<div className="flex items-center gap-4">
 				<div className="flex items-center gap-2">
 					<FileText className="h-5 w-5 text-blue-600" />
 					<span className="font-semibold text-sm">AuraWrite</span>
 				</div>
 
-				<Menubar className="border-none bg-transparent">
+				<Menubar className="border-none bg-transparent [&_[data-radix-menubar-trigger]]:focus-visible:ring-2 [&_[data-radix-menubar-trigger]]:focus-visible:ring-ring [&_[data-radix-menubar-trigger]]:rounded-sm">
 					{/* File Menu */}
 					<MenubarMenu>
 						<MenubarTrigger className="text-sm">File</MenubarTrigger>
@@ -201,31 +202,33 @@ export const EditorMenuBar: React.FC<EditorMenuBarProps> = ({
 
 			{/* Document Title */}
 			<div className="flex-1 text-center">
-				<span className="text-sm font-medium text-gray-700">
+				<span className="text-sm font-medium text-foreground">
 					{documentTitle}
 				</span>
 			</div>
 
 			{/* Actions */}
 			<div className="flex items-center gap-2">
-				<button
+				<Button
+					variant="ghost"
+					size="icon"
 					type="button"
 					onClick={() => handleAction("settings.open")}
-					className="p-2 hover:bg-gray-100 rounded-md transition-colors"
 					title="Settings"
 				>
 					<Settings className="h-4 w-4" />
-				</button>
+				</Button>
 				{onSignOut && (
-					<button
+					<Button
+						variant="destructive"
 						type="button"
 						onClick={onSignOut}
-						className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
 						title="Sign Out"
+						className="gap-2"
 					>
 						<LogOut className="h-4 w-4" />
-						Sign Out
-					</button>
+						<span className="hidden sm:inline">Sign Out</span>
+					</Button>
 				)}
 			</div>
 		</div>

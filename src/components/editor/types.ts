@@ -127,7 +127,13 @@ export interface DocumentStatus {
 	characterCount?: number;
 	isModified?: boolean;
 	lastSaved?: Date;
-	syncStatus?: "synced" | "syncing" | "error" | "offline";
+	syncStatus?:
+		| "synced"
+		| "syncing"
+		| "error"
+		| "offline"
+		| "pending"
+		| "disabled";
 }
 
 // Active formats interface

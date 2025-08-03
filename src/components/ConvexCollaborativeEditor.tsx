@@ -11,7 +11,7 @@ import {
 } from "slate-react";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useError } from "../contexts/ErrorContext";
-import { ConnectionState } from "../hooks/useConnectionManager";
+
 import {
 	type SyncHookReturn,
 	useConvexYjsSync,
@@ -31,17 +31,8 @@ import {
 	getActiveFormats,
 	getCurrentBlockType,
 } from "../utils/slateFormatting";
-import {
-	ConnectionStatus,
-	SimpleConnectionIndicator,
-} from "./ConnectionStatus";
 import { DocumentHeader } from "./DocumentHeader";
 import { EnhancedErrorDisplay } from "./EnhancedErrorDisplay";
-import { PresenceIndicator } from "./PresenceIndicator";
-import {
-	CompactPerformanceIndicator,
-	SyncPerformanceMonitor,
-} from "./SyncPerformanceMonitor";
 
 /**
  * Get CSS alignment class based on alignment value
@@ -95,8 +86,7 @@ interface ConvexCollaborativeEditorProps {
 	headerClassName?: string;
 	/** Whether to use optimized sync (default: true) */
 	useOptimizedSync?: boolean;
-	/** Whether to show performance monitoring (default: false) */
-	showPerformanceMonitor?: boolean;
+
 	/** Callback when sync status changes */
 	onSyncStatusChange?: (
 		status: "synced" | "syncing" | "error" | "offline" | "pending" | "disabled",
@@ -131,7 +121,7 @@ export const ConvexCollaborativeEditor: React.FC<
 	showHeader = true,
 	headerClassName = "",
 	useOptimizedSync = true,
-	showPerformanceMonitor = false,
+
 	onSyncStatusChange,
 	onFormattingChange,
 	onLinkShortcut,
@@ -151,7 +141,6 @@ export const ConvexCollaborativeEditor: React.FC<
 		indexeddbProvider,
 		isSynced: isLocalSynced,
 		persistenceError,
-		persistenceAvailable,
 	} = useSharedYjsDocument({
 		documentId,
 		initialValue,
@@ -200,8 +189,6 @@ export const ConvexCollaborativeEditor: React.FC<
 		syncError,
 		isConnected,
 		resync,
-		connectionState = ConnectionState.CONNECTED, // Provide default value for optional property
-		reconnect = () => {}, // Provide default no-op function for optional property
 	} = syncHook;
 
 	// Initialize real-time presence tracking
@@ -381,12 +368,13 @@ export const ConvexCollaborativeEditor: React.FC<
 				const alignmentClass = getAlignmentClass(align);
 
 				// Use mapping approach to reduce repetition
-				const HeadingComponent = headingComponents[level as keyof typeof headingComponents] || "h1";
+				const HeadingComponent =
+					headingComponents[level as keyof typeof headingComponents] || "h1";
 
 				return React.createElement(
 					HeadingComponent,
 					{ ...attributes, className: alignmentClass },
-					children
+					children,
 				);
 			}
 
@@ -585,66 +573,6 @@ export const ConvexCollaborativeEditor: React.FC<
 		}
 	}, [overallSyncStatus, onSyncStatusChange]);
 
-	// Sync status indicator component
-	const SyncStatusIndicator = () => {
-		const getStatusColor = () => {
-			switch (overallSyncStatus) {
-				case "synced":
-					return "text-green-600";
-				case "syncing":
-					return "text-blue-600";
-				case "error":
-					return "text-red-600";
-				case "offline":
-					return "text-yellow-600";
-				case "pending":
-					return "text-gray-600";
-				case "disabled":
-					return "text-gray-400";
-				default:
-					return "text-gray-600";
-			}
-		};
-
-		const getStatusText = () => {
-			switch (overallSyncStatus) {
-				case "synced":
-					return "Synced";
-				case "syncing":
-					return "Syncing...";
-				case "error":
-					return "Sync Error";
-				case "offline":
-					return "Offline";
-				case "pending":
-					return "Connecting...";
-				case "disabled":
-					return "Sync Disabled";
-				default:
-					return "Unknown";
-			}
-		};
-
-		return (
-			<div className={`text-xs ${getStatusColor()} flex items-center gap-1`}>
-				<div
-					className={`w-2 h-2 rounded-full ${
-						overallSyncStatus === "synced"
-							? "bg-green-600"
-							: overallSyncStatus === "syncing"
-								? "bg-blue-600 animate-pulse"
-								: overallSyncStatus === "error"
-									? "bg-red-600"
-									: overallSyncStatus === "offline"
-										? "bg-yellow-600"
-										: "bg-gray-600"
-					}`}
-				/>
-				{getStatusText()}
-			</div>
-		);
-	};
-
 	return (
 		<div className={`convex-collaborative-editor ${className}`}>
 			{/* Document Header with Real-time Metadata */}
@@ -660,39 +588,6 @@ export const ConvexCollaborativeEditor: React.FC<
 				</div>
 			)}
 
-			{/* Status bar */}
-			<div className="flex items-center justify-between p-2 bg-gray-50 border-b">
-				<div className="flex items-center space-x-4">
-					<SyncStatusIndicator />
-					{/* Real-time Presence Indicator */}
-					<PresenceIndicator
-						documentId={documentId}
-						size="sm"
-						maxVisible={3}
-						showNames={false}
-					/>
-
-					{/* Performance Monitor (compact) */}
-					{useOptimizedSync && (
-						<CompactPerformanceIndicator
-							getStats={optimizedSyncHook.getStats}
-						/>
-					)}
-
-					{/* Connection Status */}
-					<SimpleConnectionIndicator
-						connectionState={connectionState}
-						isSyncing={isSyncing}
-					/>
-				</div>
-				<div className="flex items-center gap-2 text-xs text-gray-500">
-					{!persistenceAvailable && (
-						<span className="text-yellow-600">⚠ Local storage unavailable</span>
-					)}
-					<span>Document: {documentId}</span>
-				</div>
-			</div>
-
 			{/* Error display */}
 			<EnhancedErrorDisplay
 				syncError={syncError}
@@ -700,7 +595,6 @@ export const ConvexCollaborativeEditor: React.FC<
 				hasGlobalError={!!globalError}
 				resync={resync}
 				isConnected={isConnected}
-				reconnect={reconnect}
 				isSyncing={isSyncing}
 				offlineMode={offlineMode}
 			/>
@@ -737,38 +631,6 @@ export const ConvexCollaborativeEditor: React.FC<
 					</div>
 				)}
 			</div>
-
-			{/* Performance Monitor (detailed) */}
-			{showPerformanceMonitor && useOptimizedSync && (
-				<SyncPerformanceMonitor
-					getStats={optimizedSyncHook.getStats}
-					clearStats={optimizedSyncHook.clearStats}
-					visible={true}
-					updateInterval={1000}
-				/>
-			)}
-
-			{/* Enhanced Connection Status (development) */}
-			{process.env.NODE_ENV === "development" && (
-				<div className="border-t">
-					<ConnectionStatus
-						connectionState={connectionState}
-						isSyncing={isSyncing}
-						error={syncError}
-						onReconnect={reconnect}
-						showDetails={true}
-						size="sm"
-						className="m-2"
-					/>
-
-					<div className="p-2 bg-gray-100 text-xs text-gray-600 space-y-1">
-						<div>Local synced: {isLocalSynced ? "✓" : "✗"}</div>
-						<div>Server synced: {isServerSynced ? "✓" : "✗"}</div>
-						<div>Y.Doc client ID: {yDoc.clientID}</div>
-						<div>Sync mode: {useOptimizedSync ? "Optimized" : "Regular"}</div>
-					</div>
-				</div>
-			)}
 		</div>
 	);
 };
