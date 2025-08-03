@@ -125,6 +125,8 @@ export type ToolbarActionHandler = (
 export interface DocumentStatus {
 	wordCount?: number;
 	characterCount?: number;
+	charsWithSpaces?: number;
+	charsWithoutSpaces?: number;
 	isModified?: boolean;
 	lastSaved?: Date;
 	syncStatus?:
@@ -141,6 +143,8 @@ export interface SelectionStatus {
 	line: number;
 	column: number;
 	selectedWordCount: number;
+	selectedCharsWithSpaces?: number;
+	selectedCharsWithoutSpaces?: number;
 	hasSelection: boolean;
 }
 

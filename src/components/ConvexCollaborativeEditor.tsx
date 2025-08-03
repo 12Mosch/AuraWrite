@@ -31,6 +31,8 @@ import {
 	getActiveFormats,
 	getCurrentBlockType,
 	getCursorPosition,
+	getSelectedCharCountWithoutSpaces,
+	getSelectedCharCountWithSpaces,
 	getSelectedWordCount,
 } from "../utils/slateFormatting";
 import { DocumentHeader } from "./DocumentHeader";
@@ -105,6 +107,8 @@ interface ConvexCollaborativeEditorProps {
 		line: number;
 		column: number;
 		selectedWordCount: number;
+		selectedCharsWithSpaces?: number;
+		selectedCharsWithoutSpaces?: number;
 		hasSelection: boolean;
 	}) => void;
 }
@@ -366,12 +370,17 @@ export const ConvexCollaborativeEditor: React.FC<
 			try {
 				const cursorPosition = getCursorPosition(editor);
 				const selectedWordCount = getSelectedWordCount(editor);
+				const selectedCharsWithSpaces = getSelectedCharCountWithSpaces(editor);
+				const selectedCharsWithoutSpaces =
+					getSelectedCharCountWithoutSpaces(editor);
 				const hasSelection = selectedWordCount > 0;
 
 				onSelectionChange({
 					line: cursorPosition.line,
 					column: cursorPosition.column,
 					selectedWordCount,
+					selectedCharsWithSpaces,
+					selectedCharsWithoutSpaces,
 					hasSelection,
 				});
 			} catch (error) {

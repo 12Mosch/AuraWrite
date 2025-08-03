@@ -89,6 +89,10 @@ interface AuraTextEditorProps {
 	onChange?: (value: Descendant[]) => void;
 	onSignOut?: () => void;
 	onNewDocument?: () => Promise<void>; // Callback to create and navigate to a new document
+	// Status bar configuration
+	showCharCount?: boolean; // Default: true
+	showReadingTime?: boolean; // Default: true
+	readingWPM?: number; // Default: 200
 }
 
 export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
@@ -103,6 +107,10 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	onChange,
 	onSignOut,
 	onNewDocument,
+	// Status bar configuration
+	showCharCount = true,
+	showReadingTime = true,
+	readingWPM = 200,
 }) => {
 	// Editor state
 	const [editorValue, setEditorValue] = useState<Descendant[]>(
@@ -158,8 +166,15 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 		const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
 		const characterCount = text.length;
+		const charsWithSpaces = text.length;
+		const charsWithoutSpaces = text.replace(/\s/g, "").length;
 
-		return { wordCount, characterCount };
+		return {
+			wordCount,
+			characterCount,
+			charsWithSpaces,
+			charsWithoutSpaces,
+		};
 	}, [editorValue]);
 
 	// Handle editor value changes
@@ -400,11 +415,16 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				documentStatus={{
 					wordCount: documentStats.wordCount,
 					characterCount: documentStats.characterCount,
+					charsWithSpaces: documentStats.charsWithSpaces,
+					charsWithoutSpaces: documentStats.charsWithoutSpaces,
 					isModified,
 					lastSaved,
 					syncStatus,
 				}}
 				selectionStatus={selectionStatus}
+				showCharCount={showCharCount}
+				showReadingTime={showReadingTime}
+				readingWPM={readingWPM}
 			>
 				<div className="h-full overflow-auto">
 					<div className="mx-auto max-w-[80ch] px-4 sm:px-6 md:px-8 py-6">

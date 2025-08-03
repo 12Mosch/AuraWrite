@@ -515,6 +515,45 @@ export const getSelectedWordCount = (editor: Editor): number => {
 };
 
 /**
+ * Get character count (including spaces) for selected text, or 0 if no selection
+ */
+export const getSelectedCharCountWithSpaces = (editor: Editor): number => {
+	const { selection } = editor;
+	if (!selection || Range.isCollapsed(selection)) {
+		return 0;
+	}
+
+	try {
+		const selectedText = Editor.string(editor, selection);
+		return selectedText.length;
+	} catch (error) {
+		console.warn("Error getting selected character count with spaces:", error);
+		return 0;
+	}
+};
+
+/**
+ * Get character count (excluding spaces) for selected text, or 0 if no selection
+ */
+export const getSelectedCharCountWithoutSpaces = (editor: Editor): number => {
+	const { selection } = editor;
+	if (!selection || Range.isCollapsed(selection)) {
+		return 0;
+	}
+
+	try {
+		const selectedText = Editor.string(editor, selection);
+		return selectedText.replace(/\s/g, "").length;
+	} catch (error) {
+		console.warn(
+			"Error getting selected character count without spaces:",
+			error,
+		);
+		return 0;
+	}
+};
+
+/**
  * Get cursor position as line and column numbers (1-indexed)
  */
 export const getCursorPosition = (

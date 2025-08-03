@@ -24,6 +24,10 @@ interface EditorLayoutProps {
 	documentStatus?: DocumentStatus;
 	activeFormats?: ActiveFormats;
 	selectionStatus?: SelectionStatus;
+	// Status bar configuration
+	showCharCount?: boolean;
+	showReadingTime?: boolean;
+	readingWPM?: number;
 }
 
 export const EditorLayout: React.FC<EditorLayoutProps> = ({
@@ -45,6 +49,10 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 		selectedWordCount: 0,
 		hasSelection: false,
 	},
+	// Status bar configuration
+	showCharCount = true,
+	showReadingTime = true,
+	readingWPM = 200,
 }) => {
 	return (
 		<div className={`editor-layout flex flex-col h-full ${className}`}>
@@ -84,10 +92,17 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 				{showBottomStatusBar && (
 					<EditorBottomStatusBar
 						totalWordCount={documentStatus.wordCount || 0}
+						totalCharsWithSpaces={documentStatus.charsWithSpaces}
+						totalCharsNoSpaces={documentStatus.charsWithoutSpaces}
 						selectedWordCount={selectionStatus.selectedWordCount}
+						selectedCharsWithSpaces={selectionStatus.selectedCharsWithSpaces}
+						selectedCharsNoSpaces={selectionStatus.selectedCharsWithoutSpaces}
 						cursorLine={selectionStatus.line}
 						cursorColumn={selectionStatus.column}
 						hasSelection={selectionStatus.hasSelection}
+						showCharCount={showCharCount}
+						showReadingTime={showReadingTime}
+						readingWPM={readingWPM}
 					/>
 				)}
 			</div>
