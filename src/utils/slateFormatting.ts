@@ -1,5 +1,11 @@
-import { Editor, Element as SlateElement, Text, Transforms } from "slate";
-import type { CustomElement, CustomText } from "../types/slate";
+import {
+	Editor,
+	Range,
+	Element as SlateElement,
+	Text,
+	Transforms,
+} from "slate";
+import type { CustomElement, CustomText, LinkElement } from "../types/slate";
 
 /**
  * Utility functions for Slate.js text formatting operations
@@ -359,6 +365,108 @@ export const hasMixedFormatting = (
 	return texts.some(
 		([text]) => (text as CustomText)[format] !== firstTextFormat,
 	);
+};
+
+/**
+ * Check if the current selection is inside a link
+ */
+export const isLinkActive = (editor: Editor): boolean => {
+	const { selection } = editor;
+	if (!selection) return false;
+
+	const [match] = Array.from(
+		Editor.nodes(editor, {
+			at: selection,
+			match: (n) =>
+				!Editor.isEditor(n) && SlateElement.isElement(n) && n.type === "link",
+		}),
+	);
+
+	return !!match;
+};
+
+/**
+ * Get the current link element if selection is inside a link
+ */
+export const getCurrentLink = (editor: Editor): LinkElement | null => {
+	const { selection } = editor;
+	if (!selection) return null;
+
+	const [match] = Array.from(
+		Editor.nodes(editor, {
+			at: selection,
+			match: (n) =>
+				!Editor.isEditor(n) && SlateElement.isElement(n) && n.type === "link",
+		}),
+	);
+
+	return match ? (match[0] as LinkElement) : null;
+};
+
+/**
+ * Insert or update a link
+ */
+export const insertLink = (
+	editor: Editor,
+	url: string,
+	text?: string,
+): void => {
+	const { selection } = editor;
+	if (!selection) return;
+
+	// If there's a selection and no text provided, use the selected text
+	if (Range.isCollapsed(selection) && !text) {
+		// No selection and no text provided, insert new link with URL as text
+		const linkElement: LinkElement = {
+			type: "link",
+			url,
+			children: [{ text: url }],
+		};
+		Transforms.insertNodes(editor, linkElement);
+	} else if (Range.isCollapsed(selection) && text) {
+		// No selection but text provided, insert new link with custom text
+		const linkElement: LinkElement = {
+			type: "link",
+			url,
+			children: [{ text }],
+		};
+		Transforms.insertNodes(editor, linkElement);
+	} else {
+		// There's a selection, wrap it in a link
+		const linkElement: LinkElement = {
+			type: "link",
+			url,
+			children: [],
+		};
+
+		if (isLinkActive(editor)) {
+			// Update existing link
+			Transforms.setNodes(
+				editor,
+				{ url },
+				{
+					match: (n) =>
+						!Editor.isEditor(n) &&
+						SlateElement.isElement(n) &&
+						n.type === "link",
+				},
+			);
+		} else {
+			// Wrap selection in new link
+			Transforms.wrapNodes(editor, linkElement, { split: true });
+			Transforms.collapse(editor, { edge: "end" });
+		}
+	}
+};
+
+/**
+ * Remove link from current selection
+ */
+export const removeLink = (editor: Editor): void => {
+	Transforms.unwrapNodes(editor, {
+		match: (n) =>
+			!Editor.isEditor(n) && SlateElement.isElement(n) && n.type === "link",
+	});
 };
 
 /**

@@ -120,6 +120,15 @@ export const handleKeyboardShortcuts = (
 			}
 			break;
 
+		case "k":
+			if (!shiftKey) {
+				event.preventDefault();
+				// This will be handled by the parent component
+				// We just prevent default and return true to indicate the shortcut was handled
+				return true;
+			}
+			break;
+
 		// Alignment shortcuts (Ctrl+Shift+L/E/R/J)
 		case "l":
 			if (shiftKey) {
@@ -190,6 +199,8 @@ export const getShortcutText = (action: string): string => {
 			return `${modifier}+Shift+R`;
 		case "alignJustify":
 			return `${modifier}+Shift+J`;
+		case "link":
+			return `${modifier}+K`;
 		default:
 			return "";
 	}
@@ -236,6 +247,11 @@ export const KEYBOARD_SHORTCUTS = [
 	},
 	{ action: "undo", description: "Undo", shortcut: getShortcutText("undo") },
 	{ action: "redo", description: "Redo", shortcut: getShortcutText("redo") },
+	{
+		action: "link",
+		description: "Insert Link",
+		shortcut: getShortcutText("link"),
+	},
 ];
 
 /**

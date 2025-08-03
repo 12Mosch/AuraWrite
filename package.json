@@ -3,14 +3,14 @@
 	"private": true,
 	"version": "0.0.0",
 	"type": "module",
-	"main": "dist-electron/main.js",
+	"main": "dist-electron/main.cjs",
 	"scripts": {
 		"dev:react": "vite",
 		"dev:electron": "npm run transpile:electron && cross-env NODE_ENV=development electron .",
 		"dev": "npm-run-all --parallel dev:react dev:electron convex",
 		"build": "tsc -b && vite build",
 		"lint": "tsc -noEmit && npx @biomejs/biome check --write",
-		"transpile:electron": "tsc --project src/electron/tsconfig.json",
+		"transpile:electron": "tsc --project src/electron/tsconfig.json && node -e \"const fs = require('fs'); fs.renameSync('dist-electron/main.js', 'dist-electron/main.cjs'); fs.renameSync('dist-electron/preload.js', 'dist-electron/preload.cjs');\"",
 		"preview": "vite preview",
 		"convex": "npx convex dev"
 	},

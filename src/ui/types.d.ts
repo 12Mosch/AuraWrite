@@ -41,3 +41,15 @@ declare module "*.module.less" {
 	const classes: Record<string, string>;
 	export default classes;
 }
+
+// Electron API declarations
+interface ElectronAPI {
+	openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+}
+
+declare global {
+	interface Window {
+		electronAPI?: ElectronAPI;
+		isElectron?: boolean;
+	}
+}

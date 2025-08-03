@@ -335,7 +335,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<Link className="h-4 w-4" />
 							</Button>
 						</TooltipTrigger>
-						<TooltipContent>Insert Link</TooltipContent>
+						<TooltipContent>Insert Link (Ctrl+K)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>

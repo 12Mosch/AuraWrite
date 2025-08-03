@@ -1,10 +1,13 @@
 import type React from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { Descendant, Editor } from "slate";
+import { Range } from "slate";
 import { HistoryEditor } from "slate-history";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
 	type getActiveFormats,
+	getCurrentLink,
+	insertLink,
 	setAlignment,
 	setFontFamily,
 	setFontSize,
@@ -22,6 +25,7 @@ import {
 	DialogTitle,
 } from "../ui/dialog";
 import { EditorLayout } from "./EditorLayout";
+import { LinkDialog } from "./LinkDialog";
 import type { FontFamilyData, FontSizeData } from "./types";
 
 interface AuraTextEditorProps {
@@ -63,6 +67,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 	// Dialog state for unsaved changes confirmation
 	const [showNewDocumentDialog, setShowNewDocumentDialog] = useState(false);
+	const [showLinkDialog, setShowLinkDialog] = useState(false);
 
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
@@ -248,9 +253,41 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			case "format.alignJustify":
 				setAlignment(editor, "justify");
 				break;
+			case "insert.link":
+				setShowLinkDialog(true);
+				break;
 			default:
 				console.log("Toolbar action:", action, data);
 		}
+	}, []);
+
+	// Handle link dialog
+	const handleLinkInsert = useCallback((url: string, text?: string) => {
+		if (!editorRef.current) return;
+		insertLink(editorRef.current, url, text);
+	}, []);
+
+	const handleLinkDialogClose = useCallback(() => {
+		setShowLinkDialog(false);
+	}, []);
+
+	// Get link dialog initial values
+	const getLinkDialogValues = useCallback(() => {
+		if (!editorRef.current) return { url: "", text: "", hasSelection: false };
+
+		const editor = editorRef.current;
+		const { selection } = editor;
+
+		if (!selection) return { url: "", text: "", hasSelection: false };
+
+		const currentLink = getCurrentLink(editor);
+		const hasSelection = !Range.isCollapsed(selection);
+
+		return {
+			url: currentLink?.url || "",
+			text: "",
+			hasSelection,
+		};
 	}, []);
 
 	// Handle sync status changes from the collaboration system
@@ -311,6 +348,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					className="h-full"
 					onSyncStatusChange={handleSyncStatusChange}
 					onFormattingChange={handleFormattingChange}
+					onLinkShortcut={() => setShowLinkDialog(true)}
 				/>
 			</EditorLayout>
 
@@ -338,6 +376,14 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+
+			{/* Link Dialog */}
+			<LinkDialog
+				isOpen={showLinkDialog}
+				onClose={handleLinkDialogClose}
+				onInsert={handleLinkInsert}
+				{...getLinkDialogValues()}
+			/>
 		</div>
 	);
 };

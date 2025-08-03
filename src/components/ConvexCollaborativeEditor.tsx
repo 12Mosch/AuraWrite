@@ -22,6 +22,7 @@ import { useOptimizedSync as useOptimizedSyncHook } from "../hooks/useOptimizedS
 import { usePresence } from "../hooks/usePresence";
 import { useSharedYjsDocument } from "../hooks/useSharedYjsDocument";
 import type { CustomElement, CustomText } from "../types/slate";
+import { environmentConfig, getEnvironment, openUrl } from "../utils/environment";
 import { handleKeyboardShortcuts } from "../utils/keyboardShortcuts";
 import {
 	getActiveFormats,
@@ -72,6 +73,8 @@ interface ConvexCollaborativeEditorProps {
 		activeFormats: ReturnType<typeof getActiveFormats>,
 		currentBlockType: string,
 	) => void;
+	/** Callback when link shortcut is triggered */
+	onLinkShortcut?: () => void;
 }
 
 /**
@@ -98,6 +101,7 @@ export const ConvexCollaborativeEditor: React.FC<
 	showPerformanceMonitor = false,
 	onSyncStatusChange,
 	onFormattingChange,
+	onLinkShortcut,
 }) => {
 	// Initial editor value
 	const initialValue: Descendant[] = [
@@ -183,6 +187,12 @@ export const ConvexCollaborativeEditor: React.FC<
 		}
 
 		const e = withReact(withYjs(withHistory(createEditor()), sharedType));
+
+		// Configure inline elements
+		const { isInline } = e;
+		e.isInline = (element) => {
+			return element.type === "link" ? true : isInline(element);
+		};
 
 		// Ensure editor has a consistent structure
 		const { normalizeNode } = e;
@@ -443,6 +453,50 @@ export const ConvexCollaborativeEditor: React.FC<
 					</pre>
 				);
 
+			case "link": {
+				const linkElement = element as CustomElement & { url: string };
+				const linkAttrs = environmentConfig.getLinkAttributes();
+				const shouldHandleManually =
+					environmentConfig.shouldHandleLinksManually();
+
+
+
+				const handleLinkClick = shouldHandleManually
+					? (e: React.MouseEvent) => {
+							console.log("Link clicked (Electron):", {
+								url: linkElement.url,
+								environment: getEnvironment(),
+							});
+							e.preventDefault();
+							openUrl(linkElement.url).catch((error) => {
+								console.error("Failed to open link:", error);
+							});
+					  }
+					: undefined;
+
+				// Ensure URL has protocol for href attribute
+				let hrefUrl = linkElement.url;
+				if (
+					hrefUrl &&
+					!hrefUrl.startsWith("http://") &&
+					!hrefUrl.startsWith("https://")
+				) {
+					hrefUrl = `https://${hrefUrl}`;
+				}
+
+				return (
+					<a
+						{...attributes}
+						href={hrefUrl}
+						{...linkAttrs}
+						{...(handleLinkClick && { onClick: handleLinkClick })}
+						className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
+					>
+						{children}
+					</a>
+				);
+			}
+
 			default: {
 				// Default case handles paragraphs and other block elements
 				const align = (
@@ -514,10 +568,18 @@ export const ConvexCollaborativeEditor: React.FC<
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {
 			if (editor) {
+				// Check for Ctrl+K (or Cmd+K on Mac) for link insertion
+				const isModifierPressed = event.ctrlKey || event.metaKey;
+				if (isModifierPressed && event.key === "k" && !event.shiftKey) {
+					event.preventDefault();
+					onLinkShortcut?.();
+					return;
+				}
+
 				handleKeyboardShortcuts(event, editor);
 			}
 		},
-		[editor],
+		[editor, onLinkShortcut],
 	);
 
 	// Calculate overall sync status
