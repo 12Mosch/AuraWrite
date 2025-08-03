@@ -27,7 +27,7 @@ export type AlignmentFormat = "left" | "center" | "right" | "justify";
  */
 export const isFormatActive = (editor: Editor, format: TextFormat): boolean => {
 	const marks = Editor.marks(editor);
-	return marks ? marks[format] === true : false;
+	return marks ? (marks as CustomText)[format] === true : false;
 };
 
 /**
@@ -557,7 +557,7 @@ export const handleListEnterKey = (editor: Editor): boolean => {
 			// Move the paragraph outside the list
 			Transforms.moveNodes(editor, {
 				at: listItemPath,
-				to: [listPath[0] + 1],
+				to: [...listPath.slice(0, -1), listPath[listPath.length - 1] + 1],
 			});
 		}
 

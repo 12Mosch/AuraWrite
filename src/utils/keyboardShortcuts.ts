@@ -10,14 +10,32 @@ import {
  * Keyboard shortcuts handler for the Slate.js editor
  */
 
+// Type definition for the User-Agent Client Hints API
+interface NavigatorUAData {
+	platform: string;
+	brands: Array<{ brand: string; version: string }>;
+}
+
+interface NavigatorWithUserAgentData extends Navigator {
+	userAgentData?: NavigatorUAData;
+}
+
 /**
  * Check if the current platform is Mac
  */
 const isMac = (): boolean => {
-	return (
-		typeof window !== "undefined" &&
-		/Mac|iPod|iPhone|iPad/.test(window.navigator.platform)
-	);
+	if (typeof window === "undefined") {
+		return false;
+	}
+
+	// Try modern API first (User-Agent Client Hints API)
+	const navigator = window.navigator as NavigatorWithUserAgentData;
+	if (navigator.userAgentData?.platform) {
+		return navigator.userAgentData.platform === "macOS";
+	}
+
+	// Fallback to user agent string detection (more reliable than deprecated platform)
+	return /Mac|iPod|iPhone|iPad/.test(window.navigator.userAgent);
 };
 
 /**
@@ -35,6 +53,7 @@ const isModifierPressed = (
 export const handleKeyboardShortcuts = (
 	event: KeyboardEvent | React.KeyboardEvent,
 	editor: Editor,
+	onLinkShortcut?: () => void,
 ): boolean => {
 	const { key, shiftKey } = event;
 	const modifierPressed = isModifierPressed(event);
@@ -123,8 +142,7 @@ export const handleKeyboardShortcuts = (
 		case "k":
 			if (!shiftKey) {
 				event.preventDefault();
-				// This will be handled by the parent component
-				// We just prevent default and return true to indicate the shortcut was handled
+				onLinkShortcut?.();
 				return true;
 			}
 			break;
@@ -257,10 +275,13 @@ export const KEYBOARD_SHORTCUTS = [
 /**
  * Hook for using keyboard shortcuts in React components
  */
-export const useKeyboardShortcuts = (editor: Editor | null) => {
+export const useKeyboardShortcuts = (
+	editor: Editor | null,
+	onLinkShortcut?: () => void,
+) => {
 	const handleKeyDown = (event: KeyboardEvent | React.KeyboardEvent) => {
 		if (!editor) return false;
-		return handleKeyboardShortcuts(event, editor);
+		return handleKeyboardShortcuts(event, editor, onLinkShortcut);
 	};
 
 	return { handleKeyDown, getShortcutText, KEYBOARD_SHORTCUTS };

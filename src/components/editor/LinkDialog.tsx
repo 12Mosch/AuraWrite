@@ -56,10 +56,6 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({
 		onClose();
 	};
 
-	const handleCancel = () => {
-		onClose();
-	};
-
 	return (
 		<Dialog open={isOpen} onOpenChange={onClose}>
 			<DialogContent className="sm:max-w-[425px]">
@@ -102,7 +98,7 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({
 						)}
 					</div>
 					<DialogFooter>
-						<Button type="button" variant="outline" onClick={handleCancel}>
+						<Button type="button" variant="outline" onClick={onClose}>
 							Cancel
 						</Button>
 						<Button type="submit" disabled={!url.trim()}>
@@ -114,5 +110,3 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({
 		</Dialog>
 	);
 };
-
-export default LinkDialog;

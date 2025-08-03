@@ -30,19 +30,45 @@ const createWindow = () => {
 // IPC handlers for external URL opening
 ipcMain.handle("open-external", async (_event: unknown, url: string) => {
 	try {
-		// Validate URL
+		// Validate URL input
 		if (!url || typeof url !== "string") {
 			throw new Error("Invalid URL provided");
 		}
 
-		// Ensure URL has a protocol
-		let finalUrl = url.trim();
-		if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
-			finalUrl = `https://${finalUrl}`;
+		const trimmedUrl = url.trim();
+		if (!trimmedUrl) {
+			throw new Error("Empty URL provided");
 		}
 
-		// Open URL in system browser
-		await shell.openExternal(finalUrl);
+		// Parse and validate URL structure
+		let parsedUrl: URL;
+		try {
+			// First try parsing as-is
+			parsedUrl = new URL(trimmedUrl);
+		} catch {
+			// If parsing fails, try with https:// prefix for convenience
+			try {
+				parsedUrl = new URL(`https://${trimmedUrl}`);
+			} catch {
+				throw new Error("Invalid URL format");
+			}
+		}
+
+		// Validate protocol - only allow http and https
+		const allowedProtocols = ["http:", "https:"];
+		if (!allowedProtocols.includes(parsedUrl.protocol)) {
+			throw new Error(
+				`Unsafe protocol: ${parsedUrl.protocol}. Only HTTP and HTTPS are allowed.`,
+			);
+		}
+
+		// Additional security checks
+		if (!parsedUrl.hostname) {
+			throw new Error("URL must have a valid hostname");
+		}
+
+		// Open URL in system browser using the validated URL
+		await shell.openExternal(parsedUrl.toString());
 		return { success: true };
 	} catch (error) {
 		console.error("Failed to open external URL:", error);

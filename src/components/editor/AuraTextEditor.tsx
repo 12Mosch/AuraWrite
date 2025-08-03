@@ -1,5 +1,5 @@
 import type React from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useReducer, useRef, useState } from "react";
 import type { Descendant, Editor } from "slate";
 import { Range } from "slate";
 import { HistoryEditor } from "slate-history";
@@ -27,6 +27,45 @@ import {
 import { EditorLayout } from "./EditorLayout";
 import { LinkDialog } from "./LinkDialog";
 import type { FontFamilyData, FontSizeData } from "./types";
+
+// Type guard functions for better type safety
+const isFontSizeData = (data: unknown): data is FontSizeData => {
+	return typeof data === "object" && data !== null && "fontSize" in data;
+};
+
+const isFontFamilyData = (data: unknown): data is FontFamilyData => {
+	return typeof data === "object" && data !== null && "fontFamily" in data;
+};
+
+// Action types for the formats reducer
+type FormatsAction =
+	| { type: "SET_ALL"; payload: ReturnType<typeof getActiveFormats> }
+	| { type: "RESET" };
+
+// Reducer for managing active formats state
+const formatsReducer = (
+	state: ReturnType<typeof getActiveFormats>,
+	action: FormatsAction,
+): ReturnType<typeof getActiveFormats> => {
+	switch (action.type) {
+		case "SET_ALL":
+			return action.payload;
+		case "RESET":
+			return {
+				bold: false,
+				italic: false,
+				underline: false,
+				strikethrough: false,
+				code: false,
+				fontSize: undefined,
+				fontFamily: undefined,
+				color: undefined,
+				alignment: "left",
+			};
+		default:
+			return state;
+	}
+};
 
 interface AuraTextEditorProps {
 	documentId: Id<"documents">; // Required for collaboration
@@ -72,10 +111,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
 
-	// Active formatting state
-	const [activeFormats, setActiveFormats] = useState<
-		ReturnType<typeof getActiveFormats>
-	>({
+	// Active formatting state using reducer for better state management
+	const [activeFormats, dispatchFormats] = useReducer(formatsReducer, {
 		bold: false,
 		italic: false,
 		underline: false,
@@ -194,7 +231,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	// Handle formatting changes from the editor
 	const handleFormattingChange = useCallback(
 		(formats: ReturnType<typeof getActiveFormats>, _blockType: string) => {
-			setActiveFormats(formats);
+			dispatchFormats({ type: "SET_ALL", payload: formats });
 			// Note: blockType tracking removed for now, can be re-added when needed
 		},
 		[],
@@ -223,13 +260,13 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				toggleFormat(editor, "code");
 				break;
 			case "format.fontSize":
-				if (data && typeof data === "object" && "fontSize" in data) {
-					setFontSize(editor, (data as FontSizeData).fontSize);
+				if (isFontSizeData(data)) {
+					setFontSize(editor, data.fontSize);
 				}
 				break;
 			case "format.fontFamily":
-				if (data && typeof data === "object" && "fontFamily" in data) {
-					setFontFamily(editor, (data as FontFamilyData).fontFamily);
+				if (isFontFamilyData(data)) {
+					setFontFamily(editor, data.fontFamily);
 				}
 				break;
 			case "format.bulletList":

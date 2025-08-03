@@ -5,6 +5,16 @@
  * and handle platform-specific behaviors.
  */
 
+// Type for Electron shell API
+interface ElectronShell {
+	openExternal: (url: string) => Promise<void>;
+}
+
+// Type for Electron module
+interface ElectronModule {
+	shell: ElectronShell;
+}
+
 // Type for window with Electron properties
 interface ElectronWindow extends Window {
 	isElectron?: boolean;
@@ -13,7 +23,7 @@ interface ElectronWindow extends Window {
 			url: string,
 		) => Promise<{ success: boolean; error?: string }>;
 	};
-	require?: (module: string) => any;
+	require?: (module: string) => unknown;
 	process?: {
 		versions?: {
 			electron?: string;
@@ -26,29 +36,41 @@ interface ElectronWindow extends Window {
  *
  * @returns true if running in Electron, false if running in a web browser
  */
+// Cache the result to avoid repeated checks
+let electronDetectionCache: boolean | null = null;
+
 export const isElectron = (): boolean => {
+	// Return cached result if available
+	if (electronDetectionCache !== null) {
+		return electronDetectionCache;
+	}
+
 	// Check for Electron-specific properties
 	if (typeof window !== "undefined") {
 		const electronWindow = window as ElectronWindow;
 
 		// Check for our exposed isElectron flag (most reliable)
 		if (electronWindow.isElectron === true) {
+			electronDetectionCache = true;
 			return true;
 		}
 
 		// Check for electron in user agent
 		if (window.navigator.userAgent.toLowerCase().includes("electron")) {
+			electronDetectionCache = true;
 			return true;
 		}
 
 		// Check for electron-specific globals
 		if (electronWindow.electronAPI || electronWindow.require) {
+			electronDetectionCache = true;
 			return true;
 		}
 
 		// Check for process.versions.electron (if available)
 		try {
 			if (electronWindow.process?.versions?.electron) {
+				electronDetectionCache = true;
 				return true;
 			}
 		} catch {
@@ -56,6 +78,7 @@ export const isElectron = (): boolean => {
 		}
 	}
 
+	electronDetectionCache = false;
 	return false;
 };
 
@@ -96,7 +119,10 @@ export const openUrl = async (
 
 	// Ensure URL has a protocol
 	let finalUrl = url.trim();
-	if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
+	// Check if URL already has a protocol
+	const protocolRegex = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+	if (!protocolRegex.test(finalUrl)) {
+		// Only add https:// if no protocol is present
 		finalUrl = `https://${finalUrl}`;
 	}
 
@@ -114,7 +140,9 @@ export const openUrl = async (
 			} else {
 				// Fallback: try to use require if available (contextIsolation disabled)
 				if (electronWindow.require) {
-					const { shell } = electronWindow.require("electron");
+					const { shell } = electronWindow.require(
+						"electron",
+					) as ElectronModule;
 					await shell.openExternal(finalUrl);
 				} else {
 					// Final fallback to window.open if Electron APIs are not available

@@ -22,7 +22,11 @@ import { useOptimizedSync as useOptimizedSyncHook } from "../hooks/useOptimizedS
 import { usePresence } from "../hooks/usePresence";
 import { useSharedYjsDocument } from "../hooks/useSharedYjsDocument";
 import type { CustomElement, CustomText } from "../types/slate";
-import { environmentConfig, getEnvironment, openUrl } from "../utils/environment";
+import {
+	environmentConfig,
+	getEnvironment,
+	openUrl,
+} from "../utils/environment";
 import { handleKeyboardShortcuts } from "../utils/keyboardShortcuts";
 import {
 	getActiveFormats,
@@ -332,25 +336,25 @@ export const ConvexCollaborativeEditor: React.FC<
 		}
 	};
 
-	// Render element function for different block types
-	const renderElement = useCallback((props: RenderElementProps) => {
-		const { attributes, children, element } = props;
+	// Define outside component or at module level
+	const getAlignmentClass = (
+		align?: "left" | "center" | "right" | "justify",
+	): string => {
+		switch (align) {
+			case "center":
+				return "text-center";
+			case "right":
+				return "text-right";
+			case "justify":
+				return "text-justify";
+			default:
+				return "text-left";
+		}
+	};
 
-		// Helper function to get alignment class
-		const getAlignmentClass = (
-			align?: "left" | "center" | "right" | "justify",
-		): string => {
-			switch (align) {
-				case "center":
-					return "text-center";
-				case "right":
-					return "text-right";
-				case "justify":
-					return "text-justify";
-				default:
-					return "text-left";
-			}
-		};
+	// Render element function for different block types
+	const renderElement = (props: RenderElementProps) => {
+		const { attributes, children, element } = props;
 
 		switch (element.type) {
 			case "heading": {
@@ -459,8 +463,6 @@ export const ConvexCollaborativeEditor: React.FC<
 				const shouldHandleManually =
 					environmentConfig.shouldHandleLinksManually();
 
-
-
 				const handleLinkClick = shouldHandleManually
 					? (e: React.MouseEvent) => {
 							console.log("Link clicked (Electron):", {
@@ -471,7 +473,7 @@ export const ConvexCollaborativeEditor: React.FC<
 							openUrl(linkElement.url).catch((error) => {
 								console.error("Failed to open link:", error);
 							});
-					  }
+						}
 					: undefined;
 
 				// Ensure URL has protocol for href attribute
@@ -512,7 +514,7 @@ export const ConvexCollaborativeEditor: React.FC<
 				);
 			}
 		}
-	}, []);
+	};
 
 	// Render leaf function for text formatting
 	const renderLeaf = useCallback((props: RenderLeafProps) => {
@@ -568,15 +570,7 @@ export const ConvexCollaborativeEditor: React.FC<
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {
 			if (editor) {
-				// Check for Ctrl+K (or Cmd+K on Mac) for link insertion
-				const isModifierPressed = event.ctrlKey || event.metaKey;
-				if (isModifierPressed && event.key === "k" && !event.shiftKey) {
-					event.preventDefault();
-					onLinkShortcut?.();
-					return;
-				}
-
-				handleKeyboardShortcuts(event, editor);
+				handleKeyboardShortcuts(event, editor, onLinkShortcut);
 			}
 		},
 		[editor, onLinkShortcut],
