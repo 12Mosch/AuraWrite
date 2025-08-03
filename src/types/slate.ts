@@ -17,6 +17,7 @@ export type HeadingElement = {
 
 export type BlockquoteElement = {
 	type: "blockquote";
+	align?: "left" | "center" | "right" | "justify";
 	children: CustomText[];
 };
 
@@ -45,6 +46,12 @@ export type CodeBlockElement = {
 	children: CustomText[];
 };
 
+export type LinkElement = {
+	type: "link";
+	url: string;
+	children: CustomText[];
+};
+
 export type CustomElement =
 	| ParagraphElement
 	| HeadingElement
@@ -52,7 +59,8 @@ export type CustomElement =
 	| BulletedListElement
 	| NumberedListElement
 	| ListItemElement
-	| CodeBlockElement;
+	| CodeBlockElement
+	| LinkElement;
 
 export type CustomText = {
 	text: string;

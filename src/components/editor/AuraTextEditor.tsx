@@ -1,8 +1,19 @@
 import type React from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useReducer, useRef, useState } from "react";
 import type { Descendant, Editor } from "slate";
+import { Range } from "slate";
 import { HistoryEditor } from "slate-history";
 import type { Id } from "../../../convex/_generated/dataModel";
+import {
+	type getActiveFormats,
+	getCurrentLink,
+	insertLink,
+	setAlignment,
+	setFontFamily,
+	setFontSize,
+	toggleBlock,
+	toggleFormat,
+} from "../../utils/slateFormatting";
 import { ConvexCollaborativeEditor } from "../ConvexCollaborativeEditor";
 import { Button } from "../ui/button";
 import {
@@ -14,6 +25,49 @@ import {
 	DialogTitle,
 } from "../ui/dialog";
 import { EditorLayout } from "./EditorLayout";
+import { LinkDialog } from "./LinkDialog";
+import type { FontFamilyData, FontSizeData } from "./types";
+
+// Type guard functions for better type safety
+const isFontSizeData = (data: unknown): data is FontSizeData => {
+	return typeof data === "object" && data !== null && "fontSize" in data &&
+		typeof (data as FontSizeData).fontSize === "string";
+};
+
+const isFontFamilyData = (data: unknown): data is FontFamilyData => {
+	return typeof data === "object" && data !== null && "fontFamily" in data &&
+		typeof (data as FontFamilyData).fontFamily === "string";
+};
+
+// Action types for the formats reducer
+type FormatsAction =
+	| { type: "SET_ALL"; payload: ReturnType<typeof getActiveFormats> }
+	| { type: "RESET" };
+
+// Reducer for managing active formats state
+const formatsReducer = (
+	state: ReturnType<typeof getActiveFormats>,
+	action: FormatsAction,
+): ReturnType<typeof getActiveFormats> => {
+	switch (action.type) {
+		case "SET_ALL":
+			return action.payload;
+		case "RESET":
+			return {
+				bold: false,
+				italic: false,
+				underline: false,
+				strikethrough: false,
+				code: false,
+				fontSize: undefined,
+				fontFamily: undefined,
+				color: undefined,
+				alignment: "left",
+			};
+		default:
+			return state;
+	}
+};
 
 interface AuraTextEditorProps {
 	documentId: Id<"documents">; // Required for collaboration
@@ -54,9 +108,23 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 	// Dialog state for unsaved changes confirmation
 	const [showNewDocumentDialog, setShowNewDocumentDialog] = useState(false);
+	const [showLinkDialog, setShowLinkDialog] = useState(false);
 
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
+
+	// Active formatting state using reducer for better state management
+	const [activeFormats, dispatchFormats] = useReducer(formatsReducer, {
+		bold: false,
+		italic: false,
+		underline: false,
+		strikethrough: false,
+		code: false,
+		fontSize: undefined,
+		fontFamily: undefined,
+		color: undefined,
+		alignment: "left",
+	});
 
 	// Calculate document statistics
 	const documentStats = useMemo(() => {
@@ -162,25 +230,103 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		[editorValue, onSave, handleNewDocumentWithConfirmation],
 	);
 
-	// TODO: Handle toolbar actions
+	// Handle formatting changes from the editor
+	const handleFormattingChange = useCallback(
+		(formats: ReturnType<typeof getActiveFormats>, _blockType: string) => {
+			dispatchFormats({ type: "SET_ALL", payload: formats });
+			// Note: blockType tracking removed for now, can be re-added when needed
+		},
+		[],
+	);
+
+	// Handle toolbar actions
 	const handleToolbarAction = useCallback((action: string, data?: unknown) => {
+		if (!editorRef.current) return;
+
+		const editor = editorRef.current;
+
 		switch (action) {
+			// Inline formatting
 			case "format.bold":
 			case "format.italic":
 			case "format.underline":
 			case "format.strikethrough":
-			case "format.code":
+			case "format.code": {
+				const formatType = action.replace("format.", "") as "bold" | "italic" | "underline" | "strikethrough" | "code";
+				toggleFormat(editor, formatType);
+				break;
+			}
+
+			// Font styling
 			case "format.fontSize":
+				if (isFontSizeData(data)) {
+					setFontSize(editor, data.fontSize);
+				}
+				break;
 			case "format.fontFamily":
+				if (isFontFamilyData(data)) {
+					setFontFamily(editor, data.fontFamily);
+				}
+				break;
+
+			// Block formatting
+			case "format.bulletList":
+				toggleBlock(editor, "bulleted-list");
+				break;
+			case "format.numberedList":
+				toggleBlock(editor, "numbered-list");
+				break;
+			case "format.blockquote":
+				toggleBlock(editor, "blockquote");
+				break;
+
+			// Text alignment
 			case "format.alignLeft":
 			case "format.alignCenter":
 			case "format.alignRight":
-			case "format.alignJustify":
-				// These are handled by the ConvexCollaborativeEditor component
+			case "format.alignJustify": {
+				const alignment = action.replace("format.align", "").toLowerCase() as "left" | "center" | "right" | "justify";
+				setAlignment(editor, alignment);
 				break;
+			}
+
+			// Insert actions
+			case "insert.link":
+				setShowLinkDialog(true);
+				break;
+
 			default:
 				console.log("Toolbar action:", action, data);
 		}
+	}, []);
+
+	// Handle link dialog
+	const handleLinkInsert = useCallback((url: string, text?: string) => {
+		if (!editorRef.current) return;
+		insertLink(editorRef.current, url, text);
+	}, []);
+
+	const handleLinkDialogClose = useCallback(() => {
+		setShowLinkDialog(false);
+	}, []);
+
+	// Get link dialog initial values
+	const getLinkDialogValues = useCallback(() => {
+		if (!editorRef.current) return { url: "", text: "", hasSelection: false };
+
+		const editor = editorRef.current;
+		const { selection } = editor;
+
+		if (!selection) return { url: "", text: "", hasSelection: false };
+
+		const currentLink = getCurrentLink(editor);
+		const hasSelection = !Range.isCollapsed(selection);
+
+		return {
+			url: currentLink?.url || "",
+			text: "",
+			hasSelection,
+		};
 	}, []);
 
 	// Handle sync status changes from the collaboration system
@@ -222,6 +368,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				onToolbarAction={handleToolbarAction}
 				onSignOut={onSignOut}
 				documentTitle={documentTitle}
+				activeFormats={activeFormats}
 				documentStatus={{
 					wordCount: documentStats.wordCount,
 					characterCount: documentStats.characterCount,
@@ -239,6 +386,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					showHeader={false}
 					className="h-full"
 					onSyncStatusChange={handleSyncStatusChange}
+					onFormattingChange={handleFormattingChange}
+					onLinkShortcut={() => setShowLinkDialog(true)}
 				/>
 			</EditorLayout>
 
@@ -266,6 +415,14 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+
+			{/* Link Dialog */}
+			<LinkDialog
+				isOpen={showLinkDialog}
+				onClose={handleLinkDialogClose}
+				onInsert={handleLinkInsert}
+				{...getLinkDialogValues()}
+			/>
 		</div>
 	);
 };

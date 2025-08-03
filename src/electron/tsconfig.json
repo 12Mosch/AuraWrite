@@ -2,10 +2,12 @@
 	"compilerOptions": {
 		// require strict types (null-save)
 		"strict": true,
-		// tell TypeScript to generate ESM Syntax
-		"target": "ESNext",
-		// tell TypeScript to require ESM Syntax as input (including .js file imports)
-		"module": "NodeNext",
+		// target ES2020 for Electron compatibility
+		"target": "ES2020",
+		// use CommonJS for Electron preload scripts
+		"module": "CommonJS",
+		// use Node.js module resolution
+		"moduleResolution": "node",
 		// define where to put generated JS
 		"outDir": "../../dist-electron",
 		// ignore errors from dependencies
@@ -14,5 +16,6 @@
 		"types": ["../ui/types", "node"],
 		// isolated modules for better performance
 		"isolatedModules": true
-	}
+	},
+	"include": ["main.ts", "preload.ts"]
 }

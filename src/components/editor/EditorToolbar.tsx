@@ -55,26 +55,23 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 	};
 
 	const fontSizes = [
-		{ value: "10", label: "10px" },
+		{ value: "11", label: "11px" },
 		{ value: "12", label: "12px" },
 		{ value: "14", label: "14px" },
 		{ value: "16", label: "16px" },
 		{ value: "18", label: "18px" },
-		{ value: "20", label: "20px" },
 		{ value: "24", label: "24px" },
-		{ value: "28", label: "28px" },
 		{ value: "32", label: "32px" },
-		{ value: "36", label: "36px" },
 	];
 
 	const fontFamilies = [
-		{ value: "Inter", label: "Inter" },
 		{ value: "Arial", label: "Arial" },
-		{ value: "Helvetica", label: "Helvetica" },
 		{ value: "Times New Roman", label: "Times New Roman" },
+		{ value: "Helvetica", label: "Helvetica" },
 		{ value: "Georgia", label: "Georgia" },
-		{ value: "Courier New", label: "Courier New" },
 		{ value: "Verdana", label: "Verdana" },
+		{ value: "Courier New", label: "Courier New" },
+		{ value: "Inter", label: "Inter" },
 	];
 
 	return (
@@ -115,7 +112,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 				<div className="hidden md:block">
 					<Select
 						value={currentFontFamily}
-						onValueChange={(value) => handleAction("format.fontFamily", value)}
+						onValueChange={(value) =>
+							handleAction("format.fontFamily", { fontFamily: value })
+						}
 					>
 						<SelectTrigger className="w-32">
 							<SelectValue />
@@ -134,7 +133,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 				<div className="hidden sm:block">
 					<Select
 						value={currentFontSize}
-						onValueChange={(value) => handleAction("format.fontSize", value)}
+						onValueChange={(value) =>
+							handleAction("format.fontSize", { fontSize: value })
+						}
 					>
 						<SelectTrigger className="w-20">
 							<SelectValue />
@@ -202,7 +203,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<Strikethrough className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Strikethrough</TooltipContent>
+						<TooltipContent>Strikethrough (Ctrl+Shift+X)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>
@@ -215,7 +216,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<Code className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Code</TooltipContent>
+						<TooltipContent>Code (Ctrl+`)</TooltipContent>
 					</Tooltip>
 				</div>
 
@@ -233,7 +234,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<AlignLeft className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Align Left</TooltipContent>
+						<TooltipContent>Align Left (Ctrl+Shift+L)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>
@@ -246,7 +247,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<AlignCenter className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Align Center</TooltipContent>
+						<TooltipContent>Align Center (Ctrl+Shift+E)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>
@@ -259,7 +260,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<AlignRight className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Align Right</TooltipContent>
+						<TooltipContent>Align Right (Ctrl+Shift+R)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>
@@ -272,7 +273,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<AlignJustify className="h-4 w-4" />
 							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Justify</TooltipContent>
+						<TooltipContent>Justify (Ctrl+Shift+J)</TooltipContent>
 					</Tooltip>
 				</div>
 
@@ -282,41 +283,41 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 				<div className="flex items-center gap-1">
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
+							<Toggle
+								pressed={activeFormats.blockType === "bulleted-list"}
+								onPressedChange={() => handleAction("format.bulletList")}
 								size="sm"
-								onClick={() => handleAction("format.bulletList")}
 							>
 								<List className="h-4 w-4" />
-							</Button>
+							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Bullet List</TooltipContent>
+						<TooltipContent>Bullet List (Ctrl+Shift+8)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
+							<Toggle
+								pressed={activeFormats.blockType === "numbered-list"}
+								onPressedChange={() => handleAction("format.numberedList")}
 								size="sm"
-								onClick={() => handleAction("format.numberedList")}
 							>
 								<ListOrdered className="h-4 w-4" />
-							</Button>
+							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Numbered List</TooltipContent>
+						<TooltipContent>Numbered List (Ctrl+Shift+7)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
+							<Toggle
+								pressed={activeFormats.blockType === "blockquote"}
+								onPressedChange={() => handleAction("format.blockquote")}
 								size="sm"
-								onClick={() => handleAction("format.blockquote")}
 							>
 								<Quote className="h-4 w-4" />
-							</Button>
+							</Toggle>
 						</TooltipTrigger>
-						<TooltipContent>Quote</TooltipContent>
+						<TooltipContent>Quote (Ctrl+Shift+Q)</TooltipContent>
 					</Tooltip>
 				</div>
 
@@ -334,7 +335,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 								<Link className="h-4 w-4" />
 							</Button>
 						</TooltipTrigger>
-						<TooltipContent>Insert Link</TooltipContent>
+						<TooltipContent>Insert Link (Ctrl+K)</TooltipContent>
 					</Tooltip>
 
 					<Tooltip>

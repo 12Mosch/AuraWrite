@@ -163,6 +163,11 @@ export const EditorMenuBar: React.FC<EditorMenuBarProps> = ({
 								<MenubarShortcut>Ctrl+U</MenubarShortcut>
 							</MenubarItem>
 							<MenubarSeparator />
+							<MenubarItem onClick={() => handleAction("format.blockquote")}>
+								Quote
+								<MenubarShortcut>Ctrl+Shift+Q</MenubarShortcut>
+							</MenubarItem>
+							<MenubarSeparator />
 							<MenubarItem onClick={() => handleAction("format.alignLeft")}>
 								Align Left
 							</MenubarItem>

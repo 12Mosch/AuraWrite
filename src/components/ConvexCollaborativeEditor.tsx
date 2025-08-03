@@ -1,9 +1,14 @@
 import { withYjs, YjsEditor } from "@slate-yjs/core";
-import type React from "react";
-import { useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { createEditor, type Descendant, Editor } from "slate";
 import { withHistory } from "slate-history";
-import { Editable, Slate, withReact } from "slate-react";
+import {
+	Editable,
+	type RenderElementProps,
+	type RenderLeafProps,
+	Slate,
+	withReact,
+} from "slate-react";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useError } from "../contexts/ErrorContext";
 import { ConnectionState } from "../hooks/useConnectionManager";
@@ -15,6 +20,17 @@ import { useOfflineMode } from "../hooks/useOfflineMode";
 import { useOptimizedSync as useOptimizedSyncHook } from "../hooks/useOptimizedSync";
 import { usePresence } from "../hooks/usePresence";
 import { useSharedYjsDocument } from "../hooks/useSharedYjsDocument";
+import type { CustomElement, CustomText } from "../types/slate";
+import {
+	environmentConfig,
+	getEnvironment,
+	openUrl,
+} from "../utils/environment";
+import { handleKeyboardShortcuts } from "../utils/keyboardShortcuts";
+import {
+	getActiveFormats,
+	getCurrentBlockType,
+} from "../utils/slateFormatting";
 import {
 	ConnectionStatus,
 	SimpleConnectionIndicator,
@@ -26,6 +42,36 @@ import {
 	CompactPerformanceIndicator,
 	SyncPerformanceMonitor,
 } from "./SyncPerformanceMonitor";
+
+/**
+ * Get CSS alignment class based on alignment value
+ */
+const getAlignmentClass = (
+	align?: "left" | "center" | "right" | "justify",
+): string => {
+	switch (align) {
+		case "center":
+			return "text-center";
+		case "right":
+			return "text-right";
+		case "justify":
+			return "text-justify";
+		default:
+			return "text-left";
+	}
+};
+
+/**
+ * Mapping of heading levels to their corresponding React components
+ */
+const headingComponents = {
+	1: "h1",
+	2: "h2",
+	3: "h3",
+	4: "h4",
+	5: "h5",
+	6: "h6",
+} as const;
 
 /**
  * Props for the ConvexCollaborativeEditor component
@@ -55,6 +101,13 @@ interface ConvexCollaborativeEditorProps {
 	onSyncStatusChange?: (
 		status: "synced" | "syncing" | "error" | "offline" | "pending" | "disabled",
 	) => void;
+	/** Callback when formatting state changes */
+	onFormattingChange?: (
+		activeFormats: ReturnType<typeof getActiveFormats>,
+		currentBlockType: string,
+	) => void;
+	/** Callback when link shortcut is triggered */
+	onLinkShortcut?: () => void;
 }
 
 /**
@@ -80,6 +133,8 @@ export const ConvexCollaborativeEditor: React.FC<
 	useOptimizedSync = true,
 	showPerformanceMonitor = false,
 	onSyncStatusChange,
+	onFormattingChange,
+	onLinkShortcut,
 }) => {
 	// Initial editor value
 	const initialValue: Descendant[] = [
@@ -166,6 +221,12 @@ export const ConvexCollaborativeEditor: React.FC<
 
 		const e = withReact(withYjs(withHistory(createEditor()), sharedType));
 
+		// Configure inline elements
+		const { isInline } = e;
+		e.isInline = (element) => {
+			return element.type === "link" ? true : isInline(element);
+		};
+
 		// Ensure editor has a consistent structure
 		const { normalizeNode } = e;
 		e.normalizeNode = (entry) => {
@@ -212,7 +273,9 @@ export const ConvexCollaborativeEditor: React.FC<
 	useEffect(() => {
 		// Only connect after the shared document is synced and editor is ready
 		if (!isLocalSynced || !editor) {
-			console.log("Waiting for Y.Doc to sync and editor to be ready before connecting...");
+			console.log(
+				"Waiting for Y.Doc to sync and editor to be ready before connecting...",
+			);
 			return;
 		}
 
@@ -289,7 +352,206 @@ export const ConvexCollaborativeEditor: React.FC<
 				console.warn("Error updating presence:", error);
 			}
 		}
+
+		// Notify about formatting changes
+		if (editor && onFormattingChange) {
+			try {
+				const activeFormats = getActiveFormats(editor);
+				const currentBlockType = getCurrentBlockType(editor);
+				onFormattingChange(activeFormats, currentBlockType);
+			} catch (error) {
+				console.warn("Error getting formatting state:", error);
+			}
+		}
 	};
+
+	// Render element function for different block types
+	const renderElement = (props: RenderElementProps) => {
+		const { attributes, children, element } = props;
+
+		switch (element.type) {
+			case "heading": {
+				const level =
+					(element as CustomElement & { level?: number }).level || 1;
+				const align = (
+					element as CustomElement & {
+						align?: "left" | "center" | "right" | "justify";
+					}
+				).align;
+				const alignmentClass = getAlignmentClass(align);
+
+				// Use mapping approach to reduce repetition
+				const HeadingComponent = headingComponents[level as keyof typeof headingComponents] || "h1";
+
+				return React.createElement(
+					HeadingComponent,
+					{ ...attributes, className: alignmentClass },
+					children
+				);
+			}
+
+			case "blockquote": {
+				const align = (
+					element as CustomElement & {
+						align?: "left" | "center" | "right" | "justify";
+					}
+				).align;
+				const alignmentClass = getAlignmentClass(align);
+				return (
+					<blockquote
+						{...attributes}
+						className={`border-l-4 border-gray-300 pl-4 italic text-gray-700 ${alignmentClass}`}
+					>
+						{children}
+					</blockquote>
+				);
+			}
+
+			case "bulleted-list":
+				return (
+					<ul {...attributes} className="list-disc list-inside">
+						{children}
+					</ul>
+				);
+
+			case "numbered-list":
+				return (
+					<ol {...attributes} className="list-decimal list-inside">
+						{children}
+					</ol>
+				);
+
+			case "list-item":
+				return <li {...attributes}>{children}</li>;
+
+			case "code-block":
+				return (
+					<pre
+						{...attributes}
+						className="bg-gray-100 p-2 rounded font-mono text-sm"
+					>
+						<code>{children}</code>
+					</pre>
+				);
+
+			case "link": {
+				const linkElement = element as CustomElement & { url: string };
+				const linkAttrs = environmentConfig.getLinkAttributes();
+				const shouldHandleManually =
+					environmentConfig.shouldHandleLinksManually();
+
+				const handleLinkClick = shouldHandleManually
+					? (e: React.MouseEvent) => {
+							console.log("Link clicked (Electron):", {
+								url: linkElement.url,
+								environment: getEnvironment(),
+							});
+							e.preventDefault();
+							openUrl(linkElement.url).catch((error) => {
+								console.error("Failed to open link:", error);
+							});
+						}
+					: undefined;
+
+				// Ensure URL has protocol for href attribute
+				let hrefUrl = linkElement.url;
+				if (
+					hrefUrl &&
+					!hrefUrl.startsWith("http://") &&
+					!hrefUrl.startsWith("https://")
+				) {
+					hrefUrl = `https://${hrefUrl}`;
+				}
+
+				return (
+					<a
+						{...attributes}
+						href={hrefUrl}
+						{...linkAttrs}
+						{...(handleLinkClick && { onClick: handleLinkClick })}
+						className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
+					>
+						{children}
+					</a>
+				);
+			}
+
+			default: {
+				// Default case handles paragraphs and other block elements
+				const align = (
+					element as CustomElement & {
+						align?: "left" | "center" | "right" | "justify";
+					}
+				).align;
+				const alignmentClass = getAlignmentClass(align);
+				return (
+					<p {...attributes} className={alignmentClass}>
+						{children}
+					</p>
+				);
+			}
+		}
+	};
+
+	// Render leaf function for text formatting
+	const renderLeaf = useCallback((props: RenderLeafProps) => {
+		const { attributes, children, leaf } = props;
+		let element = <span {...attributes}>{children}</span>;
+
+		const customLeaf = leaf as CustomText;
+
+		if (customLeaf.bold) {
+			element = <strong>{element}</strong>;
+		}
+
+		if (customLeaf.italic) {
+			element = <em>{element}</em>;
+		}
+
+		if (customLeaf.underline) {
+			element = <u>{element}</u>;
+		}
+
+		if (customLeaf.strikethrough) {
+			element = <s>{element}</s>;
+		}
+
+		if (customLeaf.code) {
+			element = (
+				<code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">
+					{element}
+				</code>
+			);
+		}
+
+		// Apply font styling
+		const style: React.CSSProperties = {};
+		if (customLeaf.fontSize) {
+			style.fontSize = `${customLeaf.fontSize}px`;
+		}
+		if (customLeaf.fontFamily) {
+			style.fontFamily = customLeaf.fontFamily;
+		}
+		if (customLeaf.color) {
+			style.color = customLeaf.color;
+		}
+
+		if (Object.keys(style).length > 0) {
+			element = <span style={style}>{element}</span>;
+		}
+
+		return element;
+	}, []);
+
+	// Handle keyboard shortcuts
+	const handleKeyDown = useCallback(
+		(event: React.KeyboardEvent) => {
+			if (editor) {
+				handleKeyboardShortcuts(event, editor, onLinkShortcut);
+			}
+		},
+		[editor, onLinkShortcut],
+	);
 
 	// Calculate overall sync status
 	const overallSyncStatus = useMemo(() => {
@@ -457,6 +719,9 @@ export const ConvexCollaborativeEditor: React.FC<
 							className="min-h-[200px] p-4 focus:outline-none"
 							spellCheck
 							autoFocus
+							renderElement={renderElement}
+							renderLeaf={renderLeaf}
+							onKeyDown={handleKeyDown}
 						/>
 					</Slate>
 				) : (
