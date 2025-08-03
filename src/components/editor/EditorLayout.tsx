@@ -1,11 +1,12 @@
 import type React from "react";
+import { EditorBottomStatusBar } from "./EditorBottomStatusBar";
 import { EditorMenuBar } from "./EditorMenuBar";
-import { EditorStatusBar } from "./EditorStatusBar";
 import { EditorToolbar } from "./EditorToolbar";
 import type {
 	ActiveFormats,
 	DocumentStatus,
 	MenuActionHandler,
+	SelectionStatus,
 	ToolbarActionHandler,
 } from "./types";
 
@@ -15,12 +16,14 @@ interface EditorLayoutProps {
 	showMenuBar?: boolean;
 	showToolbar?: boolean;
 	showStatusBar?: boolean;
+	showBottomStatusBar?: boolean;
 	onMenuAction?: MenuActionHandler;
 	onToolbarAction?: ToolbarActionHandler;
 	onSignOut?: () => void;
 	documentTitle?: string;
 	documentStatus?: DocumentStatus;
 	activeFormats?: ActiveFormats;
+	selectionStatus?: SelectionStatus;
 }
 
 export const EditorLayout: React.FC<EditorLayoutProps> = ({
@@ -29,34 +32,30 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 	showMenuBar = true,
 	showToolbar = true,
 	showStatusBar = true,
+	showBottomStatusBar = true,
 	onMenuAction,
 	onToolbarAction,
 	onSignOut,
 	documentTitle = "Untitled Document",
 	documentStatus = {},
 	activeFormats = {},
+	selectionStatus = {
+		line: 1,
+		column: 1,
+		selectedWordCount: 0,
+		hasSelection: false,
+	},
 }) => {
 	return (
 		<div className={`editor-layout flex flex-col h-full ${className}`}>
-			{/* Menu Bar with compact status on the right */}
+			{/* Menu Bar */}
 			{showMenuBar && (
 				<div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30 h-10">
-					<div className="flex items-center justify-between">
-						<EditorMenuBar
-							onAction={onMenuAction}
-							documentTitle={documentTitle}
-							onSignOut={onSignOut}
-						/>
-						{showStatusBar && (
-							<div className="px-3 py-1">
-								<EditorStatusBar
-									isModified={documentStatus.isModified}
-									lastSaved={documentStatus.lastSaved}
-									syncStatus={documentStatus.syncStatus}
-								/>
-							</div>
-						)}
-					</div>
+					<EditorMenuBar
+						onAction={onMenuAction}
+						documentTitle={documentTitle}
+						onSignOut={onSignOut}
+					/>
 				</div>
 			)}
 
@@ -69,13 +68,28 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 						currentAlignment={activeFormats?.alignment}
 						currentFontSize={activeFormats?.fontSize}
 						currentFontFamily={activeFormats?.fontFamily}
+						showStatusBar={showStatusBar}
+						syncStatus={documentStatus.syncStatus}
+						isModified={documentStatus.isModified}
+						lastSaved={documentStatus.lastSaved}
 					/>
 				</div>
 			)}
 
 			{/* Main Editor Area */}
-			<div className="flex-1 overflow-hidden">
+			<div className="flex-1 overflow-hidden relative">
 				<div className="h-full">{children}</div>
+
+				{/* Bottom Status Bar */}
+				{showBottomStatusBar && (
+					<EditorBottomStatusBar
+						totalWordCount={documentStatus.wordCount || 0}
+						selectedWordCount={selectionStatus.selectedWordCount}
+						cursorLine={selectionStatus.line}
+						cursorColumn={selectionStatus.column}
+						hasSelection={selectionStatus.hasSelection}
+					/>
+				)}
 			</div>
 		</div>
 	);

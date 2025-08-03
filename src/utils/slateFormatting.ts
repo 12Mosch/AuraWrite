@@ -497,6 +497,51 @@ export const isCurrentListItemEmpty = (editor: Editor): boolean => {
 };
 
 /**
+ * Get word count for selected text, or 0 if no selection
+ */
+export const getSelectedWordCount = (editor: Editor): number => {
+	const { selection } = editor;
+	if (!selection || Range.isCollapsed(selection)) {
+		return 0;
+	}
+
+	try {
+		const selectedText = Editor.string(editor, selection);
+		return selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0;
+	} catch (error) {
+		console.warn("Error getting selected word count:", error);
+		return 0;
+	}
+};
+
+/**
+ * Get cursor position as line and column numbers (1-indexed)
+ */
+export const getCursorPosition = (
+	editor: Editor,
+): { line: number; column: number } => {
+	const { selection } = editor;
+	if (!selection) {
+		return { line: 1, column: 1 };
+	}
+
+	try {
+		// Use the focus point of the selection (where the cursor is)
+		const { focus } = selection;
+
+		// For simple documents, the line number is the first element in the path + 1
+		// The column is the offset + 1
+		const line = (focus.path[0] ?? 0) + 1;
+		const column = focus.offset + 1;
+
+		return { line, column };
+	} catch (error) {
+		console.warn("Error getting cursor position:", error);
+		return { line: 1, column: 1 };
+	}
+};
+
+/**
  * Handle Enter key press in lists
  * Returns true if the event was handled, false otherwise
  */

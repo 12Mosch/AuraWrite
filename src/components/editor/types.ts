@@ -136,6 +136,14 @@ export interface DocumentStatus {
 		| "disabled";
 }
 
+// Selection status interface for bottom status bar
+export interface SelectionStatus {
+	line: number;
+	column: number;
+	selectedWordCount: number;
+	hasSelection: boolean;
+}
+
 // Active formats interface
 export interface ActiveFormats {
 	bold?: boolean;

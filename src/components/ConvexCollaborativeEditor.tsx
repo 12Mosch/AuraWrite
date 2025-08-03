@@ -30,6 +30,8 @@ import { handleKeyboardShortcuts } from "../utils/keyboardShortcuts";
 import {
 	getActiveFormats,
 	getCurrentBlockType,
+	getCursorPosition,
+	getSelectedWordCount,
 } from "../utils/slateFormatting";
 import { DocumentHeader } from "./DocumentHeader";
 import { EnhancedErrorDisplay } from "./EnhancedErrorDisplay";
@@ -98,6 +100,13 @@ interface ConvexCollaborativeEditorProps {
 	) => void;
 	/** Callback when link shortcut is triggered */
 	onLinkShortcut?: () => void;
+	/** Callback when selection/cursor position changes */
+	onSelectionChange?: (selection: {
+		line: number;
+		column: number;
+		selectedWordCount: number;
+		hasSelection: boolean;
+	}) => void;
 }
 
 /**
@@ -125,6 +134,7 @@ export const ConvexCollaborativeEditor: React.FC<
 	onSyncStatusChange,
 	onFormattingChange,
 	onLinkShortcut,
+	onSelectionChange,
 }) => {
 	// Initial editor value
 	const initialValue: Descendant[] = [
@@ -348,6 +358,24 @@ export const ConvexCollaborativeEditor: React.FC<
 				onFormattingChange(activeFormats, currentBlockType);
 			} catch (error) {
 				console.warn("Error getting formatting state:", error);
+			}
+		}
+
+		// Notify about selection changes
+		if (editor && onSelectionChange) {
+			try {
+				const cursorPosition = getCursorPosition(editor);
+				const selectedWordCount = getSelectedWordCount(editor);
+				const hasSelection = selectedWordCount > 0;
+
+				onSelectionChange({
+					line: cursorPosition.line,
+					column: cursorPosition.column,
+					selectedWordCount,
+					hasSelection,
+				});
+			} catch (error) {
+				console.warn("Error getting selection state:", error);
 			}
 		}
 	};

@@ -26,7 +26,7 @@ import {
 } from "../ui/dialog";
 import { EditorLayout } from "./EditorLayout";
 import { LinkDialog } from "./LinkDialog";
-import type { FontFamilyData, FontSizeData } from "./types";
+import type { FontFamilyData, FontSizeData, SelectionStatus } from "./types";
 
 // Type guard functions for better type safety
 const isFontSizeData = (data: unknown): data is FontSizeData => {
@@ -120,6 +120,14 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
+
+	// Selection state for bottom status bar
+	const [selectionStatus, setSelectionStatus] = useState<SelectionStatus>({
+		line: 1,
+		column: 1,
+		selectedWordCount: 0,
+		hasSelection: false,
+	});
 
 	// Active formatting state using reducer for better state management
 	const [activeFormats, dispatchFormats] = useReducer(formatsReducer, {
@@ -246,6 +254,11 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		},
 		[],
 	);
+
+	// Handle selection changes from the editor
+	const handleSelectionChange = useCallback((selection: SelectionStatus) => {
+		setSelectionStatus(selection);
+	}, []);
 
 	// Handle toolbar actions
 	const handleToolbarAction = useCallback((action: string, data?: unknown) => {
@@ -378,6 +391,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				showMenuBar={showMenuBar}
 				showToolbar={showToolbar}
 				showStatusBar={showStatusBar}
+				showBottomStatusBar={true}
 				onMenuAction={handleMenuAction}
 				onToolbarAction={handleToolbarAction}
 				onSignOut={onSignOut}
@@ -390,6 +404,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					lastSaved,
 					syncStatus,
 				}}
+				selectionStatus={selectionStatus}
 			>
 				<div className="h-full overflow-auto">
 					<div className="mx-auto max-w-[80ch] px-4 sm:px-6 md:px-8 py-6">
@@ -404,6 +419,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 							onSyncStatusChange={handleSyncStatusChange}
 							onFormattingChange={handleFormattingChange}
 							onLinkShortcut={() => setShowLinkDialog(true)}
+							onSelectionChange={handleSelectionChange}
 						/>
 					</div>
 				</div>
