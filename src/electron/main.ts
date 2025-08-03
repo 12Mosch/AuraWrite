@@ -1,8 +1,322 @@
 const path = require("node:path");
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, Menu } = require("electron");
 
-// __dirname is available in CommonJS
-// const __dirname is already available
+// Create the application menu template
+const createMenuTemplate = () => {
+	const template = [
+		{
+			label: "File",
+			submenu: [
+				{
+					label: "New Document",
+					accelerator: "CmdOrCtrl+N",
+					click: () => {
+						// Send menu action to renderer
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "file.new");
+						}
+					},
+				},
+				{
+					label: "Open",
+					accelerator: "CmdOrCtrl+O",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "file.open");
+						}
+					},
+				},
+				{ type: "separator" },
+				{
+					label: "Save",
+					accelerator: "CmdOrCtrl+S",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "file.save");
+						}
+					},
+				},
+				{
+					label: "Save As...",
+					accelerator: "CmdOrCtrl+Shift+S",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "file.saveAs");
+						}
+					},
+				},
+				{ type: "separator" },
+				{
+					label: "Export",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "file.export");
+						}
+					},
+				},
+			],
+		},
+		{
+			label: "Edit",
+			submenu: [
+				{
+					label: "Undo",
+					accelerator: "CmdOrCtrl+Z",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "edit.undo");
+						}
+					},
+				},
+				{
+					label: "Redo",
+					accelerator: "CmdOrCtrl+Y",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "edit.redo");
+						}
+					},
+				},
+				{ type: "separator" },
+				{
+					label: "Cut",
+					accelerator: "CmdOrCtrl+X",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "edit.cut");
+						}
+					},
+				},
+				{
+					label: "Copy",
+					accelerator: "CmdOrCtrl+C",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "edit.copy");
+						}
+					},
+				},
+				{
+					label: "Paste",
+					accelerator: "CmdOrCtrl+V",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "edit.paste");
+						}
+					},
+				},
+				{ type: "separator" },
+				{
+					label: "Find & Replace",
+					accelerator: "CmdOrCtrl+F",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "edit.find");
+						}
+					},
+				},
+			],
+		},
+		{
+			label: "View",
+			submenu: [
+				{
+					label: "Toggle Toolbar",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send(
+								"menu-action",
+								"view.toggleToolbar",
+							);
+						}
+					},
+				},
+				{
+					label: "Toggle Status Bar",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send(
+								"menu-action",
+								"view.toggleStatusBar",
+							);
+						}
+					},
+				},
+				{ type: "separator" },
+				{
+					label: "Zoom In",
+					accelerator: "CmdOrCtrl+Plus",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "view.zoomIn");
+						}
+					},
+				},
+				{
+					label: "Zoom Out",
+					accelerator: "CmdOrCtrl+-",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "view.zoomOut");
+						}
+					},
+				},
+				{
+					label: "Reset Zoom",
+					accelerator: "CmdOrCtrl+0",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "view.resetZoom");
+						}
+					},
+				},
+			],
+		},
+		{
+			label: "Format",
+			submenu: [
+				{
+					label: "Bold",
+					accelerator: "CmdOrCtrl+B",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "format.bold");
+						}
+					},
+				},
+				{
+					label: "Italic",
+					accelerator: "CmdOrCtrl+I",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "format.italic");
+						}
+					},
+				},
+				{
+					label: "Underline",
+					accelerator: "CmdOrCtrl+U",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "format.underline");
+						}
+					},
+				},
+				{ type: "separator" },
+				{
+					label: "Quote",
+					accelerator: "CmdOrCtrl+Shift+Q",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send(
+								"menu-action",
+								"format.blockquote",
+							);
+						}
+					},
+				},
+				{ type: "separator" },
+				{
+					label: "Align Left",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "format.alignLeft");
+						}
+					},
+				},
+				{
+					label: "Align Center",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send(
+								"menu-action",
+								"format.alignCenter",
+							);
+						}
+					},
+				},
+				{
+					label: "Align Right",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send(
+								"menu-action",
+								"format.alignRight",
+							);
+						}
+					},
+				},
+			],
+		},
+		{
+			label: "Help",
+			submenu: [
+				{
+					label: "About AuraWrite",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "help.about");
+						}
+					},
+				},
+				{
+					label: "Keyboard Shortcuts",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send("menu-action", "help.shortcuts");
+						}
+					},
+				},
+				{
+					label: "Documentation",
+					click: () => {
+						const focusedWindow = BrowserWindow.getFocusedWindow();
+						if (focusedWindow) {
+							focusedWindow.webContents.send(
+								"menu-action",
+								"help.documentation",
+							);
+						}
+					},
+				},
+			],
+		},
+	];
+
+	return template;
+};
+
+// Set up the application menu
+const setupMenu = () => {
+	const template = createMenuTemplate();
+	const menu = Menu.buildFromTemplate(template);
+	Menu.setApplicationMenu(menu);
+};
 
 const createWindow = () => {
 	const win = new BrowserWindow({
@@ -80,6 +394,7 @@ ipcMain.handle("open-external", async (_event: unknown, url: string) => {
 });
 
 app.whenReady().then(() => {
+	setupMenu();
 	createWindow();
 
 	app.on("activate", () => {

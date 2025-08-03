@@ -45,6 +45,8 @@ declare module "*.module.less" {
 // Electron API declarations
 interface ElectronAPI {
 	openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+	onMenuAction: (callback: (action: string) => void) => void;
+	removeMenuActionListener: (callback: (action: string) => void) => void;
 }
 
 declare global {

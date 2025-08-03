@@ -40,7 +40,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 		<div className={`editor-layout flex flex-col h-full ${className}`}>
 			{/* Menu Bar with compact status on the right */}
 			{showMenuBar && (
-				<div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30">
+				<div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30 h-10">
 					<div className="flex items-center justify-between">
 						<EditorMenuBar
 							onAction={onMenuAction}
@@ -62,7 +62,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 
 			{/* Toolbar */}
 			{showToolbar && (
-				<div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-[40px] z-20">
+				<div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-[40px] z-20 h-10">
 					<EditorToolbar
 						onAction={onToolbarAction}
 						activeFormats={activeFormats}
