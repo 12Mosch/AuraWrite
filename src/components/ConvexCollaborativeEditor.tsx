@@ -1,6 +1,5 @@
 import { withYjs, YjsEditor } from "@slate-yjs/core";
-import type React from "react";
-import { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { createEditor, type Descendant, Editor } from "slate";
 import { withHistory } from "slate-history";
 import {
@@ -43,6 +42,36 @@ import {
 	CompactPerformanceIndicator,
 	SyncPerformanceMonitor,
 } from "./SyncPerformanceMonitor";
+
+/**
+ * Get CSS alignment class based on alignment value
+ */
+const getAlignmentClass = (
+	align?: "left" | "center" | "right" | "justify",
+): string => {
+	switch (align) {
+		case "center":
+			return "text-center";
+		case "right":
+			return "text-right";
+		case "justify":
+			return "text-justify";
+		default:
+			return "text-left";
+	}
+};
+
+/**
+ * Mapping of heading levels to their corresponding React components
+ */
+const headingComponents = {
+	1: "h1",
+	2: "h2",
+	3: "h3",
+	4: "h4",
+	5: "h5",
+	6: "h6",
+} as const;
 
 /**
  * Props for the ConvexCollaborativeEditor component
@@ -336,22 +365,6 @@ export const ConvexCollaborativeEditor: React.FC<
 		}
 	};
 
-	// Define outside component or at module level
-	const getAlignmentClass = (
-		align?: "left" | "center" | "right" | "justify",
-	): string => {
-		switch (align) {
-			case "center":
-				return "text-center";
-			case "right":
-				return "text-right";
-			case "justify":
-				return "text-justify";
-			default:
-				return "text-left";
-		}
-	};
-
 	// Render element function for different block types
 	const renderElement = (props: RenderElementProps) => {
 		const { attributes, children, element } = props;
@@ -367,50 +380,14 @@ export const ConvexCollaborativeEditor: React.FC<
 				).align;
 				const alignmentClass = getAlignmentClass(align);
 
-				switch (level) {
-					case 1:
-						return (
-							<h1 {...attributes} className={alignmentClass}>
-								{children}
-							</h1>
-						);
-					case 2:
-						return (
-							<h2 {...attributes} className={alignmentClass}>
-								{children}
-							</h2>
-						);
-					case 3:
-						return (
-							<h3 {...attributes} className={alignmentClass}>
-								{children}
-							</h3>
-						);
-					case 4:
-						return (
-							<h4 {...attributes} className={alignmentClass}>
-								{children}
-							</h4>
-						);
-					case 5:
-						return (
-							<h5 {...attributes} className={alignmentClass}>
-								{children}
-							</h5>
-						);
-					case 6:
-						return (
-							<h6 {...attributes} className={alignmentClass}>
-								{children}
-							</h6>
-						);
-					default:
-						return (
-							<h1 {...attributes} className={alignmentClass}>
-								{children}
-							</h1>
-						);
-				}
+				// Use mapping approach to reduce repetition
+				const HeadingComponent = headingComponents[level as keyof typeof headingComponents] || "h1";
+
+				return React.createElement(
+					HeadingComponent,
+					{ ...attributes, className: alignmentClass },
+					children
+				);
 			}
 
 			case "blockquote": {

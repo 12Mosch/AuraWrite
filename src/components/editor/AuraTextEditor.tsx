@@ -30,11 +30,13 @@ import type { FontFamilyData, FontSizeData } from "./types";
 
 // Type guard functions for better type safety
 const isFontSizeData = (data: unknown): data is FontSizeData => {
-	return typeof data === "object" && data !== null && "fontSize" in data;
+	return typeof data === "object" && data !== null && "fontSize" in data &&
+		typeof (data as FontSizeData).fontSize === "string";
 };
 
 const isFontFamilyData = (data: unknown): data is FontFamilyData => {
-	return typeof data === "object" && data !== null && "fontFamily" in data;
+	return typeof data === "object" && data !== null && "fontFamily" in data &&
+		typeof (data as FontFamilyData).fontFamily === "string";
 };
 
 // Action types for the formats reducer
@@ -244,21 +246,18 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		const editor = editorRef.current;
 
 		switch (action) {
+			// Inline formatting
 			case "format.bold":
-				toggleFormat(editor, "bold");
-				break;
 			case "format.italic":
-				toggleFormat(editor, "italic");
-				break;
 			case "format.underline":
-				toggleFormat(editor, "underline");
-				break;
 			case "format.strikethrough":
-				toggleFormat(editor, "strikethrough");
+			case "format.code": {
+				const formatType = action.replace("format.", "") as "bold" | "italic" | "underline" | "strikethrough" | "code";
+				toggleFormat(editor, formatType);
 				break;
-			case "format.code":
-				toggleFormat(editor, "code");
-				break;
+			}
+
+			// Font styling
 			case "format.fontSize":
 				if (isFontSizeData(data)) {
 					setFontSize(editor, data.fontSize);
@@ -269,6 +268,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					setFontFamily(editor, data.fontFamily);
 				}
 				break;
+
+			// Block formatting
 			case "format.bulletList":
 				toggleBlock(editor, "bulleted-list");
 				break;
@@ -278,21 +279,22 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			case "format.blockquote":
 				toggleBlock(editor, "blockquote");
 				break;
+
+			// Text alignment
 			case "format.alignLeft":
-				setAlignment(editor, "left");
-				break;
 			case "format.alignCenter":
-				setAlignment(editor, "center");
-				break;
 			case "format.alignRight":
-				setAlignment(editor, "right");
+			case "format.alignJustify": {
+				const alignment = action.replace("format.align", "").toLowerCase() as "left" | "center" | "right" | "justify";
+				setAlignment(editor, alignment);
 				break;
-			case "format.alignJustify":
-				setAlignment(editor, "justify");
-				break;
+			}
+
+			// Insert actions
 			case "insert.link":
 				setShowLinkDialog(true);
 				break;
+
 			default:
 				console.log("Toolbar action:", action, data);
 		}
