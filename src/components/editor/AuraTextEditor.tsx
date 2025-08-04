@@ -26,17 +26,25 @@ import {
 } from "../ui/dialog";
 import { EditorLayout } from "./EditorLayout";
 import { LinkDialog } from "./LinkDialog";
-import type { FontFamilyData, FontSizeData } from "./types";
+import type { FontFamilyData, FontSizeData, SelectionStatus } from "./types";
 
 // Type guard functions for better type safety
 const isFontSizeData = (data: unknown): data is FontSizeData => {
-	return typeof data === "object" && data !== null && "fontSize" in data &&
-		typeof (data as FontSizeData).fontSize === "string";
+	return (
+		typeof data === "object" &&
+		data !== null &&
+		"fontSize" in data &&
+		typeof (data as FontSizeData).fontSize === "string"
+	);
 };
 
 const isFontFamilyData = (data: unknown): data is FontFamilyData => {
-	return typeof data === "object" && data !== null && "fontFamily" in data &&
-		typeof (data as FontFamilyData).fontFamily === "string";
+	return (
+		typeof data === "object" &&
+		data !== null &&
+		"fontFamily" in data &&
+		typeof (data as FontFamilyData).fontFamily === "string"
+	);
 };
 
 // Action types for the formats reducer
@@ -81,6 +89,10 @@ interface AuraTextEditorProps {
 	onChange?: (value: Descendant[]) => void;
 	onSignOut?: () => void;
 	onNewDocument?: () => Promise<void>; // Callback to create and navigate to a new document
+	// Status bar configuration
+	showCharCount?: boolean; // Default: true
+	showReadingTime?: boolean; // Default: true
+	readingWPM?: number; // Default: 200
 }
 
 export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
@@ -95,6 +107,10 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	onChange,
 	onSignOut,
 	onNewDocument,
+	// Status bar configuration
+	showCharCount = true,
+	showReadingTime = true,
+	readingWPM = 200,
 }) => {
 	// Editor state
 	const [editorValue, setEditorValue] = useState<Descendant[]>(
@@ -103,7 +119,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const [isModified, setIsModified] = useState(false);
 	const [lastSaved, setLastSaved] = useState<Date>(new Date());
 	const [syncStatus, setSyncStatus] = useState<
-		"synced" | "syncing" | "error" | "offline"
+		"synced" | "syncing" | "error" | "offline" | "pending" | "disabled"
 	>("synced");
 
 	// Dialog state for unsaved changes confirmation
@@ -112,6 +128,14 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
+
+	// Selection state for bottom status bar
+	const [selectionStatus, setSelectionStatus] = useState<SelectionStatus>({
+		line: 1,
+		column: 1,
+		selectedWordCount: 0,
+		hasSelection: false,
+	});
 
 	// Active formatting state using reducer for better state management
 	const [activeFormats, dispatchFormats] = useReducer(formatsReducer, {
@@ -142,8 +166,15 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 		const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
 		const characterCount = text.length;
+		const charsWithSpaces = text.length;
+		const charsWithoutSpaces = text.replace(/\s/g, "").length;
 
-		return { wordCount, characterCount };
+		return {
+			wordCount,
+			characterCount,
+			charsWithSpaces,
+			charsWithoutSpaces,
+		};
 	}, [editorValue]);
 
 	// Handle editor value changes
@@ -239,6 +270,11 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		[],
 	);
 
+	// Handle selection changes from the editor
+	const handleSelectionChange = useCallback((selection: SelectionStatus) => {
+		setSelectionStatus(selection);
+	}, []);
+
 	// Handle toolbar actions
 	const handleToolbarAction = useCallback((action: string, data?: unknown) => {
 		if (!editorRef.current) return;
@@ -252,7 +288,12 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			case "format.underline":
 			case "format.strikethrough":
 			case "format.code": {
-				const formatType = action.replace("format.", "") as "bold" | "italic" | "underline" | "strikethrough" | "code";
+				const formatType = action.replace("format.", "") as
+					| "bold"
+					| "italic"
+					| "underline"
+					| "strikethrough"
+					| "code";
 				toggleFormat(editor, formatType);
 				break;
 			}
@@ -285,7 +326,11 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			case "format.alignCenter":
 			case "format.alignRight":
 			case "format.alignJustify": {
-				const alignment = action.replace("format.align", "").toLowerCase() as "left" | "center" | "right" | "justify";
+				const alignment = action.replace("format.align", "").toLowerCase() as
+					| "left"
+					| "center"
+					| "right"
+					| "justify";
 				setAlignment(editor, alignment);
 				break;
 			}
@@ -340,10 +385,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				| "pending"
 				| "disabled",
 		) => {
-			// Map the extended status types to the ones expected by DocumentStatus
-			const mappedStatus: "synced" | "syncing" | "error" | "offline" =
-				status === "pending" || status === "disabled" ? "offline" : status;
-			setSyncStatus(mappedStatus);
+			setSyncStatus(status);
 		},
 		[],
 	);
@@ -364,6 +406,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				showMenuBar={showMenuBar}
 				showToolbar={showToolbar}
 				showStatusBar={showStatusBar}
+				showBottomStatusBar={true}
 				onMenuAction={handleMenuAction}
 				onToolbarAction={handleToolbarAction}
 				onSignOut={onSignOut}
@@ -372,23 +415,34 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				documentStatus={{
 					wordCount: documentStats.wordCount,
 					characterCount: documentStats.characterCount,
+					charsWithSpaces: documentStats.charsWithSpaces,
+					charsWithoutSpaces: documentStats.charsWithoutSpaces,
 					isModified,
 					lastSaved,
 					syncStatus,
 				}}
+				selectionStatus={selectionStatus}
+				showCharCount={showCharCount}
+				showReadingTime={showReadingTime}
+				readingWPM={readingWPM}
 			>
-				<ConvexCollaborativeEditor
-					documentId={documentId}
-					placeholder="Start writing your document..."
-					onChange={handleEditorChange}
-					onEditorReady={handleEditorReady}
-					enableSync={true}
-					showHeader={false}
-					className="h-full"
-					onSyncStatusChange={handleSyncStatusChange}
-					onFormattingChange={handleFormattingChange}
-					onLinkShortcut={() => setShowLinkDialog(true)}
-				/>
+				<div className="h-full overflow-auto">
+					<div className="mx-auto max-w-[80ch] px-4 sm:px-6 md:px-8 py-6">
+						<ConvexCollaborativeEditor
+							documentId={documentId}
+							placeholder="Start writing your document..."
+							onChange={handleEditorChange}
+							onEditorReady={handleEditorReady}
+							enableSync={true}
+							showHeader={false}
+							className="min-h-[calc(100vh-12rem)]"
+							onSyncStatusChange={handleSyncStatusChange}
+							onFormattingChange={handleFormattingChange}
+							onLinkShortcut={() => setShowLinkDialog(true)}
+							onSelectionChange={handleSelectionChange}
+						/>
+					</div>
+				</div>
 			</EditorLayout>
 
 			{/* New Document Confirmation Dialog */}
@@ -409,7 +463,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 						<Button variant="outline" onClick={handleCancelNewDocument}>
 							Cancel
 						</Button>
-						<Button onClick={handleConfirmNewDocument}>
+						<Button variant="destructive" onClick={handleConfirmNewDocument}>
 							Create New Document
 						</Button>
 					</DialogFooter>

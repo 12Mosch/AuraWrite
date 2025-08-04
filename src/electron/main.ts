@@ -1,8 +1,181 @@
 const path = require("node:path");
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, Menu } = require("electron");
 
-// __dirname is available in CommonJS
-// const __dirname is already available
+// Helper function to send menu actions
+const sendMenuAction = (action: string) => {
+	const focusedWindow = BrowserWindow.getFocusedWindow();
+	if (focusedWindow) {
+		focusedWindow.webContents.send("menu-action", action);
+	}
+};
+
+// Create the application menu template
+const createMenuTemplate = () => {
+	const template = [
+		{
+			label: "File",
+			submenu: [
+				{
+					label: "New Document",
+					accelerator: "CmdOrCtrl+N",
+					click: () => sendMenuAction("file.new"),
+				},
+				{
+					label: "Open",
+					accelerator: "CmdOrCtrl+O",
+					click: () => sendMenuAction("file.open"),
+				},
+				{ type: "separator" },
+				{
+					label: "Save",
+					accelerator: "CmdOrCtrl+S",
+					click: () => sendMenuAction("file.save"),
+				},
+				{
+					label: "Save As...",
+					accelerator: "CmdOrCtrl+Shift+S",
+					click: () => sendMenuAction("file.saveAs"),
+				},
+				{ type: "separator" },
+				{
+					label: "Export",
+					click: () => sendMenuAction("file.export"),
+				},
+			],
+		},
+		{
+			label: "Edit",
+			submenu: [
+				{
+					label: "Undo",
+					accelerator: "CmdOrCtrl+Z",
+					click: () => sendMenuAction("edit.undo"),
+				},
+				{
+					label: "Redo",
+					accelerator: "CmdOrCtrl+Y",
+					click: () => sendMenuAction("edit.redo"),
+				},
+				{ type: "separator" },
+				{
+					label: "Cut",
+					accelerator: "CmdOrCtrl+X",
+					click: () => sendMenuAction("edit.cut"),
+				},
+				{
+					label: "Copy",
+					accelerator: "CmdOrCtrl+C",
+					click: () => sendMenuAction("edit.copy"),
+				},
+				{
+					label: "Paste",
+					accelerator: "CmdOrCtrl+V",
+					click: () => sendMenuAction("edit.paste"),
+				},
+				{ type: "separator" },
+				{
+					label: "Find & Replace",
+					accelerator: "CmdOrCtrl+F",
+					click: () => sendMenuAction("edit.find"),
+				},
+			],
+		},
+		{
+			label: "View",
+			submenu: [
+				{
+					label: "Toggle Toolbar",
+					click: () => sendMenuAction("view.toggleToolbar"),
+				},
+				{
+					label: "Toggle Status Bar",
+					click: () => sendMenuAction("view.toggleStatusBar"),
+				},
+				{ type: "separator" },
+				{
+					label: "Zoom In",
+					accelerator: "CmdOrCtrl+Plus",
+					click: () => sendMenuAction("view.zoomIn"),
+				},
+				{
+					label: "Zoom Out",
+					accelerator: "CmdOrCtrl+-",
+					click: () => sendMenuAction("view.zoomOut"),
+				},
+				{
+					label: "Reset Zoom",
+					accelerator: "CmdOrCtrl+0",
+					click: () => sendMenuAction("view.resetZoom"),
+				},
+			],
+		},
+		{
+			label: "Format",
+			submenu: [
+				{
+					label: "Bold",
+					accelerator: "CmdOrCtrl+B",
+					click: () => sendMenuAction("format.bold"),
+				},
+				{
+					label: "Italic",
+					accelerator: "CmdOrCtrl+I",
+					click: () => sendMenuAction("format.italic"),
+				},
+				{
+					label: "Underline",
+					accelerator: "CmdOrCtrl+U",
+					click: () => sendMenuAction("format.underline"),
+				},
+				{ type: "separator" },
+				{
+					label: "Quote",
+					accelerator: "CmdOrCtrl+Shift+Q",
+					click: () => sendMenuAction("format.blockquote"),
+				},
+				{ type: "separator" },
+				{
+					label: "Align Left",
+					click: () => sendMenuAction("format.alignLeft"),
+				},
+				{
+					label: "Align Center",
+					click: () => sendMenuAction("format.alignCenter"),
+				},
+				{
+					label: "Align Right",
+					click: () => sendMenuAction("format.alignRight"),
+				},
+			],
+		},
+		{
+			label: "Help",
+			submenu: [
+				{
+					label: "About AuraWrite",
+					click: () => sendMenuAction("help.about"),
+				},
+				{
+					label: "Keyboard Shortcuts",
+					click: () => sendMenuAction("help.shortcuts"),
+				},
+				{
+					label: "Documentation",
+					click: () => sendMenuAction("help.documentation"),
+				},
+			],
+		},
+	];
+
+	return template;
+};
+
+// Set up the application menu
+const setupMenu = () => {
+	const template = createMenuTemplate();
+	const menu = Menu.buildFromTemplate(template);
+	Menu.setApplicationMenu(menu);
+};
 
 const createWindow = () => {
 	const win = new BrowserWindow({
@@ -80,6 +253,7 @@ ipcMain.handle("open-external", async (_event: unknown, url: string) => {
 });
 
 app.whenReady().then(() => {
+	setupMenu();
 	createWindow();
 
 	app.on("activate", () => {

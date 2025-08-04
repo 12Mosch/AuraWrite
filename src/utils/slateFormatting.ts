@@ -1,5 +1,6 @@
 import {
 	Editor,
+	Path,
 	Range,
 	Element as SlateElement,
 	Text,
@@ -26,8 +27,13 @@ export type AlignmentFormat = "left" | "center" | "right" | "justify";
  * Check if a text format is currently active
  */
 export const isFormatActive = (editor: Editor, format: TextFormat): boolean => {
-	const marks = Editor.marks(editor);
-	return marks ? (marks as CustomText)[format] === true : false;
+	try {
+		const marks = Editor.marks(editor);
+		return marks ? (marks as CustomText)[format] === true : false;
+	} catch (error) {
+		console.warn(`Error checking if format '${format}' is active:`, error);
+		return false;
+	}
 };
 
 /**
@@ -61,16 +67,26 @@ export const setFontFamily = (editor: Editor, fontFamily: string): void => {
  * Get current font size from editor marks
  */
 export const getCurrentFontSize = (editor: Editor): string | undefined => {
-	const marks = Editor.marks(editor);
-	return marks?.fontSize;
+	try {
+		const marks = Editor.marks(editor);
+		return marks?.fontSize;
+	} catch (error) {
+		console.warn("Error getting current font size:", error);
+		return undefined;
+	}
 };
 
 /**
  * Get current font family from editor marks
  */
 export const getCurrentFontFamily = (editor: Editor): string | undefined => {
-	const marks = Editor.marks(editor);
-	return marks?.fontFamily;
+	try {
+		const marks = Editor.marks(editor);
+		return marks?.fontFamily;
+	} catch (error) {
+		console.warn("Error getting current font family:", error);
+		return undefined;
+	}
 };
 
 /**
@@ -110,30 +126,35 @@ export const isAlignmentActive = (
  * Get current alignment from the selected block
  */
 export const getCurrentAlignment = (editor: Editor): AlignmentFormat => {
-	const { selection } = editor;
-	if (!selection) return "left";
+	try {
+		const { selection } = editor;
+		if (!selection) return "left";
 
-	const [match] = Array.from(
-		Editor.nodes(editor, {
-			at: Editor.unhangRange(editor, selection),
-			match: (n) =>
-				!Editor.isEditor(n) &&
-				SlateElement.isElement(n) &&
-				Editor.isBlock(editor, n),
-		}),
-	);
+		const [match] = Array.from(
+			Editor.nodes(editor, {
+				at: Editor.unhangRange(editor, selection),
+				match: (n) =>
+					!Editor.isEditor(n) &&
+					SlateElement.isElement(n) &&
+					Editor.isBlock(editor, n),
+			}),
+		);
 
-	if (!match) return "left";
+		if (!match) return "left";
 
-	const [node] = match;
-	const element = node as CustomElement;
+		const [node] = match;
+		const element = node as CustomElement;
 
-	// Check if element has align property
-	if ("align" in element) {
-		return element.align || "left";
+		// Check if element has align property
+		if ("align" in element) {
+			return element.align || "left";
+		}
+
+		return "left"; // Default alignment
+	} catch (error) {
+		console.warn("Error getting current alignment:", error);
+		return "left";
 	}
-
-	return "left"; // Default alignment
 };
 
 /**
@@ -303,43 +324,66 @@ export const unwrapList = (editor: Editor): void => {
  * Get all active formats for the current selection
  */
 export const getActiveFormats = (editor: Editor) => {
-	const marks = Editor.marks(editor) || {};
+	try {
+		const marks = Editor.marks(editor) || {};
 
-	return {
-		bold: marks.bold === true,
-		italic: marks.italic === true,
-		underline: marks.underline === true,
-		strikethrough: marks.strikethrough === true,
-		code: marks.code === true,
-		fontSize: marks.fontSize,
-		fontFamily: marks.fontFamily,
-		color: marks.color,
-		alignment: getCurrentAlignment(editor),
-	};
+		return {
+			bold: marks.bold === true,
+			italic: marks.italic === true,
+			underline: marks.underline === true,
+			strikethrough: marks.strikethrough === true,
+			code: marks.code === true,
+			fontSize: marks.fontSize,
+			fontFamily: marks.fontFamily,
+			color: marks.color,
+			alignment: getCurrentAlignment(editor),
+		};
+	} catch (error) {
+		console.warn("Error getting active formats, returning defaults:", error);
+
+		// Return default values when marks cannot be retrieved
+		// This prevents crashes when the document structure is invalid
+		return {
+			bold: false,
+			italic: false,
+			underline: false,
+			strikethrough: false,
+			code: false,
+			fontSize: undefined,
+			fontFamily: undefined,
+			color: undefined,
+			alignment: getCurrentAlignment(editor),
+		};
+	}
 };
 
 /**
  * Get the current block type
  */
 export const getCurrentBlockType = (editor: Editor): string => {
-	const { selection } = editor;
-	if (!selection) return "paragraph";
+	try {
+		const { selection } = editor;
+		if (!selection) return "paragraph";
 
-	const [match] = Array.from(
-		Editor.nodes(editor, {
-			at: Editor.unhangRange(editor, selection),
-			match: (n) => !Editor.isEditor(n) && SlateElement.isElement(n),
-		}),
-	);
+		const [match] = Array.from(
+			Editor.nodes(editor, {
+				at: Editor.unhangRange(editor, selection),
+				match: (n) => !Editor.isEditor(n) && SlateElement.isElement(n),
+			}),
+		);
 
-	if (match) {
-		const [node] = match;
-		if (SlateElement.isElement(node)) {
-			return node.type;
+		if (match) {
+			const [node] = match;
+			if (SlateElement.isElement(node)) {
+				return (node as CustomElement).type;
+			}
 		}
-	}
 
-	return "paragraph";
+		return "paragraph";
+	} catch (error) {
+		console.warn("Error getting current block type:", error);
+		return "paragraph";
+	}
 };
 
 /**
@@ -497,6 +541,217 @@ export const isCurrentListItemEmpty = (editor: Editor): boolean => {
 };
 
 /**
+ * Get word count for selected text, or 0 if no selection
+ */
+export const getSelectedWordCount = (editor: Editor): number => {
+	const { selection } = editor;
+	if (!selection || Range.isCollapsed(selection)) {
+		return 0;
+	}
+
+	try {
+		const selectedText = Editor.string(editor, selection);
+		return selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0;
+	} catch (error) {
+		console.warn("Error getting selected word count:", error);
+		return 0;
+	}
+};
+
+/**
+ * Get character count (including spaces) for selected text, or 0 if no selection
+ */
+export const getSelectedCharCountWithSpaces = (editor: Editor): number => {
+	const { selection } = editor;
+	if (!selection || Range.isCollapsed(selection)) {
+		return 0;
+	}
+
+	try {
+		const selectedText = Editor.string(editor, selection);
+		return selectedText.length;
+	} catch (error) {
+		console.warn("Error getting selected character count with spaces:", error);
+		return 0;
+	}
+};
+
+/**
+ * Get character count (excluding spaces) for selected text, or 0 if no selection
+ */
+export const getSelectedCharCountWithoutSpaces = (editor: Editor): number => {
+	const { selection } = editor;
+	if (!selection || Range.isCollapsed(selection)) {
+		return 0;
+	}
+
+	try {
+		const selectedText = Editor.string(editor, selection);
+		return selectedText.replace(/\s/g, "").length;
+	} catch (error) {
+		console.warn(
+			"Error getting selected character count without spaces:",
+			error,
+		);
+		return 0;
+	}
+};
+
+/**
+ * Check if an element creates a visual line in the editor
+ */
+const isLineCreatingElement = (element: CustomElement): boolean => {
+	return [
+		"paragraph",
+		"heading",
+		"blockquote",
+		"code-block",
+		"list-item",
+	].includes(element.type);
+};
+
+/**
+ * Check if the document has nested structures that require traversal-based line counting
+ */
+const hasNestedStructures = (editor: Editor): boolean => {
+	try {
+		const nodeEntries = Array.from(
+			Editor.nodes(editor, {
+				match: (n) =>
+					!Editor.isEditor(n) &&
+					SlateElement.isElement(n) &&
+					(n.type === "bulleted-list" || n.type === "numbered-list"),
+			}),
+		);
+		return nodeEntries.length > 0;
+	} catch (error) {
+		console.warn("Error checking for nested structures:", error);
+		return false;
+	}
+};
+
+/**
+ * Get visual line number using document traversal for nested structures
+ */
+const getVisualLineNumber = (editor: Editor, targetPath: Path): number => {
+	try {
+		let lineCount = 0;
+
+		// Get all block-level elements in document order
+		const nodeEntries = Array.from(
+			Editor.nodes(editor, {
+				match: (n) =>
+					!Editor.isEditor(n) &&
+					SlateElement.isElement(n) &&
+					Editor.isBlock(editor, n),
+			}),
+		);
+
+		// Count visual lines up to the target path
+		for (const [node, path] of nodeEntries) {
+			// Stop if we've passed the target path
+			if (Path.compare(path, targetPath) > 0) {
+				break;
+			}
+
+			// Count this element if it creates a visual line
+			if (SlateElement.isElement(node) && isLineCreatingElement(node)) {
+				lineCount++;
+
+				// If this is exactly our target path, we're done
+				if (Path.equals(path, targetPath)) {
+					break;
+				}
+			}
+		}
+
+		return Math.max(1, lineCount);
+	} catch (error) {
+		console.warn("Error calculating visual line number:", error);
+		return 1;
+	}
+};
+
+/**
+ * Get cursor position as line and column numbers (1-indexed)
+ * Handles nested Slate document structures like lists and blockquotes
+ */
+export const getCursorPosition = (
+	editor: Editor,
+): { line: number; column: number } => {
+	const { selection } = editor;
+	if (!selection) {
+		return { line: 1, column: 1 };
+	}
+
+	try {
+		// Use the focus point of the selection (where the cursor is)
+		const { focus } = selection;
+
+		// Validate that the path exists and has at least one element
+		if (!focus.path || focus.path.length === 0) {
+			console.warn("Invalid focus path:", focus.path);
+			return { line: 1, column: 1 };
+		}
+
+		// The column is always the offset + 1
+		const column = focus.offset + 1;
+
+		// Check if document has nested structures
+		if (hasNestedStructures(editor)) {
+			// Use traversal-based line counting for complex documents
+			const line = getVisualLineNumber(editor, focus.path);
+			return { line, column };
+		} else {
+			// Use simple path-based counting for flat documents
+			const line = focus.path[0] + 1;
+			return { line, column };
+		}
+	} catch (error) {
+		console.warn("Error getting cursor position:", error);
+		return { line: 1, column: 1 };
+	}
+};
+
+/**
+ * Validate and fix document structure to prevent crashes
+ * This function can be called to ensure the document follows Slate.js schema
+ */
+export const validateAndFixDocumentStructure = (editor: Editor): boolean => {
+	try {
+		let hasChanges = false;
+
+		// Check for orphaned list-items at root level
+		for (let i = 0; i < editor.children.length; i++) {
+			const child = editor.children[i];
+			if (
+				SlateElement.isElement(child) &&
+				(child as CustomElement).type === "list-item"
+			) {
+				console.warn(
+					`Found orphaned list-item at root level (index ${i}), wrapping in bulleted-list`,
+				);
+
+				// Wrap the list-item in a bulleted-list
+				const listWrapper: CustomElement = {
+					type: "bulleted-list",
+					children: [],
+				};
+
+				Transforms.wrapNodes(editor, listWrapper, { at: [i] });
+				hasChanges = true;
+				break; // Process one at a time to avoid path conflicts
+			}
+		}
+
+		return hasChanges;
+	} catch (error) {
+		console.warn("Error validating document structure:", error);
+		return false;
+	}
+};
+
+/**
  * Handle Enter key press in lists
  * Returns true if the event was handled, false otherwise
  */
@@ -535,31 +790,55 @@ export const handleListEnterKey = (editor: Editor): boolean => {
 
 		const [listNode, listPath] = listMatch;
 
-		// Check if this is the only item in the list
-		if (SlateElement.isElement(listNode) && listNode.children.length === 1) {
-			// If it's the only item, convert the entire list to a paragraph
-			Transforms.setNodes(editor, {
-				type: "paragraph",
-			} as Partial<CustomElement>);
+		// Use Editor.withoutNormalizing to prevent intermediate normalization
+		Editor.withoutNormalizing(editor, () => {
+			// Check if this is the only item in the list
+			if (SlateElement.isElement(listNode) && listNode.children.length === 1) {
+				// If it's the only item, replace the entire list with a paragraph
+				// First, unwrap the list to get the list-item at the list's position
+				Transforms.unwrapNodes(editor, {
+					at: listPath,
+					match: (n) =>
+						SlateElement.isElement(n) &&
+						(n.type === "bulleted-list" || n.type === "numbered-list"),
+				});
 
-			Transforms.unwrapNodes(editor, {
-				match: (n) =>
-					SlateElement.isElement(n) &&
-					(n.type === "bulleted-list" || n.type === "numbered-list"),
-			});
-		} else {
-			// If there are other items, just convert this list item to a paragraph
-			// and move it outside the list
-			Transforms.setNodes(editor, {
-				type: "paragraph",
-			} as Partial<CustomElement>);
+				// Now convert the list-item (which is now at listPath) to a paragraph
+				Transforms.setNodes(
+					editor,
+					{
+						type: "paragraph",
+					} as Partial<CustomElement>,
+					{
+						at: listPath,
+					},
+				);
+			} else {
+				// If there are other items, convert this list item to a paragraph
+				// and move it outside the list
 
-			// Move the paragraph outside the list
-			Transforms.moveNodes(editor, {
-				at: listItemPath,
-				to: [...listPath.slice(0, -1), listPath[listPath.length - 1] + 1],
-			});
-		}
+				// First convert the list-item to a paragraph
+				Transforms.setNodes(
+					editor,
+					{
+						type: "paragraph",
+					} as Partial<CustomElement>,
+					{
+						at: listItemPath,
+					},
+				);
+
+				// Then move the paragraph outside the list
+				const targetPath = [
+					...listPath.slice(0, -1),
+					listPath[listPath.length - 1] + 1,
+				];
+				Transforms.moveNodes(editor, {
+					at: listItemPath,
+					to: targetPath,
+				});
+			}
+		});
 
 		return true;
 	}

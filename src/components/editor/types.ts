@@ -125,9 +125,27 @@ export type ToolbarActionHandler = (
 export interface DocumentStatus {
 	wordCount?: number;
 	characterCount?: number;
+	charsWithSpaces?: number;
+	charsWithoutSpaces?: number;
 	isModified?: boolean;
 	lastSaved?: Date;
-	syncStatus?: "synced" | "syncing" | "error" | "offline";
+	syncStatus?:
+		| "synced"
+		| "syncing"
+		| "error"
+		| "offline"
+		| "pending"
+		| "disabled";
+}
+
+// Selection status interface for bottom status bar
+export interface SelectionStatus {
+	line: number;
+	column: number;
+	selectedWordCount: number;
+	selectedCharsWithSpaces?: number;
+	selectedCharsWithoutSpaces?: number;
+	hasSelection: boolean;
 }
 
 // Active formats interface

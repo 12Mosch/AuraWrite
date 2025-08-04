@@ -17,6 +17,7 @@ import {
 	Undo,
 } from "lucide-react";
 import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
 	Select,
@@ -33,6 +34,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { EditorStatusBar, type MinimalSyncStatus } from "./EditorStatusBar";
 import type { ActiveFormats, ToolbarActionHandler } from "./types";
 
 interface EditorToolbarProps {
@@ -41,6 +43,11 @@ interface EditorToolbarProps {
 	currentAlignment?: "left" | "center" | "right" | "justify";
 	currentFontSize?: string;
 	currentFontFamily?: string;
+	// Status bar props
+	showStatusBar?: boolean;
+	syncStatus?: MinimalSyncStatus;
+	isModified?: boolean;
+	lastSaved?: Date;
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -49,10 +56,47 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 	currentAlignment = "left",
 	currentFontSize = "14",
 	currentFontFamily = "Inter",
+	showStatusBar = true,
+	syncStatus = "synced",
+	isModified = false,
+	lastSaved,
 }) => {
 	const handleAction: ToolbarActionHandler = (action, data) => {
 		onAction?.(action, data);
 	};
+
+	// Horizontal overflow detection for gradient masks
+	const containerRef = useRef<HTMLDivElement | null>(null);
+	const [showLeftMask, setShowLeftMask] = useState(false);
+	const [showRightMask, setShowRightMask] = useState(false);
+
+	useEffect(() => {
+		const el = containerRef.current;
+		if (!el) return;
+
+		const updateMasks = () => {
+			const { scrollLeft, scrollWidth, clientWidth } = el;
+			const hasOverflow = scrollWidth > clientWidth + 1; // tolerance
+			const atStart = scrollLeft <= 1;
+			const atEnd = scrollLeft + clientWidth >= scrollWidth - 1;
+
+			setShowLeftMask(hasOverflow && !atStart);
+			setShowRightMask(hasOverflow && !atEnd);
+		};
+
+		updateMasks();
+
+		const onScroll = () => updateMasks();
+		el.addEventListener("scroll", onScroll, { passive: true });
+
+		const ro = new ResizeObserver(updateMasks);
+		ro.observe(el);
+
+		return () => {
+			el.removeEventListener("scroll", onScroll);
+			ro.disconnect();
+		};
+	}, []);
 
 	const fontSizes = [
 		{ value: "11", label: "11px" },
@@ -76,281 +120,318 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
 	return (
 		<TooltipProvider>
-			<div className="flex items-center gap-1 p-2 bg-background border-b overflow-x-auto">
-				{/* Undo/Redo */}
-				<div className="flex items-center gap-1 flex-shrink-0">
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={() => handleAction("edit.undo")}
-							>
-								<Undo className="h-4 w-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Undo (Ctrl+Z)</TooltipContent>
-					</Tooltip>
+			<div
+				ref={containerRef}
+				className="relative flex items-center justify-between gap-1 p-2 bg-background border-b overflow-x-auto scroll-smooth"
+			>
+				{/* Left side: Toolbar controls */}
+				<div className="flex items-center gap-1 flex-1 min-w-0">
+					{/* Undo/Redo */}
+					<div className="flex items-center gap-1 flex-shrink-0">
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() => handleAction("edit.undo")}
+								>
+									<Undo className="h-4 w-4" />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>Undo (Ctrl+Z)</TooltipContent>
+						</Tooltip>
 
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={() => handleAction("edit.redo")}
-							>
-								<Redo className="h-4 w-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Redo (Ctrl+Y)</TooltipContent>
-					</Tooltip>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() => handleAction("edit.redo")}
+								>
+									<Redo className="h-4 w-4" />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>Redo (Ctrl+Y)</TooltipContent>
+						</Tooltip>
+					</div>
+
+					<Separator orientation="vertical" className="h-6" />
+
+					{/* Font Family - Hidden on small screens */}
+					<div className="hidden md:block">
+						<Select
+							value={currentFontFamily}
+							onValueChange={(value) =>
+								handleAction("format.fontFamily", { fontFamily: value })
+							}
+						>
+							<SelectTrigger className="w-32 h-8" aria-label="Font family">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{fontFamilies.map((font) => (
+									<SelectItem key={font.value} value={font.value}>
+										{font.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+
+					{/* Font Size - Hidden on small screens */}
+					<div className="hidden sm:block">
+						<Select
+							value={currentFontSize}
+							onValueChange={(value) =>
+								handleAction("format.fontSize", { fontSize: value })
+							}
+						>
+							<SelectTrigger className="w-20 h-8" aria-label="Font size">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{fontSizes.map((size) => (
+									<SelectItem key={size.value} value={size.value}>
+										{size.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+
+					<Separator orientation="vertical" className="h-6" />
+
+					{/* Text Formatting */}
+					<div className="flex items-center gap-1">
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={activeFormats.bold}
+									onPressedChange={() => handleAction("format.bold")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<Bold className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Bold (Ctrl+B)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={activeFormats.italic}
+									onPressedChange={() => handleAction("format.italic")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<Italic className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Italic (Ctrl+I)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={activeFormats.underline}
+									onPressedChange={() => handleAction("format.underline")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<Underline className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Underline (Ctrl+U)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={activeFormats.strikethrough}
+									onPressedChange={() => handleAction("format.strikethrough")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<Strikethrough className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Strikethrough (Ctrl+Shift+X)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={activeFormats.code}
+									onPressedChange={() => handleAction("format.code")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<Code className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Code (Ctrl+`)</TooltipContent>
+						</Tooltip>
+					</div>
+
+					<Separator orientation="vertical" className="h-6" />
+
+					{/* Text Alignment */}
+					<div className="flex items-center gap-1">
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={currentAlignment === "left"}
+									onPressedChange={() => handleAction("format.alignLeft")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<AlignLeft className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Align Left (Ctrl+Shift+L)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={currentAlignment === "center"}
+									onPressedChange={() => handleAction("format.alignCenter")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<AlignCenter className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Align Center (Ctrl+Shift+E)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={currentAlignment === "right"}
+									onPressedChange={() => handleAction("format.alignRight")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<AlignRight className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Align Right (Ctrl+Shift+R)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={currentAlignment === "justify"}
+									onPressedChange={() => handleAction("format.alignJustify")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<AlignJustify className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Justify (Ctrl+Shift+J)</TooltipContent>
+						</Tooltip>
+					</div>
+
+					<Separator orientation="vertical" className="h-6" />
+
+					{/* Lists and Blocks */}
+					<div className="flex items-center gap-1">
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={activeFormats.blockType === "bulleted-list"}
+									onPressedChange={() => handleAction("format.bulletList")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<List className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Bullet List (Ctrl+Shift+8)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={activeFormats.blockType === "numbered-list"}
+									onPressedChange={() => handleAction("format.numberedList")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<ListOrdered className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Numbered List (Ctrl+Shift+7)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Toggle
+									pressed={activeFormats.blockType === "blockquote"}
+									onPressedChange={() => handleAction("format.blockquote")}
+									size="sm"
+									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+								>
+									<Quote className="h-4 w-4" />
+								</Toggle>
+							</TooltipTrigger>
+							<TooltipContent>Quote (Ctrl+Shift+Q)</TooltipContent>
+						</Tooltip>
+					</div>
+
+					<Separator orientation="vertical" className="h-6" />
+
+					{/* Insert Elements */}
+					<div className="flex items-center gap-1">
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() => handleAction("insert.link")}
+								>
+									<Link className="h-4 w-4" />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>Insert Link (Ctrl+K)</TooltipContent>
+						</Tooltip>
+
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() => handleAction("insert.image")}
+								>
+									<Image className="h-4 w-4" />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>Insert Image</TooltipContent>
+						</Tooltip>
+					</div>
 				</div>
 
-				<Separator orientation="vertical" className="h-6" />
+				{/* Right side: Status bar */}
+				{showStatusBar && (
+					<div className="flex-shrink-0">
+						<EditorStatusBar
+							syncStatus={syncStatus}
+							isModified={isModified}
+							lastSaved={lastSaved}
+						/>
+					</div>
+				)}
 
-				{/* Font Family - Hidden on small screens */}
-				<div className="hidden md:block">
-					<Select
-						value={currentFontFamily}
-						onValueChange={(value) =>
-							handleAction("format.fontFamily", { fontFamily: value })
-						}
-					>
-						<SelectTrigger className="w-32">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{fontFamilies.map((font) => (
-								<SelectItem key={font.value} value={font.value}>
-									{font.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-
-				{/* Font Size - Hidden on small screens */}
-				<div className="hidden sm:block">
-					<Select
-						value={currentFontSize}
-						onValueChange={(value) =>
-							handleAction("format.fontSize", { fontSize: value })
-						}
-					>
-						<SelectTrigger className="w-20">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{fontSizes.map((size) => (
-								<SelectItem key={size.value} value={size.value}>
-									{size.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-
-				<Separator orientation="vertical" className="h-6" />
-
-				{/* Text Formatting */}
-				<div className="flex items-center gap-1">
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={activeFormats.bold}
-								onPressedChange={() => handleAction("format.bold")}
-								size="sm"
-							>
-								<Bold className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Bold (Ctrl+B)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={activeFormats.italic}
-								onPressedChange={() => handleAction("format.italic")}
-								size="sm"
-							>
-								<Italic className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Italic (Ctrl+I)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={activeFormats.underline}
-								onPressedChange={() => handleAction("format.underline")}
-								size="sm"
-							>
-								<Underline className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Underline (Ctrl+U)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={activeFormats.strikethrough}
-								onPressedChange={() => handleAction("format.strikethrough")}
-								size="sm"
-							>
-								<Strikethrough className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Strikethrough (Ctrl+Shift+X)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={activeFormats.code}
-								onPressedChange={() => handleAction("format.code")}
-								size="sm"
-							>
-								<Code className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Code (Ctrl+`)</TooltipContent>
-					</Tooltip>
-				</div>
-
-				<Separator orientation="vertical" className="h-6" />
-
-				{/* Text Alignment */}
-				<div className="flex items-center gap-1">
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={currentAlignment === "left"}
-								onPressedChange={() => handleAction("format.alignLeft")}
-								size="sm"
-							>
-								<AlignLeft className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Align Left (Ctrl+Shift+L)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={currentAlignment === "center"}
-								onPressedChange={() => handleAction("format.alignCenter")}
-								size="sm"
-							>
-								<AlignCenter className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Align Center (Ctrl+Shift+E)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={currentAlignment === "right"}
-								onPressedChange={() => handleAction("format.alignRight")}
-								size="sm"
-							>
-								<AlignRight className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Align Right (Ctrl+Shift+R)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={currentAlignment === "justify"}
-								onPressedChange={() => handleAction("format.alignJustify")}
-								size="sm"
-							>
-								<AlignJustify className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Justify (Ctrl+Shift+J)</TooltipContent>
-					</Tooltip>
-				</div>
-
-				<Separator orientation="vertical" className="h-6" />
-
-				{/* Lists and Blocks */}
-				<div className="flex items-center gap-1">
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={activeFormats.blockType === "bulleted-list"}
-								onPressedChange={() => handleAction("format.bulletList")}
-								size="sm"
-							>
-								<List className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Bullet List (Ctrl+Shift+8)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={activeFormats.blockType === "numbered-list"}
-								onPressedChange={() => handleAction("format.numberedList")}
-								size="sm"
-							>
-								<ListOrdered className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Numbered List (Ctrl+Shift+7)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Toggle
-								pressed={activeFormats.blockType === "blockquote"}
-								onPressedChange={() => handleAction("format.blockquote")}
-								size="sm"
-							>
-								<Quote className="h-4 w-4" />
-							</Toggle>
-						</TooltipTrigger>
-						<TooltipContent>Quote (Ctrl+Shift+Q)</TooltipContent>
-					</Tooltip>
-				</div>
-
-				<Separator orientation="vertical" className="h-6" />
-
-				{/* Insert Elements */}
-				<div className="flex items-center gap-1">
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={() => handleAction("insert.link")}
-							>
-								<Link className="h-4 w-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Insert Link (Ctrl+K)</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={() => handleAction("insert.image")}
-							>
-								<Image className="h-4 w-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Insert Image</TooltipContent>
-					</Tooltip>
-				</div>
+				{/* Gradient masks to hint horizontal scroll on small screens */}
+				{showLeftMask && (
+					<div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-background to-transparent md:hidden" />
+				)}
+				{showRightMask && (
+					<div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent md:hidden" />
+				)}
 			</div>
 		</TooltipProvider>
 	);

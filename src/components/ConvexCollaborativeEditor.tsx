@@ -1,6 +1,13 @@
 import { withYjs, YjsEditor } from "@slate-yjs/core";
 import React, { useCallback, useEffect, useMemo } from "react";
-import { createEditor, type Descendant, Editor } from "slate";
+import {
+	createEditor,
+	type Descendant,
+	Editor,
+	Range,
+	Element as SlateElement,
+	Transforms,
+} from "slate";
 import { withHistory } from "slate-history";
 import {
 	Editable,
@@ -11,7 +18,6 @@ import {
 } from "slate-react";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useError } from "../contexts/ErrorContext";
-import { ConnectionState } from "../hooks/useConnectionManager";
 import {
 	type SyncHookReturn,
 	useConvexYjsSync,
@@ -30,18 +36,14 @@ import { handleKeyboardShortcuts } from "../utils/keyboardShortcuts";
 import {
 	getActiveFormats,
 	getCurrentBlockType,
+	getCursorPosition,
+	getSelectedCharCountWithoutSpaces,
+	getSelectedCharCountWithSpaces,
+	getSelectedWordCount,
+	validateAndFixDocumentStructure,
 } from "../utils/slateFormatting";
-import {
-	ConnectionStatus,
-	SimpleConnectionIndicator,
-} from "./ConnectionStatus";
 import { DocumentHeader } from "./DocumentHeader";
 import { EnhancedErrorDisplay } from "./EnhancedErrorDisplay";
-import { PresenceIndicator } from "./PresenceIndicator";
-import {
-	CompactPerformanceIndicator,
-	SyncPerformanceMonitor,
-} from "./SyncPerformanceMonitor";
 
 /**
  * Get CSS alignment class based on alignment value
@@ -95,8 +97,7 @@ interface ConvexCollaborativeEditorProps {
 	headerClassName?: string;
 	/** Whether to use optimized sync (default: true) */
 	useOptimizedSync?: boolean;
-	/** Whether to show performance monitoring (default: false) */
-	showPerformanceMonitor?: boolean;
+
 	/** Callback when sync status changes */
 	onSyncStatusChange?: (
 		status: "synced" | "syncing" | "error" | "offline" | "pending" | "disabled",
@@ -108,6 +109,15 @@ interface ConvexCollaborativeEditorProps {
 	) => void;
 	/** Callback when link shortcut is triggered */
 	onLinkShortcut?: () => void;
+	/** Callback when selection/cursor position changes */
+	onSelectionChange?: (selection: {
+		line: number;
+		column: number;
+		selectedWordCount: number;
+		selectedCharsWithSpaces?: number;
+		selectedCharsWithoutSpaces?: number;
+		hasSelection: boolean;
+	}) => void;
 }
 
 /**
@@ -131,10 +141,11 @@ export const ConvexCollaborativeEditor: React.FC<
 	showHeader = true,
 	headerClassName = "",
 	useOptimizedSync = true,
-	showPerformanceMonitor = false,
+
 	onSyncStatusChange,
 	onFormattingChange,
 	onLinkShortcut,
+	onSelectionChange,
 }) => {
 	// Initial editor value
 	const initialValue: Descendant[] = [
@@ -151,7 +162,6 @@ export const ConvexCollaborativeEditor: React.FC<
 		indexeddbProvider,
 		isSynced: isLocalSynced,
 		persistenceError,
-		persistenceAvailable,
 	} = useSharedYjsDocument({
 		documentId,
 		initialValue,
@@ -200,8 +210,6 @@ export const ConvexCollaborativeEditor: React.FC<
 		syncError,
 		isConnected,
 		resync,
-		connectionState = ConnectionState.CONNECTED, // Provide default value for optional property
-		reconnect = () => {}, // Provide default no-op function for optional property
 	} = syncHook;
 
 	// Initialize real-time presence tracking
@@ -227,13 +235,133 @@ export const ConvexCollaborativeEditor: React.FC<
 			return element.type === "link" ? true : isInline(element);
 		};
 
-		// Ensure editor has a consistent structure
+		// Comprehensive normalization rules
 		const { normalizeNode } = e;
 		e.normalizeNode = (entry) => {
+			const [node, path] = entry;
+
 			// Ensure the editor always has at least one paragraph
 			if (e.children.length === 0) {
-				e.insertNode({ type: "paragraph", children: [{ text: "" }] });
+				Transforms.insertNodes(e, {
+					type: "paragraph",
+					children: [{ text: "" }],
+				});
 				return;
+			}
+
+			// Fix orphaned list-items at the root level
+			if (
+				path.length === 1 && // Top-level element
+				SlateElement.isElement(node) &&
+				(node as CustomElement).type === "list-item"
+			) {
+				console.warn(
+					"Found orphaned list-item at root level, wrapping in bulleted-list",
+				);
+
+				// Wrap the list-item in a bulleted-list
+				const listWrapper: CustomElement = {
+					type: "bulleted-list",
+					children: [],
+				};
+
+				Transforms.wrapNodes(e, listWrapper, { at: path });
+				return;
+			}
+
+			// Fix list-items that are not children of list containers
+			if (
+				SlateElement.isElement(node) &&
+				(node as CustomElement).type === "list-item" &&
+				path.length > 1
+			) {
+				try {
+					const parentPath = path.slice(0, -1);
+					const [parent] = Editor.node(e, parentPath);
+
+					if (
+						SlateElement.isElement(parent) &&
+						(parent as CustomElement).type !== "bulleted-list" &&
+						(parent as CustomElement).type !== "numbered-list"
+					) {
+						console.warn(
+							"Found list-item with invalid parent, converting to paragraph",
+						);
+
+						// Convert the list-item to a paragraph
+						Transforms.setNodes(
+							e,
+							{ type: "paragraph" } as Partial<CustomElement>,
+							{ at: path },
+						);
+						return;
+					}
+				} catch (error) {
+					console.warn("Error checking list-item parent:", error);
+				}
+			}
+
+			// Only normalize list containers if they have invalid children that aren't being actively edited
+			if (
+				SlateElement.isElement(node) &&
+				((node as CustomElement).type === "bulleted-list" ||
+					(node as CustomElement).type === "numbered-list")
+			) {
+				const element = node as CustomElement;
+				for (let i = 0; i < element.children.length; i++) {
+					const child = element.children[i];
+					if (
+						SlateElement.isElement(child) &&
+						(child as CustomElement).type !== "list-item"
+					) {
+						// Only fix this if it's not a paragraph (which might be temporarily there during editing)
+						if ((child as CustomElement).type !== "paragraph") {
+							console.warn(
+								"Found non-list-item child in list container, converting to list-item",
+							);
+
+							const childPath = [...path, i];
+							Transforms.setNodes(
+								e,
+								{ type: "list-item" } as Partial<CustomElement>,
+								{ at: childPath },
+							);
+							return;
+						}
+					}
+				}
+			}
+
+			// Only unwrap paragraphs in list-items if they're clearly not supposed to be there
+			// This is less aggressive to avoid interfering with normal editing operations
+			if (
+				SlateElement.isElement(node) &&
+				(node as CustomElement).type === "list-item"
+			) {
+				const element = node as CustomElement;
+				// Only process if there's exactly one paragraph child and it has no special formatting
+				if (element.children.length === 1) {
+					const child = element.children[0];
+					if (
+						SlateElement.isElement(child) &&
+						(child as CustomElement).type === "paragraph"
+					) {
+						// Check if this paragraph has any special properties that suggest it should stay
+						const paragraphElement = child as CustomElement & {
+							align?: string;
+						};
+						if (!paragraphElement.align) {
+							console.warn(
+								"Found single paragraph inside list-item, unwrapping it",
+							);
+
+							const childPath = [...path, 0];
+							// Remove the paragraph wrapper and move its children up
+							Transforms.unwrapNodes(e, { at: childPath });
+							return;
+						}
+					}
+				}
 			}
 
 			normalizeNode(entry);
@@ -342,6 +470,20 @@ export const ConvexCollaborativeEditor: React.FC<
 		// We only need to call the onChange callback and update presence
 		onChange?.(newValue);
 
+		// Validate and fix document structure if needed
+		if (editor) {
+			try {
+				const hasStructuralIssues = validateAndFixDocumentStructure(editor);
+				if (hasStructuralIssues) {
+					console.log("Fixed document structure issues");
+					// Return early to let the normalization take effect
+					return;
+				}
+			} catch (error) {
+				console.warn("Error validating document structure:", error);
+			}
+		}
+
 		// Update presence with current selection (safely)
 		if (enableSync && editor) {
 			try {
@@ -363,10 +505,35 @@ export const ConvexCollaborativeEditor: React.FC<
 				console.warn("Error getting formatting state:", error);
 			}
 		}
+
+		// Notify about selection changes
+		if (editor && onSelectionChange) {
+			try {
+				const cursorPosition = getCursorPosition(editor);
+				const selectedWordCount = getSelectedWordCount(editor);
+				const selectedCharsWithSpaces = getSelectedCharCountWithSpaces(editor);
+				const selectedCharsWithoutSpaces =
+					getSelectedCharCountWithoutSpaces(editor);
+				const hasSelection = editor.selection
+					? !Range.isCollapsed(editor.selection)
+					: false;
+
+				onSelectionChange({
+					line: cursorPosition.line,
+					column: cursorPosition.column,
+					selectedWordCount,
+					selectedCharsWithSpaces,
+					selectedCharsWithoutSpaces,
+					hasSelection,
+				});
+			} catch (error) {
+				console.warn("Error getting selection state:", error);
+			}
+		}
 	};
 
 	// Render element function for different block types
-	const renderElement = (props: RenderElementProps) => {
+	const renderElement = useCallback((props: RenderElementProps) => {
 		const { attributes, children, element } = props;
 
 		switch (element.type) {
@@ -381,12 +548,34 @@ export const ConvexCollaborativeEditor: React.FC<
 				const alignmentClass = getAlignmentClass(align);
 
 				// Use mapping approach to reduce repetition
-				const HeadingComponent = headingComponents[level as keyof typeof headingComponents] || "h1";
+				const HeadingComponent =
+					headingComponents[level as keyof typeof headingComponents] || "h1";
 
 				return React.createElement(
 					HeadingComponent,
 					{ ...attributes, className: alignmentClass },
-					children
+					children,
+				);
+			}
+
+			case "paragraph": {
+				const align = (
+					element as CustomElement & {
+						align?: "left" | "center" | "right" | "justify";
+					}
+				).align;
+				const alignmentClass = getAlignmentClass(align);
+
+				// Use div for paragraphs to avoid HTML validation errors when nested inside list items
+				// This prevents the "p cannot be a descendant of p" error
+				return (
+					<div
+						{...attributes}
+						className={alignmentClass}
+						style={{ margin: "0.5em 0" }}
+					>
+						{children}
+					</div>
 				);
 			}
 
@@ -477,21 +666,26 @@ export const ConvexCollaborativeEditor: React.FC<
 			}
 
 			default: {
-				// Default case handles paragraphs and other block elements
+				// Default case - render as div to avoid HTML nesting issues
+				const customElement = element as CustomElement;
 				const align = (
-					element as CustomElement & {
+					customElement as CustomElement & {
 						align?: "left" | "center" | "right" | "justify";
 					}
 				).align;
 				const alignmentClass = getAlignmentClass(align);
+
+				console.warn(
+					`Unknown element type: ${customElement.type}, rendering as div`,
+				);
 				return (
-					<p {...attributes} className={alignmentClass}>
+					<div {...attributes} className={alignmentClass}>
 						{children}
-					</p>
+					</div>
 				);
 			}
 		}
-	};
+	}, []);
 
 	// Render leaf function for text formatting
 	const renderLeaf = useCallback((props: RenderLeafProps) => {
@@ -585,66 +779,6 @@ export const ConvexCollaborativeEditor: React.FC<
 		}
 	}, [overallSyncStatus, onSyncStatusChange]);
 
-	// Sync status indicator component
-	const SyncStatusIndicator = () => {
-		const getStatusColor = () => {
-			switch (overallSyncStatus) {
-				case "synced":
-					return "text-green-600";
-				case "syncing":
-					return "text-blue-600";
-				case "error":
-					return "text-red-600";
-				case "offline":
-					return "text-yellow-600";
-				case "pending":
-					return "text-gray-600";
-				case "disabled":
-					return "text-gray-400";
-				default:
-					return "text-gray-600";
-			}
-		};
-
-		const getStatusText = () => {
-			switch (overallSyncStatus) {
-				case "synced":
-					return "Synced";
-				case "syncing":
-					return "Syncing...";
-				case "error":
-					return "Sync Error";
-				case "offline":
-					return "Offline";
-				case "pending":
-					return "Connecting...";
-				case "disabled":
-					return "Sync Disabled";
-				default:
-					return "Unknown";
-			}
-		};
-
-		return (
-			<div className={`text-xs ${getStatusColor()} flex items-center gap-1`}>
-				<div
-					className={`w-2 h-2 rounded-full ${
-						overallSyncStatus === "synced"
-							? "bg-green-600"
-							: overallSyncStatus === "syncing"
-								? "bg-blue-600 animate-pulse"
-								: overallSyncStatus === "error"
-									? "bg-red-600"
-									: overallSyncStatus === "offline"
-										? "bg-yellow-600"
-										: "bg-gray-600"
-					}`}
-				/>
-				{getStatusText()}
-			</div>
-		);
-	};
-
 	return (
 		<div className={`convex-collaborative-editor ${className}`}>
 			{/* Document Header with Real-time Metadata */}
@@ -660,39 +794,6 @@ export const ConvexCollaborativeEditor: React.FC<
 				</div>
 			)}
 
-			{/* Status bar */}
-			<div className="flex items-center justify-between p-2 bg-gray-50 border-b">
-				<div className="flex items-center space-x-4">
-					<SyncStatusIndicator />
-					{/* Real-time Presence Indicator */}
-					<PresenceIndicator
-						documentId={documentId}
-						size="sm"
-						maxVisible={3}
-						showNames={false}
-					/>
-
-					{/* Performance Monitor (compact) */}
-					{useOptimizedSync && (
-						<CompactPerformanceIndicator
-							getStats={optimizedSyncHook.getStats}
-						/>
-					)}
-
-					{/* Connection Status */}
-					<SimpleConnectionIndicator
-						connectionState={connectionState}
-						isSyncing={isSyncing}
-					/>
-				</div>
-				<div className="flex items-center gap-2 text-xs text-gray-500">
-					{!persistenceAvailable && (
-						<span className="text-yellow-600">⚠ Local storage unavailable</span>
-					)}
-					<span>Document: {documentId}</span>
-				</div>
-			</div>
-
 			{/* Error display */}
 			<EnhancedErrorDisplay
 				syncError={syncError}
@@ -700,7 +801,6 @@ export const ConvexCollaborativeEditor: React.FC<
 				hasGlobalError={!!globalError}
 				resync={resync}
 				isConnected={isConnected}
-				reconnect={reconnect}
 				isSyncing={isSyncing}
 				offlineMode={offlineMode}
 			/>
@@ -737,38 +837,6 @@ export const ConvexCollaborativeEditor: React.FC<
 					</div>
 				)}
 			</div>
-
-			{/* Performance Monitor (detailed) */}
-			{showPerformanceMonitor && useOptimizedSync && (
-				<SyncPerformanceMonitor
-					getStats={optimizedSyncHook.getStats}
-					clearStats={optimizedSyncHook.clearStats}
-					visible={true}
-					updateInterval={1000}
-				/>
-			)}
-
-			{/* Enhanced Connection Status (development) */}
-			{process.env.NODE_ENV === "development" && (
-				<div className="border-t">
-					<ConnectionStatus
-						connectionState={connectionState}
-						isSyncing={isSyncing}
-						error={syncError}
-						onReconnect={reconnect}
-						showDetails={true}
-						size="sm"
-						className="m-2"
-					/>
-
-					<div className="p-2 bg-gray-100 text-xs text-gray-600 space-y-1">
-						<div>Local synced: {isLocalSynced ? "✓" : "✗"}</div>
-						<div>Server synced: {isServerSynced ? "✓" : "✗"}</div>
-						<div>Y.Doc client ID: {yDoc.clientID}</div>
-						<div>Sync mode: {useOptimizedSync ? "Optimized" : "Regular"}</div>
-					</div>
-				</div>
-			)}
 		</div>
 	);
 };
