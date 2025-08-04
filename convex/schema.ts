@@ -119,6 +119,54 @@ const schema = defineSchema({
 			searchField: "name",
 			filterFields: ["category", "isTeamTemplate", "createdBy"],
 		}),
+
+	// Saved searches table for user search preferences
+	savedSearches: defineTable({
+		name: v.string(), // User-defined name for the saved search
+		query: v.optional(v.string()), // Search query string
+		filters: v.object({
+			folderId: v.optional(v.id("folders")),
+			status: v.optional(
+				v.union(
+					v.literal("draft"),
+					v.literal("published"),
+					v.literal("archived"),
+				),
+			),
+			tags: v.optional(v.array(v.string())),
+			dateRange: v.optional(
+				v.object({
+					start: v.number(),
+					end: v.number(),
+				}),
+			),
+		}), // Filter criteria as structured object
+		sortBy: v.optional(
+			v.union(
+				v.literal("title"),
+				v.literal("updatedAt"),
+				v.literal("createdAt"),
+				v.literal("lastAccessedAt"),
+			),
+		),
+		sortOrder: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
+		userId: v.id("users"), // Reference to the user who created the saved search
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_user", ["userId"])
+		.index("by_user_created", ["userId", "createdAt"]),
+
+	// Search history table for autocomplete and recent searches
+	searchHistory: defineTable({
+		query: v.string(), // The search query string
+		userId: v.id("users"), // Reference to the user who performed the search
+		searchedAt: v.number(), // Timestamp when the search was performed
+		resultCount: v.optional(v.number()), // Number of results returned (for analytics)
+	})
+		.index("by_user", ["userId"])
+		.index("by_user_searched", ["userId", "searchedAt"])
+		.index("by_query", ["query"]), // For deduplication and frequency analysis
 });
 
 export default schema;

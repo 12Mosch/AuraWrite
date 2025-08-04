@@ -4,19 +4,26 @@ import {
 	ChevronRight,
 	Clock,
 	FileText,
-	Folder,
 	Home,
 	Settings,
 	Star,
 } from "lucide-react";
 import type React from "react";
 import { cn } from "@/lib/utils";
+import type { Id } from "../../convex/_generated/dataModel";
+import type { SearchCriteria } from "./AdvancedSearchModal";
+import { FolderTree } from "./FolderTree";
+import { SavedSearches } from "./SavedSearches";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 
 export interface DashboardSidebarProps {
 	collapsed: boolean;
 	onToggle: () => void;
+	selectedFolderId?: Id<"folders">;
+	onFolderSelect?: (folderId?: Id<"folders">) => void;
+	onSavedSearchSelect?: (criteria: SearchCriteria) => void;
+	currentSearchCriteria?: SearchCriteria;
 	className?: string;
 }
 
@@ -65,6 +72,10 @@ const SidebarItem: React.FC<SidebarItemProps> = ({
 export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 	collapsed,
 	onToggle,
+	selectedFolderId,
+	onFolderSelect,
+	onSavedSearchSelect,
+	currentSearchCriteria,
 	className,
 }) => {
 	return (
@@ -151,6 +162,18 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 
 				<Separator className="my-3" />
 
+				{/* Saved Searches */}
+				{!collapsed && (
+					<div className="px-3">
+						<SavedSearches
+							onSearchSelect={onSavedSearchSelect}
+							currentSearchCriteria={currentSearchCriteria}
+						/>
+					</div>
+				)}
+
+				<Separator className="my-3" />
+
 				{/* Folders */}
 				<div className="space-y-1">
 					{!collapsed && (
@@ -160,18 +183,13 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 							</span>
 						</div>
 					)}
-					<SidebarItem
-						icon={<Folder className="h-4 w-4" />}
-						label="Work"
-						collapsed={collapsed}
-						badge="5"
-					/>
-					<SidebarItem
-						icon={<Folder className="h-4 w-4" />}
-						label="Personal"
-						collapsed={collapsed}
-						badge="2"
-					/>
+					{!collapsed && (
+						<FolderTree
+							selectedFolderId={selectedFolderId}
+							onFolderSelect={onFolderSelect}
+							showCreateButton={true}
+						/>
+					)}
 				</div>
 			</nav>
 

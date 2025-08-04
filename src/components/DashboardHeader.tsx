@@ -1,7 +1,10 @@
-import { Grid3X3, List, LogOut, Menu, Plus, Search, User } from "lucide-react";
+import { Grid3X3, List, LogOut, Menu, Plus, User } from "lucide-react";
 import type React from "react";
 import { cn } from "@/lib/utils";
+import type { SearchCriteria } from "./AdvancedSearchModal";
 import type { ViewMode } from "./DocumentDashboard";
+import { type FilterCriteria, FilterPanel } from "./FilterPanel";
+import { SearchBar } from "./SearchBar";
 import { Button } from "./ui/button";
 import {
 	DropdownMenu,
@@ -10,11 +13,13 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { Input } from "./ui/input";
 
 export interface DashboardHeaderProps {
 	searchQuery: string;
 	onSearch: (query: string) => void;
+	onAdvancedSearch?: (criteria: SearchCriteria) => void;
+	filters: FilterCriteria;
+	onFiltersChange: (filters: FilterCriteria) => void;
 	viewMode: ViewMode;
 	onViewToggle: () => void;
 	onCreateDocument: () => void;
@@ -27,6 +32,9 @@ export interface DashboardHeaderProps {
 export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 	searchQuery,
 	onSearch,
+	onAdvancedSearch,
+	filters,
+	onFiltersChange,
 	viewMode,
 	onViewToggle,
 	onCreateDocument,
@@ -63,18 +71,23 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 				</div>
 			</div>
 
-			{/* Center Section: Search */}
-			<div className="flex-1 max-w-md mx-4">
-				<div className="relative">
-					<Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-					<Input
-						type="search"
-						placeholder="Search documents..."
+			{/* Center Section: Search & Filters */}
+			<div className="flex-1 flex items-center gap-2 max-w-2xl mx-4">
+				<div className="flex-1 max-w-md">
+					<SearchBar
 						value={searchQuery}
-						onChange={(e) => onSearch(e.target.value)}
-						className="pl-10 h-9"
+						onChange={onSearch}
+						onSearch={onSearch}
+						onAdvancedSearch={onAdvancedSearch}
+						placeholder="Search documents..."
+						showShortcut={true}
 					/>
 				</div>
+				<FilterPanel
+					filters={filters}
+					onFiltersChange={onFiltersChange}
+					showAsDropdown={true}
+				/>
 			</div>
 
 			{/* Right Section: Actions + User Menu */}

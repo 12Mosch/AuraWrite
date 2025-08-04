@@ -1,3 +1,4 @@
+import { useDraggable } from "@dnd-kit/core";
 import {
 	Calendar,
 	Copy,
@@ -12,7 +13,7 @@ import {
 import type React from "react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-
+import { useDragItem } from "./DragDropProvider";
 import type { Document } from "./MainContent";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -85,8 +86,22 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 }) => {
 	const [isHovered, setIsHovered] = useState(false);
 
+	// Drag and drop setup
+	const dragItem = useDragItem("document", document._id, document.title);
+	const { attributes, listeners, setNodeRef, transform, isDragging } =
+		useDraggable({
+			id: dragItem.id,
+			data: dragItem,
+		});
+
 	const preview = getDocumentPreview(document.content);
 	const lastModified = formatDate(document.updatedAt);
+
+	const dragStyle = transform
+		? {
+				transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+			}
+		: undefined;
 
 	const handleCardClick = (e: React.MouseEvent) => {
 		// Don't trigger if clicking on dropdown or other interactive elements
@@ -111,15 +126,20 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 
 	return (
 		<Card
+			ref={setNodeRef}
 			className={cn(
 				"group cursor-pointer transition-all duration-200 hover:shadow-md",
 				"border-2 hover:border-primary/20",
 				selected && "border-primary bg-primary/5",
+				isDragging && "opacity-50",
 				className,
 			)}
+			style={dragStyle}
 			onMouseEnter={() => setIsHovered(true)}
 			onMouseLeave={() => setIsHovered(false)}
 			onClick={handleCardClick}
+			{...attributes}
+			{...listeners}
 		>
 			<CardHeader className="pb-3">
 				<div className="flex items-start justify-between gap-2">
