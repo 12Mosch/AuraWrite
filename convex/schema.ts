@@ -19,12 +19,28 @@ const schema = defineSchema({
 		createdAt: v.number(),
 		updatedAt: v.number(),
 		yjsUpdatedAt: v.optional(v.number()), // Last Y.Doc update timestamp
+		tags: v.optional(v.array(v.string())), // Document tags for organization
+		status: v.optional(
+			v.union(
+				v.literal("draft"),
+				v.literal("published"),
+				v.literal("archived"),
+			),
+		), // Document status
+		folderId: v.optional(v.id("folders")), // Reference to parent folder
+		templateId: v.optional(v.id("templates")), // Reference to template used to create document
+		lastAccessedAt: v.optional(v.number()), // Last time document was accessed
+		isFavorite: v.optional(v.boolean()), // Whether document is marked as favorite
 	})
 		.index("by_owner", ["ownerId"])
 		.index("by_updated", ["updatedAt"])
+		.index("by_folder", ["folderId"])
+		.index("by_status", ["status"])
+		.index("by_favorite", ["ownerId", "isFavorite"])
+		.index("by_last_accessed", ["lastAccessedAt"])
 		.searchIndex("search_title", {
 			searchField: "title",
-			filterFields: ["ownerId", "isPublic"],
+			filterFields: ["ownerId", "isPublic", "status", "folderId"],
 		}),
 
 	// Document versions for history/undo functionality
@@ -71,6 +87,38 @@ const schema = defineSchema({
 		.index("by_document", ["documentId"])
 		.index("by_user_document", ["userId", "documentId"])
 		.index("by_document_last_seen", ["documentId", "lastSeen"]), // Optimized for time-based queries
+
+	// Folders table for document organization
+	folders: defineTable({
+		name: v.string(),
+		color: v.optional(v.string()), // Hex color code for folder display
+		parentId: v.optional(v.id("folders")), // Reference to parent folder for nested structure
+		ownerId: v.id("users"), // Reference to the user who created the folder
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_owner", ["ownerId"])
+		.index("by_parent", ["parentId"])
+		.index("by_owner_parent", ["ownerId", "parentId"]), // Optimized for folder tree queries
+
+	// Templates table for document templates
+	templates: defineTable({
+		name: v.string(),
+		description: v.optional(v.string()),
+		content: v.string(), // Template content as JSON string
+		category: v.string(), // Template category (e.g., "business", "personal", "academic")
+		isTeamTemplate: v.boolean(), // Whether template is available to team/organization
+		createdBy: v.id("users"), // Reference to the user who created the template
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_creator", ["createdBy"])
+		.index("by_category", ["category"])
+		.index("by_team_template", ["isTeamTemplate"])
+		.searchIndex("search_templates", {
+			searchField: "name",
+			filterFields: ["category", "isTeamTemplate", "createdBy"],
+		}),
 });
 
 export default schema;

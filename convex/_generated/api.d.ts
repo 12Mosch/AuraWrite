@@ -17,8 +17,10 @@ import type * as auth from "../auth.js";
 import type * as authHelpers from "../authHelpers.js";
 import type * as collaboration from "../collaboration.js";
 import type * as documents from "../documents.js";
+import type * as folders from "../folders.js";
 import type * as http from "../http.js";
 import type * as subscriptions from "../subscriptions.js";
+import type * as templates from "../templates.js";
 import type * as users from "../users.js";
 import type * as yjsSync from "../yjsSync.js";
 
@@ -35,8 +37,10 @@ declare const fullApi: ApiFromModules<{
   authHelpers: typeof authHelpers;
   collaboration: typeof collaboration;
   documents: typeof documents;
+  folders: typeof folders;
   http: typeof http;
   subscriptions: typeof subscriptions;
+  templates: typeof templates;
   users: typeof users;
   yjsSync: typeof yjsSync;
 }>;
