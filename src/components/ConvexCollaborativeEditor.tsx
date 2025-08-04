@@ -1,6 +1,13 @@
 import { withYjs, YjsEditor } from "@slate-yjs/core";
 import React, { useCallback, useEffect, useMemo } from "react";
-import { createEditor, type Descendant, Editor } from "slate";
+import {
+	createEditor,
+	type Descendant,
+	Editor,
+	Range,
+	Element as SlateElement,
+	Transforms,
+} from "slate";
 import { withHistory } from "slate-history";
 import {
 	Editable,
@@ -11,7 +18,6 @@ import {
 } from "slate-react";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useError } from "../contexts/ErrorContext";
-
 import {
 	type SyncHookReturn,
 	useConvexYjsSync,
@@ -34,6 +40,7 @@ import {
 	getSelectedCharCountWithoutSpaces,
 	getSelectedCharCountWithSpaces,
 	getSelectedWordCount,
+	validateAndFixDocumentStructure,
 } from "../utils/slateFormatting";
 import { DocumentHeader } from "./DocumentHeader";
 import { EnhancedErrorDisplay } from "./EnhancedErrorDisplay";
@@ -228,13 +235,133 @@ export const ConvexCollaborativeEditor: React.FC<
 			return element.type === "link" ? true : isInline(element);
 		};
 
-		// Ensure editor has a consistent structure
+		// Comprehensive normalization rules
 		const { normalizeNode } = e;
 		e.normalizeNode = (entry) => {
+			const [node, path] = entry;
+
 			// Ensure the editor always has at least one paragraph
 			if (e.children.length === 0) {
-				e.insertNode({ type: "paragraph", children: [{ text: "" }] });
+				Transforms.insertNodes(e, {
+					type: "paragraph",
+					children: [{ text: "" }],
+				});
 				return;
+			}
+
+			// Fix orphaned list-items at the root level
+			if (
+				path.length === 1 && // Top-level element
+				SlateElement.isElement(node) &&
+				(node as CustomElement).type === "list-item"
+			) {
+				console.warn(
+					"Found orphaned list-item at root level, wrapping in bulleted-list",
+				);
+
+				// Wrap the list-item in a bulleted-list
+				const listWrapper: CustomElement = {
+					type: "bulleted-list",
+					children: [],
+				};
+
+				Transforms.wrapNodes(e, listWrapper, { at: path });
+				return;
+			}
+
+			// Fix list-items that are not children of list containers
+			if (
+				SlateElement.isElement(node) &&
+				(node as CustomElement).type === "list-item" &&
+				path.length > 1
+			) {
+				try {
+					const parentPath = path.slice(0, -1);
+					const [parent] = Editor.node(e, parentPath);
+
+					if (
+						SlateElement.isElement(parent) &&
+						(parent as CustomElement).type !== "bulleted-list" &&
+						(parent as CustomElement).type !== "numbered-list"
+					) {
+						console.warn(
+							"Found list-item with invalid parent, converting to paragraph",
+						);
+
+						// Convert the list-item to a paragraph
+						Transforms.setNodes(
+							e,
+							{ type: "paragraph" } as Partial<CustomElement>,
+							{ at: path },
+						);
+						return;
+					}
+				} catch (error) {
+					console.warn("Error checking list-item parent:", error);
+				}
+			}
+
+			// Only normalize list containers if they have invalid children that aren't being actively edited
+			if (
+				SlateElement.isElement(node) &&
+				((node as CustomElement).type === "bulleted-list" ||
+					(node as CustomElement).type === "numbered-list")
+			) {
+				const element = node as CustomElement;
+				for (let i = 0; i < element.children.length; i++) {
+					const child = element.children[i];
+					if (
+						SlateElement.isElement(child) &&
+						(child as CustomElement).type !== "list-item"
+					) {
+						// Only fix this if it's not a paragraph (which might be temporarily there during editing)
+						if ((child as CustomElement).type !== "paragraph") {
+							console.warn(
+								"Found non-list-item child in list container, converting to list-item",
+							);
+
+							const childPath = [...path, i];
+							Transforms.setNodes(
+								e,
+								{ type: "list-item" } as Partial<CustomElement>,
+								{ at: childPath },
+							);
+							return;
+						}
+					}
+				}
+			}
+
+			// Only unwrap paragraphs in list-items if they're clearly not supposed to be there
+			// This is less aggressive to avoid interfering with normal editing operations
+			if (
+				SlateElement.isElement(node) &&
+				(node as CustomElement).type === "list-item"
+			) {
+				const element = node as CustomElement;
+				// Only process if there's exactly one paragraph child and it has no special formatting
+				if (element.children.length === 1) {
+					const child = element.children[0];
+					if (
+						SlateElement.isElement(child) &&
+						(child as CustomElement).type === "paragraph"
+					) {
+						// Check if this paragraph has any special properties that suggest it should stay
+						const paragraphElement = child as CustomElement & {
+							align?: string;
+						};
+						if (!paragraphElement.align) {
+							console.warn(
+								"Found single paragraph inside list-item, unwrapping it",
+							);
+
+							const childPath = [...path, 0];
+							// Remove the paragraph wrapper and move its children up
+							Transforms.unwrapNodes(e, { at: childPath });
+							return;
+						}
+					}
+				}
 			}
 
 			normalizeNode(entry);
@@ -343,6 +470,20 @@ export const ConvexCollaborativeEditor: React.FC<
 		// We only need to call the onChange callback and update presence
 		onChange?.(newValue);
 
+		// Validate and fix document structure if needed
+		if (editor) {
+			try {
+				const hasStructuralIssues = validateAndFixDocumentStructure(editor);
+				if (hasStructuralIssues) {
+					console.log("Fixed document structure issues");
+					// Return early to let the normalization take effect
+					return;
+				}
+			} catch (error) {
+				console.warn("Error validating document structure:", error);
+			}
+		}
+
 		// Update presence with current selection (safely)
 		if (enableSync && editor) {
 			try {
@@ -373,7 +514,9 @@ export const ConvexCollaborativeEditor: React.FC<
 				const selectedCharsWithSpaces = getSelectedCharCountWithSpaces(editor);
 				const selectedCharsWithoutSpaces =
 					getSelectedCharCountWithoutSpaces(editor);
-				const hasSelection = selectedWordCount > 0;
+				const hasSelection = editor.selection
+					? !Range.isCollapsed(editor.selection)
+					: false;
 
 				onSelectionChange({
 					line: cursorPosition.line,
@@ -390,7 +533,7 @@ export const ConvexCollaborativeEditor: React.FC<
 	};
 
 	// Render element function for different block types
-	const renderElement = (props: RenderElementProps) => {
+	const renderElement = useCallback((props: RenderElementProps) => {
 		const { attributes, children, element } = props;
 
 		switch (element.type) {
@@ -412,6 +555,27 @@ export const ConvexCollaborativeEditor: React.FC<
 					HeadingComponent,
 					{ ...attributes, className: alignmentClass },
 					children,
+				);
+			}
+
+			case "paragraph": {
+				const align = (
+					element as CustomElement & {
+						align?: "left" | "center" | "right" | "justify";
+					}
+				).align;
+				const alignmentClass = getAlignmentClass(align);
+
+				// Use div for paragraphs to avoid HTML validation errors when nested inside list items
+				// This prevents the "p cannot be a descendant of p" error
+				return (
+					<div
+						{...attributes}
+						className={alignmentClass}
+						style={{ margin: "0.5em 0" }}
+					>
+						{children}
+					</div>
 				);
 			}
 
@@ -502,21 +666,26 @@ export const ConvexCollaborativeEditor: React.FC<
 			}
 
 			default: {
-				// Default case handles paragraphs and other block elements
+				// Default case - render as div to avoid HTML nesting issues
+				const customElement = element as CustomElement;
 				const align = (
-					element as CustomElement & {
+					customElement as CustomElement & {
 						align?: "left" | "center" | "right" | "justify";
 					}
 				).align;
 				const alignmentClass = getAlignmentClass(align);
+
+				console.warn(
+					`Unknown element type: ${customElement.type}, rendering as div`,
+				);
 				return (
-					<p {...attributes} className={alignmentClass}>
+					<div {...attributes} className={alignmentClass}>
 						{children}
-					</p>
+					</div>
 				);
 			}
 		}
-	};
+	}, []);
 
 	// Render leaf function for text formatting
 	const renderLeaf = useCallback((props: RenderLeafProps) => {

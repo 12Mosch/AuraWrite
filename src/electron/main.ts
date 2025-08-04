@@ -1,6 +1,14 @@
 const path = require("node:path");
 const { app, BrowserWindow, ipcMain, shell, Menu } = require("electron");
 
+// Helper function to send menu actions
+const sendMenuAction = (action: string) => {
+	const focusedWindow = BrowserWindow.getFocusedWindow();
+	if (focusedWindow) {
+		focusedWindow.webContents.send("menu-action", action);
+	}
+};
+
 // Create the application menu template
 const createMenuTemplate = () => {
 	const template = [
@@ -10,54 +18,28 @@ const createMenuTemplate = () => {
 				{
 					label: "New Document",
 					accelerator: "CmdOrCtrl+N",
-					click: () => {
-						// Send menu action to renderer
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "file.new");
-						}
-					},
+					click: () => sendMenuAction("file.new"),
 				},
 				{
 					label: "Open",
 					accelerator: "CmdOrCtrl+O",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "file.open");
-						}
-					},
+					click: () => sendMenuAction("file.open"),
 				},
 				{ type: "separator" },
 				{
 					label: "Save",
 					accelerator: "CmdOrCtrl+S",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "file.save");
-						}
-					},
+					click: () => sendMenuAction("file.save"),
 				},
 				{
 					label: "Save As...",
 					accelerator: "CmdOrCtrl+Shift+S",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "file.saveAs");
-						}
-					},
+					click: () => sendMenuAction("file.saveAs"),
 				},
 				{ type: "separator" },
 				{
 					label: "Export",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "file.export");
-						}
-					},
+					click: () => sendMenuAction("file.export"),
 				},
 			],
 		},
@@ -67,64 +49,34 @@ const createMenuTemplate = () => {
 				{
 					label: "Undo",
 					accelerator: "CmdOrCtrl+Z",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "edit.undo");
-						}
-					},
+					click: () => sendMenuAction("edit.undo"),
 				},
 				{
 					label: "Redo",
 					accelerator: "CmdOrCtrl+Y",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "edit.redo");
-						}
-					},
+					click: () => sendMenuAction("edit.redo"),
 				},
 				{ type: "separator" },
 				{
 					label: "Cut",
 					accelerator: "CmdOrCtrl+X",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "edit.cut");
-						}
-					},
+					click: () => sendMenuAction("edit.cut"),
 				},
 				{
 					label: "Copy",
 					accelerator: "CmdOrCtrl+C",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "edit.copy");
-						}
-					},
+					click: () => sendMenuAction("edit.copy"),
 				},
 				{
 					label: "Paste",
 					accelerator: "CmdOrCtrl+V",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "edit.paste");
-						}
-					},
+					click: () => sendMenuAction("edit.paste"),
 				},
 				{ type: "separator" },
 				{
 					label: "Find & Replace",
 					accelerator: "CmdOrCtrl+F",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "edit.find");
-						}
-					},
+					click: () => sendMenuAction("edit.find"),
 				},
 			],
 		},
@@ -133,58 +85,27 @@ const createMenuTemplate = () => {
 			submenu: [
 				{
 					label: "Toggle Toolbar",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send(
-								"menu-action",
-								"view.toggleToolbar",
-							);
-						}
-					},
+					click: () => sendMenuAction("view.toggleToolbar"),
 				},
 				{
 					label: "Toggle Status Bar",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send(
-								"menu-action",
-								"view.toggleStatusBar",
-							);
-						}
-					},
+					click: () => sendMenuAction("view.toggleStatusBar"),
 				},
 				{ type: "separator" },
 				{
 					label: "Zoom In",
 					accelerator: "CmdOrCtrl+Plus",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "view.zoomIn");
-						}
-					},
+					click: () => sendMenuAction("view.zoomIn"),
 				},
 				{
 					label: "Zoom Out",
 					accelerator: "CmdOrCtrl+-",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "view.zoomOut");
-						}
-					},
+					click: () => sendMenuAction("view.zoomOut"),
 				},
 				{
 					label: "Reset Zoom",
 					accelerator: "CmdOrCtrl+0",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "view.resetZoom");
-						}
-					},
+					click: () => sendMenuAction("view.resetZoom"),
 				},
 			],
 		},
@@ -194,80 +115,36 @@ const createMenuTemplate = () => {
 				{
 					label: "Bold",
 					accelerator: "CmdOrCtrl+B",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "format.bold");
-						}
-					},
+					click: () => sendMenuAction("format.bold"),
 				},
 				{
 					label: "Italic",
 					accelerator: "CmdOrCtrl+I",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "format.italic");
-						}
-					},
+					click: () => sendMenuAction("format.italic"),
 				},
 				{
 					label: "Underline",
 					accelerator: "CmdOrCtrl+U",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "format.underline");
-						}
-					},
+					click: () => sendMenuAction("format.underline"),
 				},
 				{ type: "separator" },
 				{
 					label: "Quote",
 					accelerator: "CmdOrCtrl+Shift+Q",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send(
-								"menu-action",
-								"format.blockquote",
-							);
-						}
-					},
+					click: () => sendMenuAction("format.blockquote"),
 				},
 				{ type: "separator" },
 				{
 					label: "Align Left",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "format.alignLeft");
-						}
-					},
+					click: () => sendMenuAction("format.alignLeft"),
 				},
 				{
 					label: "Align Center",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send(
-								"menu-action",
-								"format.alignCenter",
-							);
-						}
-					},
+					click: () => sendMenuAction("format.alignCenter"),
 				},
 				{
 					label: "Align Right",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send(
-								"menu-action",
-								"format.alignRight",
-							);
-						}
-					},
+					click: () => sendMenuAction("format.alignRight"),
 				},
 			],
 		},
@@ -276,33 +153,15 @@ const createMenuTemplate = () => {
 			submenu: [
 				{
 					label: "About AuraWrite",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "help.about");
-						}
-					},
+					click: () => sendMenuAction("help.about"),
 				},
 				{
 					label: "Keyboard Shortcuts",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send("menu-action", "help.shortcuts");
-						}
-					},
+					click: () => sendMenuAction("help.shortcuts"),
 				},
 				{
 					label: "Documentation",
-					click: () => {
-						const focusedWindow = BrowserWindow.getFocusedWindow();
-						if (focusedWindow) {
-							focusedWindow.webContents.send(
-								"menu-action",
-								"help.documentation",
-							);
-						}
-					},
+					click: () => sendMenuAction("help.documentation"),
 				},
 			],
 		},
