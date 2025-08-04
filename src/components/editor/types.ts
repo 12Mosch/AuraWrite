@@ -74,7 +74,8 @@ export type ToolbarAction =
 	| "insert.link"
 	| "insert.image"
 	| "insert.table"
-	| "insert.codeBlock";
+	| "insert.codeBlock"
+	| "navigation.exitToDashboard";
 
 // Action data types
 export interface FontSizeData {

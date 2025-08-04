@@ -3,6 +3,11 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { checkFolderAccess, getCurrentUser } from "./authHelpers";
 
+// Type for folder with children for tree structure
+type FolderWithChildren = Doc<"folders"> & {
+	children: FolderWithChildren[];
+};
+
 /**
  * Query to get all folders for the current user
  */
@@ -46,7 +51,7 @@ export const getFolderTree = query({
 			createdAt: v.number(),
 			updatedAt: v.number(),
 			_creationTime: v.number(),
-			children: v.array(v.any()), // Recursive structure
+			children: v.array(v.any()), // Recursive structure - v.any() required for recursive types in Convex
 		}),
 	),
 	handler: async (ctx) => {
@@ -58,8 +63,8 @@ export const getFolderTree = query({
 			.collect();
 
 		// Build tree structure
-		const folderMap = new Map<Id<"folders">, any>();
-		const rootFolders: any[] = [];
+		const folderMap = new Map<Id<"folders">, FolderWithChildren>();
+		const rootFolders: FolderWithChildren[] = [];
 
 		// First pass: create folder objects with children array
 		for (const folder of allFolders) {
@@ -71,7 +76,12 @@ export const getFolderTree = query({
 
 		// Second pass: build parent-child relationships
 		for (const folder of allFolders) {
-			const folderWithChildren = folderMap.get(folder._id)!;
+			const folderWithChildren = folderMap.get(folder._id);
+			if (!folderWithChildren) {
+				// This should never happen since we just added all folders in the first pass
+				continue;
+			}
+
 			if (folder.parentId) {
 				const parent = folderMap.get(folder.parentId);
 				if (parent) {

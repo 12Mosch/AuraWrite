@@ -28,6 +28,8 @@ interface EditorLayoutProps {
 	showCharCount?: boolean;
 	showReadingTime?: boolean;
 	readingWPM?: number;
+	// Navigation callback
+	onExitToDashboard?: () => void;
 }
 
 export const EditorLayout: React.FC<EditorLayoutProps> = ({
@@ -53,6 +55,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 	showCharCount = true,
 	showReadingTime = true,
 	readingWPM = 200,
+	onExitToDashboard,
 }) => {
 	return (
 		<div className={`editor-layout flex flex-col h-full ${className}`}>
@@ -80,6 +83,7 @@ export const EditorLayout: React.FC<EditorLayoutProps> = ({
 						syncStatus={documentStatus.syncStatus}
 						isModified={documentStatus.isModified}
 						lastSaved={documentStatus.lastSaved}
+						onExitToDashboard={onExitToDashboard}
 					/>
 				</div>
 			)}
