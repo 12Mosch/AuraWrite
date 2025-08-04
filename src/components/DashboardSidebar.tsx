@@ -24,6 +24,10 @@ export interface DashboardSidebarProps {
 	onFolderSelect?: (folderId?: Id<"folders">) => void;
 	onSavedSearchSelect?: (criteria: SearchCriteria) => void;
 	currentSearchCriteria?: SearchCriteria;
+	onViewChange?: (
+		view: "all" | "favorites" | "recent" | "drafts" | "archived",
+	) => void;
+	currentView?: string;
 	className?: string;
 }
 
@@ -76,6 +80,8 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 	onFolderSelect,
 	onSavedSearchSelect,
 	currentSearchCriteria,
+	onViewChange,
+	currentView = "all",
 	className,
 }) => {
 	return (
@@ -121,18 +127,23 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 					<SidebarItem
 						icon={<Home className="h-4 w-4" />}
 						label="All Documents"
-						active={true}
+						active={currentView === "all"}
 						collapsed={collapsed}
+						onClick={() => onViewChange?.("all")}
 					/>
 					<SidebarItem
 						icon={<Star className="h-4 w-4" />}
 						label="Favorites"
+						active={currentView === "favorites"}
 						collapsed={collapsed}
+						onClick={() => onViewChange?.("favorites")}
 					/>
 					<SidebarItem
 						icon={<Clock className="h-4 w-4" />}
 						label="Recent"
+						active={currentView === "recent"}
 						collapsed={collapsed}
+						onClick={() => onViewChange?.("recent")}
 					/>
 				</div>
 
@@ -150,13 +161,16 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 					<SidebarItem
 						icon={<FileText className="h-4 w-4" />}
 						label="Drafts"
+						active={currentView === "drafts"}
 						collapsed={collapsed}
-						badge="3"
+						onClick={() => onViewChange?.("drafts")}
 					/>
 					<SidebarItem
 						icon={<Archive className="h-4 w-4" />}
 						label="Archived"
+						active={currentView === "archived"}
 						collapsed={collapsed}
+						onClick={() => onViewChange?.("archived")}
 					/>
 				</div>
 

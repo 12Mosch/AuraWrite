@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DocumentDashboard } from "@/components/DocumentDashboard";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuraTextEditor } from "@/components/editor";
+import { Toaster } from "@/components/ui/sonner";
 import { ErrorProvider } from "@/contexts/ErrorContext";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -34,6 +35,7 @@ function App() {
 						<AuthenticatedApp />
 					</Authenticated>
 				</div>
+				<Toaster />
 			</ErrorBoundary>
 		</ErrorProvider>
 	);
@@ -133,6 +135,21 @@ function AuthenticatedApp() {
 		documentId ? { documentId } : "skip",
 	);
 
+	// Handle case where document doesn't exist
+	useEffect(() => {
+		if (documentId && currentDocument === null) {
+			// Document not found, redirect to dashboard
+			console.warn(
+				`Document ${documentId} not found, redirecting to dashboard`,
+			);
+			setDocumentId(null);
+			setCurrentView("dashboard");
+			setError(
+				"The document you were trying to access could not be found. It may have been deleted or you may not have permission to view it.",
+			);
+		}
+	}, [documentId, currentDocument]);
+
 	// Create document mutation
 	const createDocument = useMutation(api.documents.createDocument);
 
@@ -197,13 +214,24 @@ function AuthenticatedApp() {
 			<DocumentDashboard
 				onDocumentOpen={handleDocumentOpen}
 				onSignOut={() => void signOut()}
-				onNewDocument={handleNewDocument}
 			/>
 		);
 	}
 
-	// Editor view - require documentId
-	if (currentView === "editor" && documentId) {
+	// Editor view - require documentId and valid document
+	if (currentView === "editor" && documentId && currentDocument !== null) {
+		// Show loading state while document is being fetched
+		if (currentDocument === undefined) {
+			return (
+				<div className="h-screen flex items-center justify-center">
+					<div className="flex items-center gap-2 text-muted-foreground">
+						<div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+						<span>Loading document...</span>
+					</div>
+				</div>
+			);
+		}
+
 		return (
 			<div className="h-screen">
 				<AuraTextEditor
@@ -234,7 +262,6 @@ function AuthenticatedApp() {
 		<DocumentDashboard
 			onDocumentOpen={handleDocumentOpen}
 			onSignOut={() => void signOut()}
-			onNewDocument={handleNewDocument}
 		/>
 	);
 }

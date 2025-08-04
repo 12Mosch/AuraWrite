@@ -239,7 +239,9 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
 							onValueChange={(value) =>
 								handleCriteriaChange(
 									"folderId",
-									(value === "all" ? undefined : value) as Id<"folders"> | undefined,
+									(value === "all" ? undefined : value) as
+										| Id<"folders">
+										| undefined,
 								)
 							}
 						>

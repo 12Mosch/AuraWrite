@@ -1,30 +1,16 @@
 import { useDraggable } from "@dnd-kit/core";
-import {
-	Calendar,
-	Copy,
-	FileText,
-	Globe,
-	Lock,
-	MoreHorizontal,
-	Share2,
-	Star,
-	Trash2,
-} from "lucide-react";
+import { Calendar, FileText, Globe, Lock, Star } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { DocumentActionsMenu } from "./DocumentActionsMenu";
 import { useDragItem } from "./DragDropProvider";
+import { InlineEditableTitle } from "./InlineEditableTitle";
 import type { Document } from "./MainContent";
+import { StatusBadge } from "./StatusBadge";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
 
 export interface DocumentCardProps {
 	document: Document;
@@ -151,9 +137,13 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 
 						{/* Title and Metadata */}
 						<div className="flex-1 min-w-0">
-							<h3 className="font-medium text-sm leading-tight truncate">
-								{document.title}
-							</h3>
+							<div className="font-medium text-sm leading-tight">
+								<InlineEditableTitle
+									documentId={document._id}
+									title={document.title}
+									className="min-w-0"
+								/>
+							</div>
 							<div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
 								<Calendar className="h-3 w-3" />
 								<span>{lastModified}</span>
@@ -174,46 +164,17 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 						)}
 
 						{/* More Actions */}
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild data-dropdown-trigger>
-								<Button
-									variant="ghost"
-									size="sm"
-									className={cn(
-										"h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity",
-										isHovered && "opacity-100",
-									)}
-								>
-									<MoreHorizontal className="h-4 w-4" />
-									<span className="sr-only">More actions</span>
-								</Button>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end" className="w-48">
-								<DropdownMenuItem onClick={onOpen}>
-									<FileText className="h-4 w-4 mr-2" />
-									Open
-								</DropdownMenuItem>
-								<DropdownMenuItem>
-									<Star className="h-4 w-4 mr-2" />
-									{document.isFavorite
-										? "Remove from favorites"
-										: "Add to favorites"}
-								</DropdownMenuItem>
-								<DropdownMenuItem>
-									<Share2 className="h-4 w-4 mr-2" />
-									Share
-								</DropdownMenuItem>
-								<DropdownMenuItem>
-									<Copy className="h-4 w-4 mr-2" />
-									Duplicate
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem className="text-destructive">
-									<Trash2 className="h-4 w-4 mr-2" />
-									Delete
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
+						<DocumentActionsMenu
+							documentId={document._id}
+							documentTitle={document.title}
+							isFavorite={document.isFavorite}
+							status={document.status}
+							onEdit={onOpen}
+							className={cn(
+								"opacity-0 group-hover:opacity-100 transition-opacity",
+								isHovered && "opacity-100",
+							)}
+						/>
 					</div>
 				</div>
 			</CardHeader>
@@ -234,11 +195,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 				{/* Tags and Status */}
 				<div className="flex items-center justify-between">
 					<div className="flex items-center gap-1 flex-wrap">
-						{document.status && (
-							<Badge variant="secondary" className="text-xs">
-								{document.status}
-							</Badge>
-						)}
+						<StatusBadge status={document.status} size="sm" />
 						{document.tags?.slice(0, 2).map((tag) => (
 							<Badge key={tag} variant="outline" className="text-xs">
 								{tag}

@@ -67,6 +67,18 @@ export const getUserDocuments = query({
 			collaborators: v.optional(v.array(v.id("users"))),
 			createdAt: v.number(),
 			updatedAt: v.number(),
+			tags: v.optional(v.array(v.string())),
+			status: v.optional(
+				v.union(
+					v.literal("draft"),
+					v.literal("published"),
+					v.literal("archived"),
+				),
+			),
+			folderId: v.optional(v.id("folders")),
+			templateId: v.optional(v.id("templates")),
+			lastAccessedAt: v.optional(v.number()),
+			isFavorite: v.optional(v.boolean()),
 			_creationTime: v.number(),
 		}),
 	),
@@ -84,23 +96,45 @@ export const getUserDocuments = query({
 // Query to get a specific document by ID
 export const getDocument = query({
 	args: { documentId: v.id("documents") },
-	returns: v.object({
-		_id: v.id("documents"),
-		title: v.string(),
-		content: v.optional(v.string()),
-		yjsState: v.optional(v.bytes()),
-		yjsStateVector: v.optional(v.bytes()),
-		yjsUpdatedAt: v.optional(v.number()),
-		ownerId: v.id("users"),
-		isPublic: v.optional(v.boolean()),
-		collaborators: v.optional(v.array(v.id("users"))),
-		createdAt: v.number(),
-		updatedAt: v.number(),
-		_creationTime: v.number(),
-	}),
+	returns: v.union(
+		v.object({
+			_id: v.id("documents"),
+			title: v.string(),
+			content: v.optional(v.string()),
+			yjsState: v.optional(v.bytes()),
+			yjsStateVector: v.optional(v.bytes()),
+			yjsUpdatedAt: v.optional(v.number()),
+			ownerId: v.id("users"),
+			isPublic: v.optional(v.boolean()),
+			collaborators: v.optional(v.array(v.id("users"))),
+			createdAt: v.number(),
+			updatedAt: v.number(),
+			tags: v.optional(v.array(v.string())),
+			status: v.optional(
+				v.union(
+					v.literal("draft"),
+					v.literal("published"),
+					v.literal("archived"),
+				),
+			),
+			folderId: v.optional(v.id("folders")),
+			templateId: v.optional(v.id("templates")),
+			lastAccessedAt: v.optional(v.number()),
+			isFavorite: v.optional(v.boolean()),
+			_creationTime: v.number(),
+		}),
+		v.null(),
+	),
 	handler: async (ctx, { documentId }) => {
-		const userId = await getCurrentUser(ctx);
-		return await checkDocumentAccess(ctx, documentId, userId);
+		try {
+			const userId = await getCurrentUser(ctx);
+			return await checkDocumentAccess(ctx, documentId, userId);
+		} catch (error) {
+			// Return null if document not found or access denied
+			// This allows the frontend to handle missing documents gracefully
+			console.warn(`Document access failed for ${documentId}:`, error);
+			return null;
+		}
 	},
 });
 
@@ -120,6 +154,18 @@ export const getDocumentForRecovery = query({
 			createdAt: v.number(),
 			updatedAt: v.number(),
 			yjsUpdatedAt: v.optional(v.number()),
+			tags: v.optional(v.array(v.string())),
+			status: v.optional(
+				v.union(
+					v.literal("draft"),
+					v.literal("published"),
+					v.literal("archived"),
+				),
+			),
+			folderId: v.optional(v.id("folders")),
+			templateId: v.optional(v.id("templates")),
+			lastAccessedAt: v.optional(v.number()),
+			isFavorite: v.optional(v.boolean()),
 			_creationTime: v.number(),
 		}),
 		v.null(),

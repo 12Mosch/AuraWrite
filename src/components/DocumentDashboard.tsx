@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import type { SearchCriteria } from "./AdvancedSearchModal";
+import { CreateDocumentModal } from "./CreateDocumentModal";
 import { DashboardHeader } from "./DashboardHeader";
 import { DashboardSidebar } from "./DashboardSidebar";
 import { DragDropProvider } from "./DragDropProvider";
@@ -16,14 +17,12 @@ export interface DocumentDashboardProps {
 	className?: string;
 	onDocumentOpen?: (documentId: Id<"documents">) => void;
 	onSignOut?: () => void;
-	onNewDocument?: () => Promise<void>;
 }
 
 export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 	className,
 	onDocumentOpen,
 	onSignOut,
-	onNewDocument,
 }) => {
 	// State management
 	const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -36,6 +35,10 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 	const [selectedDocuments, setSelectedDocuments] = useState<
 		Set<Id<"documents">>
 	>(new Set());
+	const [createModalOpen, setCreateModalOpen] = useState(false);
+	const [currentView, setCurrentView] = useState<
+		"all" | "favorites" | "recent" | "drafts" | "archived"
+	>("all");
 
 	// Data fetching - use enhanced search when there's a query or filters, otherwise get all user documents
 	const hasActiveFilters =
@@ -50,6 +53,10 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 		api.documents.getUserDocuments,
 		hasActiveFilters ? undefined : {},
 	);
+	const recentDocuments = useQuery(
+		api.documents.getRecentDocuments,
+		currentView === "recent" ? { limit: 20 } : "skip",
+	);
 	const searchResults = useQuery(
 		api.documents.searchDocuments,
 		hasActiveFilters
@@ -62,10 +69,18 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 				}
 			: "skip",
 	);
-	const createDocument = useMutation(api.documents.createDocument);
 
-	// Use search results when searching/filtering, otherwise use all user documents
+	// Mutations
+	const updateLastAccessed = useMutation(
+		api.documents.updateDocumentLastAccessed,
+	);
+
+	// Use search results when searching/filtering, recent documents for recent view, otherwise use all user documents
 	const filteredDocuments = React.useMemo(() => {
+		if (currentView === "recent") {
+			return recentDocuments || [];
+		}
+
 		if (hasActiveFilters) {
 			let results = searchResults || [];
 
@@ -77,7 +92,14 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 			return results;
 		}
 		return userDocuments || [];
-	}, [userDocuments, searchResults, hasActiveFilters, filters.isFavorite]);
+	}, [
+		userDocuments,
+		searchResults,
+		recentDocuments,
+		hasActiveFilters,
+		filters.isFavorite,
+		currentView,
+	]);
 
 	// Event handlers
 	const handleViewToggle = useCallback(() => {
@@ -184,36 +206,62 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 		[],
 	);
 
-	const handleCreateDocument = useCallback(async () => {
-		try {
-			if (onNewDocument) {
-				await onNewDocument();
-			} else {
-				// Fallback: create document directly
-				const newDocumentId = await createDocument({
-					title: "Untitled Document",
-					content: JSON.stringify([
-						{ type: "paragraph", children: [{ text: "" }] },
-					]),
-					isPublic: false,
-				});
+	const handleCreateDocument = useCallback(() => {
+		// Always open the template modal instead of directly creating a document
+		setCreateModalOpen(true);
+	}, []);
 
-				if (onDocumentOpen) {
-					onDocumentOpen(newDocumentId);
-				}
-			}
-		} catch (error) {
-			console.error("Failed to create document:", error);
-		}
-	}, [createDocument, onNewDocument, onDocumentOpen]);
-
-	const handleDocumentOpen = useCallback(
+	const handleDocumentCreated = useCallback(
 		(documentId: Id<"documents">) => {
 			if (onDocumentOpen) {
 				onDocumentOpen(documentId);
 			}
 		},
 		[onDocumentOpen],
+	);
+
+	const handleViewChange = useCallback(
+		(view: "all" | "favorites" | "recent" | "drafts" | "archived") => {
+			setCurrentView(view);
+			// Clear folder selection when changing views
+			setSelectedFolderId(undefined);
+			// Update filters based on view
+			switch (view) {
+				case "favorites":
+					setFilters({ isFavorite: true });
+					break;
+				case "recent":
+					// Will be handled by sorting recent documents
+					setFilters({});
+					break;
+				case "drafts":
+					setFilters({ status: "draft" });
+					break;
+				case "archived":
+					setFilters({ status: "archived" });
+					break;
+				default:
+					setFilters({});
+					break;
+			}
+		},
+		[],
+	);
+
+	const handleDocumentOpen = useCallback(
+		async (documentId: Id<"documents">) => {
+			// Track document access
+			try {
+				await updateLastAccessed({ documentId });
+			} catch (error) {
+				console.error("Failed to update last accessed time:", error);
+			}
+
+			if (onDocumentOpen) {
+				onDocumentOpen(documentId);
+			}
+		},
+		[onDocumentOpen, updateLastAccessed],
 	);
 
 	return (
@@ -252,6 +300,8 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 						onFolderSelect={handleFolderSelect}
 						onSavedSearchSelect={handleSavedSearchSelect}
 						currentSearchCriteria={currentSearchCriteria}
+						onViewChange={handleViewChange}
+						currentView={currentView}
 						className="border-r"
 					/>
 
@@ -272,6 +322,14 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 					/>
 				</div>
 			</div>
+
+			{/* Create Document Modal */}
+			<CreateDocumentModal
+				open={createModalOpen}
+				onOpenChange={setCreateModalOpen}
+				onDocumentCreated={handleDocumentCreated}
+				defaultFolderId={selectedFolderId}
+			/>
 		</DragDropProvider>
 	);
 };

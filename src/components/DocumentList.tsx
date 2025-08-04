@@ -1,28 +1,20 @@
 import {
 	ChevronDown,
 	ChevronUp,
-	Copy,
 	FileText,
 	Globe,
 	Lock,
 	MoreHorizontal,
-	Share2,
 	Star,
-	Trash2,
 } from "lucide-react";
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { Id } from "../../convex/_generated/dataModel";
+import { DocumentActionsMenu } from "./DocumentActionsMenu";
+import { InlineEditableTitle } from "./InlineEditableTitle";
 import type { Document } from "./MainContent";
-import { Badge } from "./ui/badge";
+import { StatusBadge } from "./StatusBadge";
 import { Button } from "./ui/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
 
 export interface DocumentListProps {
 	documents: Document[];
@@ -145,34 +137,24 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 				<div className="grid grid-cols-12 gap-4 items-center">
 					<div className="col-span-1">
 						{/* Select All Checkbox */}
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-6 w-6 p-0"
-							onClick={() => {
-								const allSelected = documents.every((doc) =>
+						<div className="h-6 w-6 flex items-center justify-center">
+							<input
+								type="checkbox"
+								checked={documents.every((doc) =>
 									selectedDocuments.has(doc._id),
-								);
-								documents.forEach((doc) => {
-									onDocumentSelect(doc._id, !allSelected);
-								});
-							}}
-						>
-							<div
-								className={cn(
-									"h-4 w-4 border-2 rounded",
-									documents.every((doc) => selectedDocuments.has(doc._id))
-										? "bg-primary border-primary"
-										: "border-muted-foreground",
 								)}
-							>
-								{documents.every((doc) => selectedDocuments.has(doc._id)) && (
-									<div className="h-full w-full flex items-center justify-center">
-										<div className="h-2 w-2 bg-primary-foreground rounded-sm" />
-									</div>
-								)}
-							</div>
-						</Button>
+								onChange={() => {
+									const allSelected = documents.every((doc) =>
+										selectedDocuments.has(doc._id),
+									);
+									documents.forEach((doc) => {
+										onDocumentSelect(doc._id, !allSelected);
+									});
+								}}
+								className="h-4 w-4 rounded border-2 border-muted-foreground text-primary focus:ring-2 focus:ring-primary focus:ring-offset-2"
+								aria-label="Select all documents"
+							/>
+						</div>
 					</div>
 					<div className="col-span-5">
 						<SortButton field="title">Name</SortButton>
@@ -202,40 +184,34 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 					>
 						{/* Selection */}
 						<div className="col-span-1">
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-6 w-6 p-0"
-								onClick={(e) => {
-									e.stopPropagation();
-									onDocumentSelect(
-										document._id,
-										!selectedDocuments.has(document._id),
-									);
-								}}
-							>
-								<div
-									className={cn(
-										"h-4 w-4 border-2 rounded",
-										selectedDocuments.has(document._id)
-											? "bg-primary border-primary"
-											: "border-muted-foreground",
-									)}
-								>
-									{selectedDocuments.has(document._id) && (
-										<div className="h-full w-full flex items-center justify-center">
-											<div className="h-2 w-2 bg-primary-foreground rounded-sm" />
-										</div>
-									)}
-								</div>
-							</Button>
+							<div className="h-6 w-6 flex items-center justify-center">
+								<input
+									type="checkbox"
+									checked={selectedDocuments.has(document._id)}
+									onChange={(e) => {
+										e.stopPropagation();
+										onDocumentSelect(
+											document._id,
+											!selectedDocuments.has(document._id),
+										);
+									}}
+									onClick={(e) => e.stopPropagation()}
+									className="h-4 w-4 rounded border-2 border-muted-foreground text-primary focus:ring-2 focus:ring-primary focus:ring-offset-2"
+								/>
+							</div>
 						</div>
 
 						{/* Name */}
 						<div className="col-span-5 flex items-center gap-3 min-w-0">
 							<FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
 							<div className="min-w-0 flex-1">
-								<p className="font-medium text-sm truncate">{document.title}</p>
+								<div className="font-medium text-sm">
+									<InlineEditableTitle
+										documentId={document._id}
+										title={document.title}
+										className="min-w-0"
+									/>
+								</div>
 								<div className="flex items-center gap-2 mt-0.5">
 									{document.isPublic ? (
 										<Globe className="h-3 w-3 text-muted-foreground" />
@@ -251,11 +227,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
 						{/* Status */}
 						<div className="col-span-2">
-							{document.status && (
-								<Badge variant="secondary" className="text-xs">
-									{document.status}
-								</Badge>
-							)}
+							<StatusBadge status={document.status} size="sm" />
 						</div>
 
 						{/* Modified */}
@@ -267,8 +239,13 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
 						{/* Actions */}
 						<div className="col-span-2 flex justify-end">
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
+							<DocumentActionsMenu
+								documentId={document._id}
+								documentTitle={document.title}
+								isFavorite={document.isFavorite}
+								status={document.status}
+								onEdit={() => onDocumentOpen(document._id)}
+								trigger={
 									<Button
 										variant="ghost"
 										size="sm"
@@ -278,35 +255,8 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 										<MoreHorizontal className="h-4 w-4" />
 										<span className="sr-only">More actions</span>
 									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align="end" className="w-48">
-									<DropdownMenuItem
-										onClick={() => onDocumentOpen(document._id)}
-									>
-										<FileText className="h-4 w-4 mr-2" />
-										Open
-									</DropdownMenuItem>
-									<DropdownMenuItem>
-										<Star className="h-4 w-4 mr-2" />
-										{document.isFavorite
-											? "Remove from favorites"
-											: "Add to favorites"}
-									</DropdownMenuItem>
-									<DropdownMenuItem>
-										<Share2 className="h-4 w-4 mr-2" />
-										Share
-									</DropdownMenuItem>
-									<DropdownMenuItem>
-										<Copy className="h-4 w-4 mr-2" />
-										Duplicate
-									</DropdownMenuItem>
-									<DropdownMenuSeparator />
-									<DropdownMenuItem className="text-destructive">
-										<Trash2 className="h-4 w-4 mr-2" />
-										Delete
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
+								}
+							/>
 						</div>
 					</button>
 				))}
