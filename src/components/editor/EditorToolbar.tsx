@@ -3,6 +3,7 @@ import {
 	AlignJustify,
 	AlignLeft,
 	AlignRight,
+	ArrowLeft,
 	Bold,
 	Code,
 	Image,
@@ -48,6 +49,8 @@ interface EditorToolbarProps {
 	syncStatus?: MinimalSyncStatus;
 	isModified?: boolean;
 	lastSaved?: Date;
+	// Navigation callback
+	onExitToDashboard?: () => void;
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -60,9 +63,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 	syncStatus = "synced",
 	isModified = false,
 	lastSaved,
+	onExitToDashboard,
 }) => {
 	const handleAction: ToolbarActionHandler = (action, data) => {
-		onAction?.(action, data);
+		if (action === "navigation.exitToDashboard") {
+			onExitToDashboard?.();
+		} else {
+			onAction?.(action, data);
+		}
 	};
 
 	// Horizontal overflow detection for gradient masks
@@ -126,6 +134,24 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 			>
 				{/* Left side: Toolbar controls */}
 				<div className="flex items-center gap-1 flex-1 min-w-0">
+					{/* Exit to Dashboard */}
+					<div className="flex items-center gap-1 flex-shrink-0">
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={() => handleAction("navigation.exitToDashboard")}
+								>
+									<ArrowLeft className="h-4 w-4" />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>Back to Dashboard</TooltipContent>
+						</Tooltip>
+					</div>
+
+					<Separator orientation="vertical" className="h-6" />
+
 					{/* Undo/Redo */}
 					<div className="flex items-center gap-1 flex-shrink-0">
 						<Tooltip>
