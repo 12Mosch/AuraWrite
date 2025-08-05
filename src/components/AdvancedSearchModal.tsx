@@ -70,30 +70,68 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
 	const handleStartDateChange = useCallback(
 		(date: string) => {
+			// Optimistically update local state
 			setStartDate(date);
+
+			// If both dates are present, validate range before emitting change
 			if (date && endDate) {
+				const newStart = new Date(date).getTime();
+				const currentEnd = new Date(endDate).getTime();
+
+				// If invalid (start after end), prevent onChange and reset the invalid input
+				if (
+					!Number.isNaN(newStart) &&
+					!Number.isNaN(currentEnd) &&
+					newStart > currentEnd
+				) {
+					// Reset the invalid start date input to maintain a valid range
+					setStartDate("");
+					return;
+				}
+
 				onChange({
-					start: new Date(date).getTime(),
-					end: new Date(endDate).getTime(),
+					start: newStart,
+					end: currentEnd,
 				});
 			} else if (!date && !endDate) {
+				// Both empty clears the range
 				onChange(undefined);
 			}
+			// If only one side is set, we don't emit partial invalid ranges
 		},
 		[endDate, onChange],
 	);
 
 	const handleEndDateChange = useCallback(
 		(date: string) => {
+			// Optimistically update local state
 			setEndDate(date);
+
+			// If both dates are present, validate range before emitting change
 			if (startDate && date) {
+				const currentStart = new Date(startDate).getTime();
+				const newEnd = new Date(date).getTime();
+
+				// If invalid (end before start), prevent onChange and reset the invalid input
+				if (
+					!Number.isNaN(currentStart) &&
+					!Number.isNaN(newEnd) &&
+					newEnd < currentStart
+				) {
+					// Reset the invalid end date input to maintain a valid range
+					setEndDate("");
+					return;
+				}
+
 				onChange({
-					start: new Date(startDate).getTime(),
-					end: new Date(date).getTime(),
+					start: currentStart,
+					end: newEnd,
 				});
 			} else if (!startDate && !date) {
+				// Both empty clears the range
 				onChange(undefined);
 			}
+			// If only one side is set, we don't emit partial invalid ranges
 		},
 		[startDate, onChange],
 	);
@@ -159,18 +197,8 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
 	// Fetch data for dropdowns
 	const folders = useQuery(api.folders.getUserFolders);
 
-	// Fetch documents and derive unique tags locally (since getUniqueTags doesn't exist)
-	const docsForTags = useQuery(api.documents.getUserDocuments) ?? [];
-	const availableTags = Array.from(
-		new Set(
-			docsForTags
-				.flatMap((d) => d.tags ?? [])
-				.filter(
-					(t): t is string => typeof t === "string" && t.trim().length > 0,
-				)
-				.map((t) => t.trim()),
-		),
-	).sort((a, b) => a.localeCompare(b));
+	// Fetch unique available tags via dedicated backend query
+	const availableTags = useQuery(api.documents.getAvailableTags) ?? [];
 
 	const handleCriteriaChange = useCallback(
 		<K extends keyof SearchCriteria>(key: K, value: SearchCriteria[K]) => {

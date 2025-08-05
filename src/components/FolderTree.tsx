@@ -206,51 +206,21 @@ const FolderNode: React.FC<FolderNodeProps> = ({
 
 				{/* Folder Name or Rename Input */}
 				{isRenaming ? (
-					<form
-						onSubmit={handleRenameSubmit}
-						className="flex-1"
-						// Prevent blur from canceling when submitting:
-						// If a mousedown happens inside the form (e.g. clicking a submit button),
-						// mark it so the subsequent onBlur doesn't cancel immediately.
-						onMouseDownCapture={(e) => {
-							// Attach a flag on the currentTarget to note an internal interaction
-							// that is likely to trigger a submit.
-							type FlaggedForm = HTMLFormElement & {
-								__mouseDownInside?: boolean;
-							};
-							const formEl = e.currentTarget as unknown as FlaggedForm;
-							formEl.__mouseDownInside = true;
-							// Reset the flag in the next tick so normal blurs still work later.
-							queueMicrotask(() => {
-								if (formEl.__mouseDownInside) {
-									delete formEl.__mouseDownInside;
-								}
-							});
-						}}
-					>
+					<form onSubmit={handleRenameSubmit} className="flex-1">
 						<Input
 							value={renameName}
 							onChange={(e) => setRenameName(e.target.value)}
-							onBlur={(e) => {
-								// If blur is caused by clicking inside the form (submit),
-								// delay cancellation to allow onSubmit to run first.
-								const form =
-									e.currentTarget.form ??
-									(e.currentTarget.closest("form") as HTMLFormElement | null);
-								const mouseDownInside = !!(
-									form &&
-									(form as HTMLFormElement & { __mouseDownInside?: boolean })
-										.__mouseDownInside
-								);
-								if (mouseDownInside) {
-									setTimeout(() => {
-										// After submit handler runs, if we're still renaming and nothing submitted,
-										// cancel as a fallback.
-										onCancelRename();
-									}, 0);
-									return;
+							onKeyDown={(e) => {
+								if (e.key === "Escape") {
+									e.preventDefault();
+									onCancelRename();
+								} else if (e.key === "Enter") {
+									e.preventDefault();
+									const form = e.currentTarget.form;
+									if (form) {
+										form.requestSubmit();
+									}
 								}
-								onCancelRename();
 							}}
 							autoFocus
 							className="h-6 text-sm"

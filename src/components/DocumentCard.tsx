@@ -20,17 +20,20 @@ export interface DocumentCardProps {
 	className?: string;
 }
 
-const formatDate = (timestamp: number): string => {
+const formatDate = (timestamp: number, locale: string = "en-US"): string => {
 	const date = new Date(timestamp);
 	const now = new Date();
 	const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
 
 	if (diffInHours < 24) {
-		return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+		return date.toLocaleTimeString(locale, {
+			hour: "2-digit",
+			minute: "2-digit",
+		});
 	} else if (diffInHours < 24 * 7) {
-		return date.toLocaleDateString([], { weekday: "short" });
+		return date.toLocaleDateString(locale, { weekday: "short" });
 	} else {
-		return date.toLocaleDateString([], { month: "short", day: "numeric" });
+		return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
 	}
 };
 
@@ -42,10 +45,19 @@ const getDocumentPreview = (content?: string): string => {
 		if (Array.isArray(parsed)) {
 			// Extract text from Slate.js format
 			const text = parsed
-				.map((node) => {
-					if (node.children) {
-						return node.children
-							.map((child: { text?: string }) => child.text || "")
+				.map((node: unknown) => {
+					type SlateTextChild = { text?: unknown };
+					type SlateNode = { children?: unknown };
+					const n = node as SlateNode | null;
+					if (n && Array.isArray(n.children)) {
+						return (n.children as unknown[])
+							.map((child: unknown) => {
+								const c = child as SlateTextChild | null;
+								if (c && typeof c === "object" && "text" in c) {
+									return String(c.text ?? "");
+								}
+								return "";
+							})
 							.join("");
 					}
 					return "";
@@ -57,7 +69,7 @@ const getDocumentPreview = (content?: string): string => {
 		}
 	} catch {
 		// Fallback for plain text
-		return content.substring(0, 100);
+		return content.slice(0, 100) + (content.length > 100 ? "..." : "");
 	}
 
 	return "No content";
@@ -81,7 +93,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 		});
 
 	const preview = getDocumentPreview(document.content);
-	const lastModified = formatDate(document.updatedAt);
+	const lastModified = formatDate(document.updatedAt, "en-US");
 
 	const dragStyle = transform
 		? {
@@ -100,13 +112,6 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 
 		if (onOpen) {
 			onOpen();
-		}
-	};
-
-	const handleSelectChange = (e: React.MouseEvent) => {
-		e.stopPropagation();
-		if (onSelect) {
-			onSelect(!selected);
 		}
 	};
 
@@ -214,16 +219,11 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 							<Checkbox
 								checked={selected}
 								onCheckedChange={(checked) => {
-									// Radix can return boolean | "indeterminate"
-									const isChecked = checked === true;
-									onSelect?.(isChecked);
+									if (typeof checked === "boolean") {
+										onSelect(checked);
+									}
 								}}
-								onClick={(e) => {
-									// Prevent card click/open
-									e.stopPropagation();
-									// Mirror previous onClick on the wrapper button
-									handleSelectChange(e as unknown as React.MouseEvent);
-								}}
+								onClick={(e) => e.stopPropagation()}
 								className="size-4"
 								aria-label="Select document"
 							/>

@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { Command, Search, Settings, X } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useDebouncedCallback } from "use-debounce";
 
 import { cn } from "@/lib/utils";
 import { api } from "../../convex/_generated/api";
@@ -108,15 +109,22 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 		return () => document.removeEventListener("mousedown", handleClickOutside);
 	}, []);
 
+	// Debounced onChange to reduce updates on rapid typing
+	const debouncedOnChange = useDebouncedCallback((newValue: string) => {
+		onChange(newValue);
+	}, 300);
+
 	// Handle input change
 	const handleInputChange = useCallback(
 		(e: React.ChangeEvent<HTMLInputElement>) => {
 			const newValue = e.target.value;
-			onChange(newValue);
+			// Debounce the parent onChange
+			debouncedOnChange(newValue);
+			// Keep UI responsive
 			setIsOpen(newValue.trim().length > 0);
 			setSelectedIndex(-1);
 		},
-		[onChange],
+		[debouncedOnChange],
 	);
 
 	// Handle input focus
@@ -125,6 +133,18 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 			setIsOpen(true);
 		}
 	}, [value]);
+
+	// Helper to add a query to search history with error handling
+	const addSearchToHistory = useCallback(
+		async (query: string) => {
+			try {
+				await addToHistory({ query });
+			} catch (error) {
+				onError?.(error);
+			}
+		},
+		[addToHistory, onError],
+	);
 
 	// Handle suggestion selection
 	const handleSuggestionSelect = useCallback(
@@ -138,17 +158,13 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 				suggestion.type === "suggestion" ||
 				!searchHistory?.some((h) => h.query === suggestion.query)
 			) {
-				try {
-					await addToHistory({ query: suggestion.query });
-				} catch (error) {
-					onError?.(error);
-				}
+				await addSearchToHistory(suggestion.query);
 			}
 
 			// Trigger search
 			onSearch?.(suggestion.query);
 		},
-		[onChange, onSearch, addToHistory, searchHistory, onError],
+		[onChange, onSearch, searchHistory, addSearchToHistory],
 	);
 
 	// Handle keyboard navigation in suggestions
@@ -159,9 +175,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 					// Perform search on Enter
 					onSearch?.(value);
 					// Add to history
-					addToHistory({ query: value }).catch((error) => {
-						onError?.(error);
-					});
+					addSearchToHistory(value);
 					setIsOpen(false);
 				}
 				return;
@@ -186,9 +200,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 						handleSuggestionSelect(suggestions[selectedIndex]);
 					} else if (value.trim()) {
 						onSearch?.(value);
-						addToHistory({ query: value }).catch((error) => {
-							onError?.(error);
-						});
+						addSearchToHistory(value);
 						setIsOpen(false);
 					}
 					break;
@@ -208,8 +220,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 			onSearch,
 			onChange,
 			handleSuggestionSelect,
-			addToHistory,
-			onError,
+			addSearchToHistory,
 		],
 	);
 

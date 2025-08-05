@@ -61,21 +61,19 @@ interface SaveSearchDialogProps {
 	initialName?: string;
 }
 
-const SaveSearchDialog: React.FC<SaveSearchDialogProps> = ({
-	isOpen,
-	onOpenChange,
-	onSave,
-	initialName = "",
-}) => {
+const SaveSearchDialog: React.FC<
+	SaveSearchDialogProps & { isSaving?: boolean }
+> = ({ isOpen, onOpenChange, onSave, initialName = "", isSaving = false }) => {
 	const [name, setName] = useState(initialName);
 
 	const handleSave = useCallback(() => {
 		if (name.trim()) {
 			onSave(name.trim());
+			// Note: Don't clear/close here if saving is async; parent will control dialog
+			// We still clear local input for UX responsiveness.
 			setName("");
-			onOpenChange(false);
 		}
-	}, [name, onSave, onOpenChange]);
+	}, [name, onSave]);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -106,17 +104,22 @@ const SaveSearchDialog: React.FC<SaveSearchDialogProps> = ({
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 							onKeyDown={handleKeyDown}
+							disabled={isSaving}
 							autoFocus
 						/>
 					</div>
 				</div>
 
 				<div className="flex justify-end gap-2">
-					<Button variant="outline" onClick={() => onOpenChange(false)}>
+					<Button
+						variant="outline"
+						onClick={() => onOpenChange(false)}
+						disabled={isSaving}
+					>
 						Cancel
 					</Button>
-					<Button onClick={handleSave} disabled={!name.trim()}>
-						Save Search
+					<Button onClick={handleSave} disabled={!name.trim() || isSaving}>
+						{isSaving ? "Saving..." : "Save Search"}
 					</Button>
 				</div>
 			</DialogContent>
@@ -131,6 +134,10 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 	className,
 }) => {
 	const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+	const [isSaving, setIsSaving] = useState(false);
+	const [deletingId, setDeletingId] = useState<Id<"savedSearches"> | null>(
+		null,
+	);
 
 	// Fetch saved searches
 	const savedSearches = useQuery(api.savedSearches.getUserSavedSearches);
@@ -144,6 +151,7 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 		async (name: string) => {
 			if (!currentSearchCriteria) return;
 
+			setIsSaving(true);
 			try {
 				await createSavedSearch({
 					name,
@@ -158,8 +166,11 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 					sortOrder: currentSearchCriteria.sortOrder,
 				});
 				onSaveCurrentSearch?.(name);
+				setIsSaveDialogOpen(false);
 			} catch (error) {
-				console.error("Failed to save search:", error);
+				console.warn("Failed to save search:", error);
+			} finally {
+				setIsSaving(false);
 			}
 		},
 		[currentSearchCriteria, createSavedSearch, onSaveCurrentSearch],
@@ -185,10 +196,13 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 	// Handle delete search
 	const handleDeleteSearch = useCallback(
 		async (searchId: Id<"savedSearches">) => {
+			setDeletingId(searchId);
 			try {
 				await deleteSavedSearch({ savedSearchId: searchId });
 			} catch (error) {
 				console.warn("Failed to delete saved search:", error);
+			} finally {
+				setDeletingId(null);
 			}
 		},
 		[deleteSavedSearch],
@@ -239,9 +253,10 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 						size="sm"
 						onClick={() => setIsSaveDialogOpen(true)}
 						className="h-6 px-2 text-xs"
+						disabled={isSaving}
 					>
 						<Plus className="h-3 w-3 mr-1" />
-						Save Current
+						{isSaving ? "Saving..." : "Save Current"}
 					</Button>
 				)}
 			</div>
@@ -289,10 +304,11 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
 									onClick={() => handleDeleteSearch(savedSearch._id)}
+									disabled={deletingId === savedSearch._id}
 									className="text-destructive"
 								>
 									<Trash2 className="h-4 w-4 mr-2" />
-									Delete
+									{deletingId === savedSearch._id ? "Deleting..." : "Delete"}
 								</DropdownMenuItem>
 							</DropdownMenuContent>
 						</DropdownMenu>
@@ -323,6 +339,7 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 				isOpen={isSaveDialogOpen}
 				onOpenChange={setIsSaveDialogOpen}
 				onSave={handleSaveCurrentSearch}
+				isSaving={isSaving}
 			/>
 		</div>
 	);

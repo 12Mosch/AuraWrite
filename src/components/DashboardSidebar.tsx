@@ -29,6 +29,7 @@ export interface DashboardSidebarProps {
 	) => void;
 	currentView?: string;
 	className?: string;
+	onSettingsClick?: () => void;
 }
 
 interface SidebarItemProps {
@@ -83,6 +84,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 	onViewChange,
 	currentView = "all",
 	className,
+	onSettingsClick,
 }) => {
 	return (
 		<aside
@@ -212,6 +214,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 					icon={<Settings className="h-4 w-4" />}
 					label="Settings"
 					collapsed={collapsed}
+					onClick={onSettingsClick}
 				/>
 			</div>
 
@@ -219,7 +222,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 			{!collapsed && (
 				<div
 					// Ensure overlay covers entire viewport and sits above the sidebar on mobile
-					className="fixed inset-0 bg-black/20 lg:hidden z-[100]"
+					className="fixed inset-0 bg-black/20 lg:hidden z-50"
 					onClick={onToggle}
 					aria-hidden="true"
 				/>

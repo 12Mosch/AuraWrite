@@ -1238,7 +1238,15 @@ export const archiveDocuments = mutation({
 	args: {
 		documentIds: v.array(v.id("documents")),
 	},
-	returns: v.array(v.id("documents")),
+	returns: v.object({
+		successes: v.array(v.id("documents")),
+		failures: v.array(
+			v.object({
+				documentId: v.id("documents"),
+				error: v.string(),
+			}),
+		),
+	}),
 	handler: async (ctx, { documentIds }) => {
 		const userId = await getCurrentUser(ctx);
 
@@ -1250,7 +1258,8 @@ export const archiveDocuments = mutation({
 			throw new ConvexError("Cannot archive more than 100 documents at once");
 		}
 
-		const archivedDocuments: Id<"documents">[] = [];
+		const successes: Id<"documents">[] = [];
+		const failures: { documentId: Id<"documents">; error: string }[] = [];
 		const now = Date.now();
 
 		// Process each document
@@ -1263,13 +1272,21 @@ export const archiveDocuments = mutation({
 					updatedAt: now,
 				});
 
-				archivedDocuments.push(documentId);
-			} catch (error) {
-				// Skip documents that can't be archived (access denied, not found, etc.)
+				successes.push(documentId);
+			} catch (error: unknown) {
+				const message =
+					error instanceof ConvexError
+						? String(error.data ?? error.message ?? "ConvexError")
+						: error instanceof Error
+							? error.message
+							: typeof error === "string"
+								? error
+								: "Unknown error";
 				console.warn(`Failed to archive document ${documentId}:`, error);
+				failures.push({ documentId, error: message });
 			}
 		}
 
-		return archivedDocuments;
+		return { successes, failures };
 	},
 });

@@ -68,13 +68,13 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
 
 	// Get active filter count
 	const activeFilterCount = React.useMemo(() => {
-		let count = 0;
-		if (filters.folderId) count++;
-		if (filters.status) count++;
-		if (filters.tags && filters.tags.length > 0) count++;
-		if (filters.dateRange) count++;
-		if (filters.isFavorite) count++;
-		return count;
+		return [
+			filters.folderId,
+			filters.status,
+			filters.tags && filters.tags.length > 0,
+			filters.dateRange,
+			filters.isFavorite,
+		].filter(Boolean).length;
 	}, [filters]);
 
 	// Handle filter changes
