@@ -6,7 +6,11 @@ import {
 	type QueryCtx,
 	query,
 } from "./_generated/server";
-import { checkDocumentAccess, getCurrentUser } from "./authHelpers";
+import {
+	checkDocumentAccess,
+	checkFolderAccess,
+	getCurrentUser,
+} from "./authHelpers";
 
 // Helper function to check document edit permissions
 async function checkDocumentEditAccess(
@@ -189,9 +193,10 @@ export const createDocument = mutation({
 		title: v.string(),
 		content: v.optional(v.string()),
 		isPublic: v.optional(v.boolean()),
+		folderId: v.optional(v.id("folders")),
 	},
 	returns: v.id("documents"),
-	handler: async (ctx, { title, content, isPublic }) => {
+	handler: async (ctx, { title, content, isPublic, folderId }) => {
 		const userId = await getCurrentUser(ctx);
 
 		// Validate title length
@@ -207,6 +212,11 @@ export const createDocument = mutation({
 			throw new ConvexError("Document content cannot exceed 1MB");
 		}
 
+		// Validate folder access if provided
+		if (folderId) {
+			await checkFolderAccess(ctx, folderId, userId);
+		}
+
 		const now = Date.now();
 		return await ctx.db.insert("documents", {
 			title: title.trim(),
@@ -216,6 +226,7 @@ export const createDocument = mutation({
 			ownerId: userId,
 			isPublic: isPublic || false,
 			collaborators: [],
+			folderId,
 			createdAt: now,
 			updatedAt: now,
 		});
@@ -471,7 +482,38 @@ export const transferDocumentOwnership = mutation({
 // Sprint 1 additions - Enhanced document queries and mutations
 
 /**
- * Query to search documents with filters and sorting
+ * Query to return the distinct set of tags available to the current user.
+ * This will be used by the FilterPanel to present dynamic tag options.
+ */
+export const getAvailableTags = query({
+	args: {},
+	returns: v.array(v.string()),
+	handler: async (ctx) => {
+		const userId = await getCurrentUser(ctx);
+
+		// Fetch all documents owned by the user. We use by_owner index for DB-level filtering.
+		const docs = await ctx.db
+			.query("documents")
+			.withIndex("by_owner", (q) => q.eq("ownerId", userId))
+			.collect();
+
+		// Aggregate unique tags
+		const tagSet = new Set<string>();
+		for (const d of docs) {
+			if (d.tags?.length) {
+				for (const t of d.tags) {
+					const trimmed = t.trim();
+					if (trimmed.length > 0) tagSet.add(trimmed);
+				}
+			}
+		}
+
+		return Array.from(tagSet).sort((a, b) => a.localeCompare(b));
+	},
+});
+
+/**
+ * Query to search documents with filters, DB-level indexing, and pagination
  */
 export const searchDocuments = query({
 	args: {
@@ -495,6 +537,7 @@ export const searchDocuments = query({
 		),
 		sortOrder: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
 		limit: v.optional(v.number()),
+		offset: v.optional(v.number()),
 	},
 	returns: v.array(
 		v.object({
@@ -534,39 +577,86 @@ export const searchDocuments = query({
 			sortBy = "updatedAt",
 			sortOrder = "desc",
 			limit = 50,
+			offset = 0,
 		},
 	) => {
 		const userId = await getCurrentUser(ctx);
 
-		let documents = await ctx.db
-			.query("documents")
-			.withIndex("by_owner", (q) => q.eq("ownerId", userId))
-			.collect();
+		// We prefer DB-level filtering using indexes and search indexes.
+		// Strategy:
+		// 1) If query is provided, use search index "search_title" with ownerId filter and optional folder/status.
+		// 2) Else, use the most selective compound index available among:
+		//    - by_folder_owner when folderId present
+		//    - by_owner_status when status present
+		//    - by_owner fallback
+		// 3) Tag filter is applied in-memory because there is no tags index in schema.
+		// 4) Sorting: if sorting by updatedAt/createdAt/lastAccessedAt, we can partially leverage indexes,
+		//    but to keep correctness with multi-field filters, we sort in-memory after fetching a bounded page.
+		// 5) Pagination via offset/limit applied after sorting.
 
-		// Apply filters
-		if (folderId !== undefined) {
-			documents = documents.filter((doc) => doc.folderId === folderId);
-		}
+		let baseResults: Doc<"documents">[] = [];
 
-		if (status !== undefined) {
-			documents = documents.filter((doc) => doc.status === status);
-		}
-
-		if (tags && tags.length > 0) {
-			documents = documents.filter((doc) =>
-				tags.some((tag) => doc.tags?.includes(tag)),
-			);
-		}
-
+		// If text search provided, leverage search index
 		if (query && query.trim().length > 0) {
-			const searchTerm = query.toLowerCase();
-			documents = documents.filter((doc) =>
-				doc.title.toLowerCase().includes(searchTerm),
-			);
+			const search = query.trim();
+
+			// Use the search index with filters; Convex searchIndex supports search + filterFields
+			// Note: We must still check access control for shared/public docs; however this search is user-centric,
+			// using ownerId filter to only fetch user's own docs. This mirrors previous behavior which scoped to owner.
+			const searchQuery = ctx.db
+				.query("documents")
+				.withSearchIndex("search_title", (q) => {
+					let builder = q.search("title", search).eq("ownerId", userId);
+					if (folderId !== undefined)
+						builder = builder.eq("folderId", folderId);
+					if (status !== undefined) builder = builder.eq("status", status);
+					return builder;
+				});
+
+			// Collect a generous slice to allow for post-sort and pagination.
+			baseResults = await searchQuery.collect();
+		} else {
+			// No text search; use best-fitting indexes
+			if (folderId !== undefined) {
+				// by_folder_owner(folderId, ownerId)
+				baseResults = await ctx.db
+					.query("documents")
+					.withIndex("by_folder_owner", (q) =>
+						q.eq("folderId", folderId).eq("ownerId", userId),
+					)
+					.collect();
+			} else if (status !== undefined) {
+				// by_owner_status(ownerId, status)
+				baseResults = await ctx.db
+					.query("documents")
+					.withIndex("by_owner_status", (q) =>
+						q.eq("ownerId", userId).eq("status", status),
+					)
+					.collect();
+			} else {
+				// owner scope
+				baseResults = await ctx.db
+					.query("documents")
+					.withIndex("by_owner", (q) => q.eq("ownerId", userId))
+					.collect();
+			}
 		}
 
-		// Apply sorting
-		documents.sort((a, b) => {
+		// Apply tag filter in-memory (no index on tags)
+		let filtered = baseResults;
+		if (tags && tags.length > 0) {
+			const tagSet = new Set(tags);
+			filtered = filtered.filter((doc) => {
+				if (!doc.tags || doc.tags.length === 0) return false;
+				for (const t of doc.tags) {
+					if (tagSet.has(t)) return true;
+				}
+				return false;
+			});
+		}
+
+		// Sorting
+		filtered.sort((a, b) => {
 			let aValue: number | string;
 			let bValue: number | string;
 
@@ -595,8 +685,10 @@ export const searchDocuments = query({
 			}
 		});
 
-		// Apply limit
-		return documents.slice(0, limit);
+		// Pagination via offset/limit
+		const start = Math.max(0, offset);
+		const end = start + Math.max(0, limit);
+		return filtered.slice(start, end);
 	},
 });
 
@@ -642,28 +734,61 @@ export const getDocumentsByFolder = query({
 		let documents: Doc<"documents">[];
 
 		if (folderId) {
-			// Get documents in specific folder
-			documents = await ctx.db
+			// Get documents in specific folder with DB-level access filtering for owner documents
+			// First, fetch documents owned by the user in the folder via compound index
+			const ownedInFolder = await ctx.db
+				.query("documents")
+				.withIndex("by_folder_owner", (q) =>
+					q.eq("folderId", folderId).eq("ownerId", userId),
+				)
+				.collect();
+
+			// Next, fetch public or collaborator-accessible docs in the same folder.
+			// There is no index supporting (folderId, isPublic) or (folderId, collaborators),
+			// so we must scan by folder and filter in-memory for those cases only.
+			// This keeps the large owner set filtered at DB level.
+			const othersInFolder = await ctx.db
 				.query("documents")
 				.withIndex("by_folder", (q) => q.eq("folderId", folderId))
 				.collect();
 
-			// Filter by ownership and access
-			documents = documents.filter((doc) => {
-				return (
-					doc.ownerId === userId ||
-					doc.isPublic ||
-					doc.collaborators?.includes(userId)
-				);
-			});
+			// Merge: include public or collaborated docs not owned by the user
+			const accessibleNonOwned = othersInFolder.filter(
+				(doc) =>
+					doc.ownerId !== userId &&
+					(doc.isPublic === true || doc.collaborators?.includes(userId)),
+			);
+
+			// Combine while avoiding duplicates
+			const map = new Map(ownedInFolder.map((d) => [d._id, d]));
+			for (const d of accessibleNonOwned) map.set(d._id, d);
+			documents = Array.from(map.values());
 		} else {
 			// Get documents not in any folder (root level)
-			documents = await ctx.db
+			const ownedRoot = await ctx.db
 				.query("documents")
 				.withIndex("by_owner", (q) => q.eq("ownerId", userId))
 				.collect();
 
-			documents = documents.filter((doc) => !doc.folderId);
+			// Owned root-level docs
+			const ownedRootFiltered = ownedRoot.filter((doc) => !doc.folderId);
+
+			// Public or collaborator root-level docs require additional filtering.
+			// Convex optional index equality: use q.eq("folderId", undefined) to target root-level (no folder).
+			const byNoFolder = await ctx.db
+				.query("documents")
+				.withIndex("by_folder", (q) => q.eq("folderId", undefined))
+				.collect();
+
+			const accessibleNonOwnedRoot = byNoFolder.filter(
+				(doc) =>
+					doc.ownerId !== userId &&
+					(doc.isPublic === true || doc.collaborators?.includes(userId)),
+			);
+
+			const map = new Map(ownedRootFiltered.map((d) => [d._id, d]));
+			for (const d of accessibleNonOwnedRoot) map.set(d._id, d);
+			documents = Array.from(map.values());
 		}
 
 		// Sort by updated date (newest first)
@@ -941,12 +1066,9 @@ export const moveDocumentToFolder = mutation({
 		const userId = await getCurrentUser(ctx);
 		await checkDocumentEditAccess(ctx, documentId, userId);
 
-		// Validate folder if provided
+		// Validate folder if provided using shared access helper
 		if (folderId) {
-			const folder = await ctx.db.get(folderId);
-			if (!folder || folder.ownerId !== userId) {
-				throw new ConvexError("Invalid folder or access denied");
-			}
+			await checkFolderAccess(ctx, folderId, userId);
 		}
 
 		await ctx.db.patch(documentId, {
@@ -1018,7 +1140,15 @@ export const bulkUpdateDocuments = mutation({
 			isFavorite: v.optional(v.boolean()),
 		}),
 	},
-	returns: v.array(v.id("documents")),
+	returns: v.object({
+		successes: v.array(v.id("documents")),
+		failures: v.array(
+			v.object({
+				documentId: v.id("documents"),
+				error: v.string(),
+			}),
+		),
+	}),
 	handler: async (ctx, { documentIds, updates }) => {
 		const userId = await getCurrentUser(ctx);
 
@@ -1034,10 +1164,8 @@ export const bulkUpdateDocuments = mutation({
 
 		// Validate folder if provided
 		if (updates.folderId) {
-			const folder = await ctx.db.get(updates.folderId);
-			if (!folder || folder.ownerId !== userId) {
-				throw new ConvexError("Invalid folder or access denied");
-			}
+			// Use shared access helper
+			await checkFolderAccess(ctx, updates.folderId, userId);
 		}
 
 		// Validate tags if provided
@@ -1055,7 +1183,8 @@ export const bulkUpdateDocuments = mutation({
 			}
 		}
 
-		const updatedDocuments: Id<"documents">[] = [];
+		const successes: Id<"documents">[] = [];
+		const failures: { documentId: Id<"documents">; error: string }[] = [];
 		const now = Date.now();
 
 		// Process each document
@@ -1083,14 +1212,22 @@ export const bulkUpdateDocuments = mutation({
 					patchData.isFavorite = updates.isFavorite;
 
 				await ctx.db.patch(documentId, patchData);
-				updatedDocuments.push(documentId);
-			} catch (error) {
-				// Skip documents that can't be updated (access denied, not found, etc.)
+				successes.push(documentId);
+			} catch (error: unknown) {
+				const message =
+					error instanceof ConvexError
+						? String(error.data ?? error.message ?? "ConvexError")
+						: error instanceof Error
+							? error.message
+							: typeof error === "string"
+								? error
+								: "Unknown error";
 				console.warn(`Failed to update document ${documentId}:`, error);
+				failures.push({ documentId, error: message });
 			}
 		}
 
-		return updatedDocuments;
+		return { successes, failures };
 	},
 });
 

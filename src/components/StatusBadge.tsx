@@ -36,15 +36,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
 	const config = statusConfig[status];
 
 	const sizeClasses = {
-		sm: "text-xs px-2 py-0.5 h-5",
-		md: "text-sm px-2.5 py-1 h-6",
-		lg: "text-sm px-3 py-1.5 h-7",
+		sm: "text-xs px-2 py-1 h-5",
+		md: "text-sm px-3 py-1 h-6",
+		lg: "text-sm px-3 py-1.5 h-8",
 	};
 
 	const dotSizeClasses = {
 		sm: "h-1.5 w-1.5",
 		md: "h-2 w-2",
-		lg: "h-2.5 w-2.5",
+		lg: "h-2 w-2",
 	};
 
 	return (

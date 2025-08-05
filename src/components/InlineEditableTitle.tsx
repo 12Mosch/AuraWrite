@@ -138,12 +138,20 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 		[maxLength],
 	);
 
-	// Handle click outside to save
-	const handleBlur = useCallback(() => {
-		if (isEditing && !isLoading) {
-			handleSave();
-		}
-	}, [isEditing, isLoading, handleSave]);
+	// Handle click outside to save, but ignore when focus moves to action buttons
+	const handleBlur = useCallback(
+		(e: React.FocusEvent<HTMLInputElement>) => {
+			const related = e.relatedTarget as HTMLElement | null;
+			// If the newly focused element is marked to ignore blur (e.g., Cancel/Save buttons), skip saving
+			if (related?.dataset?.ignoreBlur === "true") {
+				return;
+			}
+			if (isEditing && !isLoading) {
+				handleSave();
+			}
+		},
+		[isEditing, isLoading, handleSave],
+	);
 
 	if (isEditing) {
 		return (
@@ -154,6 +162,8 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 					onChange={handleInputChange}
 					onKeyDown={handleKeyDown}
 					onBlur={handleBlur}
+					// Enable relatedTarget onBlur by making input focusable in a roving tab context
+					// (Input already focusable; this comment is just informative)
 					disabled={isLoading}
 					className={cn("h-7 text-sm", inputClassName)}
 					placeholder="Enter document title..."
@@ -165,6 +175,8 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 						onClick={handleSave}
 						disabled={isLoading || !editValue.trim()}
 						className="h-6 w-6 p-0"
+						data-ignore-blur="true"
+						tabIndex={0}
 					>
 						<Check className="h-3 w-3" />
 						<span className="sr-only">Save</span>
@@ -175,6 +187,8 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 						onClick={handleCancel}
 						disabled={isLoading}
 						className="h-6 w-6 p-0"
+						data-ignore-blur="true"
+						tabIndex={0}
 					>
 						<X className="h-3 w-3" />
 						<span className="sr-only">Cancel</span>

@@ -8,6 +8,55 @@ type FolderWithChildren = Doc<"folders"> & {
 	children: FolderWithChildren[];
 };
 
+// Maximum allowed nesting depth for folders to prevent excessively deep trees
+// Depth definition: root (no parent) = depth 1; child of root = depth 2; etc.
+const MAX_FOLDER_DEPTH = 10;
+
+// Helper to compute depth by traversing parents; also detects cycles
+async function getFolderDepthAndValidate(
+	ctx: { db: { get: (id: Id<"folders">) => Promise<Doc<"folders"> | null> } },
+	startParentId: Id<"folders"> | undefined,
+	currentFolderId?: Id<"folders">,
+): Promise<number> {
+	let depth = 1; // default root depth if no parent
+	if (!startParentId) return depth;
+
+	// Track visited to prevent cycles
+	const visited = new Set<string>();
+	let nodeId: Id<"folders"> | undefined = startParentId;
+	depth = 2; // child of root
+
+	while (nodeId) {
+		const key = nodeId as unknown as string;
+		if (visited.has(key)) {
+			throw new ConvexError("Invalid folder hierarchy: cycle detected");
+		}
+		visited.add(key);
+
+		// Prevent setting parent to a descendant (when updating), by short-circuiting if we reach currentFolderId
+		if (currentFolderId && nodeId === currentFolderId) {
+			throw new ConvexError(
+				"Invalid operation: folder cannot be nested within itself or its descendants",
+			);
+		}
+
+		const node = await ctx.db.get(nodeId);
+		if (!node) break;
+
+		if (node.parentId) {
+			depth += 1;
+			if (depth > MAX_FOLDER_DEPTH) {
+				throw new ConvexError(
+					`Maximum folder nesting depth of ${MAX_FOLDER_DEPTH} exceeded`,
+				);
+			}
+		}
+		nodeId = node.parentId ?? undefined;
+	}
+
+	return depth;
+}
+
 /**
  * Query to get all folders for the current user
  */
@@ -144,6 +193,29 @@ export const createFolder = mutation({
 		// Validate parent folder if provided
 		if (parentId) {
 			await checkFolderAccess(ctx, parentId, userId);
+
+			// Circular reference protection: walk up the parent chain from the new parentId.
+			// If we ever encounter the folder being created (not possible here since it doesn't exist yet),
+			// or detect a cycle via repeated ancestor, throw. For completeness, we also guard against
+			// malformed existing data that already has cycles.
+			{
+				const visited = new Set<string>();
+				let ancestorId: Id<"folders"> | undefined = parentId;
+				while (ancestorId) {
+					const key = ancestorId as unknown as string;
+					if (visited.has(key)) {
+						throw new ConvexError("Invalid folder hierarchy: cycle detected");
+					}
+					visited.add(key);
+
+					const ancestor: Doc<"folders"> | null = await ctx.db.get(ancestorId);
+					if (!ancestor) break;
+					ancestorId = ancestor.parentId ?? undefined;
+				}
+			}
+
+			// Enforce depth limit and validate no cycles
+			await getFolderDepthAndValidate(ctx, parentId);
 		}
 
 		// Validate color format if provided
@@ -197,7 +269,34 @@ export const updateFolder = mutation({
 			}
 			if (parentId) {
 				await checkFolderAccess(ctx, parentId, userId);
-				// TODO: Add circular reference check for nested folders
+
+				// Circular reference protection: walk up from the proposed parent to ensure
+				// we never reach the folder we're updating. This prevents making a descendant
+				// the parent of its ancestor which would create a cycle.
+				{
+					const visited = new Set<string>();
+					let ancestorId: Id<"folders"> | undefined = parentId;
+					while (ancestorId) {
+						const key = ancestorId as unknown as string;
+						if (visited.has(key)) {
+							throw new ConvexError("Invalid folder hierarchy: cycle detected");
+						}
+						visited.add(key);
+
+						if (ancestorId === folderId) {
+							throw new ConvexError(
+								"Invalid operation: folder cannot be nested within itself or its descendants",
+							);
+						}
+						const ancestor: Doc<"folders"> | null =
+							await ctx.db.get(ancestorId);
+						if (!ancestor) break;
+						ancestorId = ancestor.parentId ?? undefined;
+					}
+				}
+
+				// Enforce depth limit and prevent cycles/descendant parenting
+				await getFolderDepthAndValidate(ctx, parentId, folderId);
 			}
 		}
 

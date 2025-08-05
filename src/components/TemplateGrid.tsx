@@ -1,25 +1,12 @@
 import { FileText, Plus, PlusCircle } from "lucide-react";
 import type React from "react";
 import { cn } from "@/lib/utils";
-import type { Id } from "../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { TemplateCard } from "./TemplateCard";
 import { Card, CardContent, CardHeader } from "./ui/card";
 
-interface Template {
-	_id: Id<"templates">;
-	name: string;
-	description?: string;
-	content: string;
-	category: string;
-	isTeamTemplate: boolean;
-	createdBy: Id<"users">;
-	createdAt: number;
-	updatedAt: number;
-	_creationTime: number;
-}
-
 export interface TemplateGridProps {
-	templates: Template[];
+	templates: Doc<"templates">[];
 	selectedTemplateId?: Id<"templates">;
 	onTemplateSelect?: (templateId?: Id<"templates">) => void;
 	onTemplatePreview?: (templateId: Id<"templates">) => void;
@@ -61,23 +48,22 @@ export const TemplateGrid: React.FC<TemplateGridProps> = ({
 					className,
 				)}
 			>
-				{Array.from(
-					{ length: 6 },
-					(_, index) => `skeleton-${Date.now()}-${index}`,
-				).map((key) => (
-					<Card key={key} className="animate-pulse">
-						<CardHeader className="pb-3">
-							<div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
-							<div className="h-3 bg-gray-200 rounded w-1/2" />
-						</CardHeader>
-						<CardContent className="pt-0">
-							<div className="space-y-2">
-								<div className="h-3 bg-gray-200 rounded w-full" />
-								<div className="h-3 bg-gray-200 rounded w-2/3" />
-							</div>
-						</CardContent>
-					</Card>
-				))}
+				{Array.from({ length: 6 })
+					.map((_, i) => `skeleton-${i}`)
+					.map((key) => (
+						<Card key={key} className="animate-pulse">
+							<CardHeader className="pb-3">
+								<div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
+								<div className="h-3 bg-gray-200 rounded w-1/2" />
+							</CardHeader>
+							<CardContent className="pt-0">
+								<div className="space-y-2">
+									<div className="h-3 bg-gray-200 rounded w-full" />
+									<div className="h-3 bg-gray-200 rounded w-2/3" />
+								</div>
+							</CardContent>
+						</Card>
+					))}
 			</div>
 		);
 	}

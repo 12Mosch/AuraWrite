@@ -35,7 +35,9 @@ const schema = defineSchema({
 		.index("by_owner", ["ownerId"])
 		.index("by_updated", ["updatedAt"])
 		.index("by_folder", ["folderId"])
+		.index("by_folder_owner", ["folderId", "ownerId"])
 		.index("by_status", ["status"])
+		.index("by_owner_status", ["ownerId", "status"])
 		.index("by_favorite", ["ownerId", "isFavorite"])
 		.index("by_last_accessed", ["lastAccessedAt"])
 		.searchIndex("search_title", {

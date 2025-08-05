@@ -85,6 +85,15 @@ export const createSavedSearch = mutation({
 			throw new ConvexError("Saved search name cannot exceed 100 characters");
 		}
 
+		// Validate date range if provided
+		if (filters?.dateRange) {
+			if (filters.dateRange.start > filters.dateRange.end) {
+				throw new ConvexError(
+					"Invalid date range: start must be less than or equal to end",
+				);
+			}
+		}
+
 		// Check if user already has a saved search with this name
 		const existingSearch = await ctx.db
 			.query("savedSearches")
@@ -196,7 +205,17 @@ export const updateSavedSearch = mutation({
 
 		if (name !== undefined) updates.name = name.trim();
 		if (query !== undefined) updates.query = query;
-		if (filters !== undefined) updates.filters = filters;
+		if (filters !== undefined) {
+			// Validate date range if provided
+			if (filters.dateRange) {
+				if (filters.dateRange.start > filters.dateRange.end) {
+					throw new ConvexError(
+						"Invalid date range: start must be less than or equal to end",
+					);
+				}
+			}
+			updates.filters = filters;
+		}
 		if (sortBy !== undefined) updates.sortBy = sortBy;
 		if (sortOrder !== undefined) updates.sortOrder = sortOrder;
 
@@ -293,11 +312,61 @@ export const addToSearchHistory = mutation({
 			throw new ConvexError("Search query too long");
 		}
 
+		// TODO: Retention policy: periodically delete old searchHistory entries beyond N days.
+		// This can be implemented via a Convex cron or scheduled function.
+
 		return await ctx.db.insert("searchHistory", {
 			query: query.trim(),
 			userId,
 			searchedAt: Date.now(),
 			resultCount,
 		});
+	},
+});
+
+/**
+ * Mutation to clear the current user's search history
+ * Provides user control for privacy.
+ */
+export const clearSearchHistory = mutation({
+	args: {
+		olderThanMs: v.optional(v.number()), // if provided, only delete entries older than this many ms from now
+	},
+	returns: v.object({
+		deleted: v.number(),
+	}),
+	handler: async (ctx, { olderThanMs }) => {
+		const userId = await getCurrentUser(ctx);
+		const now = Date.now();
+		const cutoff = olderThanMs ? now - Math.max(olderThanMs, 0) : undefined;
+
+		let deleted = 0;
+
+		// Iterate in batches to avoid large memory usage
+		while (true) {
+			const batch = await ctx.db
+				.query("searchHistory")
+				.withIndex("by_user_searched", (q) => q.eq("userId", userId))
+				.order("desc")
+				.take(200);
+
+			if (batch.length === 0) break;
+
+			let deletedInBatch = 0;
+			for (const item of batch) {
+				if (!cutoff || item.searchedAt <= cutoff) {
+					await ctx.db.delete(item._id);
+					deleted += 1;
+					deletedInBatch += 1;
+				}
+			}
+
+			// If we didn't delete anything in this batch and a cutoff is set, remaining are newer than cutoff
+			if (deletedInBatch === 0 && cutoff) break;
+			// If fewer than batch size returned, we've reached the end
+			if (batch.length < 200 && !cutoff) break;
+		}
+
+		return { deleted };
 	},
 });

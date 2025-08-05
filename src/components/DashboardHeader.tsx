@@ -1,4 +1,13 @@
-import { Grid3X3, List, LogOut, Menu, Plus, User } from "lucide-react";
+import {
+	Grid3X3,
+	List,
+	LogOut,
+	Menu,
+	Plus,
+	Settings,
+	User,
+	X,
+} from "lucide-react";
 import type React from "react";
 import { cn } from "@/lib/utils";
 import type { SearchCriteria } from "./AdvancedSearchModal";
@@ -26,6 +35,8 @@ export interface DashboardHeaderProps {
 	onSidebarToggle: () => void;
 	sidebarCollapsed: boolean;
 	onSignOut?: () => void;
+	onProfileClick?: () => void;
+	onSettingsClick?: () => void;
 	className?: string;
 }
 
@@ -41,6 +52,8 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 	onSidebarToggle,
 	sidebarCollapsed,
 	onSignOut,
+	onProfileClick,
+	onSettingsClick,
 	className,
 }) => {
 	return (
@@ -60,7 +73,11 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 					className="h-8 w-8 p-0 lg:hidden"
 					aria-label={sidebarCollapsed ? "Open sidebar" : "Close sidebar"}
 				>
-					<Menu className="h-4 w-4" />
+					{sidebarCollapsed ? (
+						<Menu className="h-4 w-4" />
+					) : (
+						<X className="h-4 w-4" />
+					)}
 				</Button>
 
 				<div className="flex items-center gap-2">
@@ -97,7 +114,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 					<Button
 						variant={viewMode === "grid" ? "default" : "ghost"}
 						size="sm"
-						onClick={viewMode === "list" ? onViewToggle : undefined}
+						onClick={onViewToggle}
 						className="h-8 px-3 rounded-r-none border-r"
 						aria-label="Grid view"
 					>
@@ -106,7 +123,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 					<Button
 						variant={viewMode === "list" ? "default" : "ghost"}
 						size="sm"
-						onClick={viewMode === "grid" ? onViewToggle : undefined}
+						onClick={onViewToggle}
 						className="h-8 px-3 rounded-l-none"
 						aria-label="List view"
 					>
@@ -143,11 +160,14 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 							)}
 						</DropdownMenuItem>
 						<DropdownMenuSeparator className="sm:hidden" />
-						<DropdownMenuItem>
+						<DropdownMenuItem onClick={onProfileClick}>
 							<User className="h-4 w-4 mr-2" />
 							Profile
 						</DropdownMenuItem>
-						<DropdownMenuItem>Settings</DropdownMenuItem>
+						<DropdownMenuItem onClick={onSettingsClick}>
+							<Settings className="h-4 w-4 mr-2" />
+							Settings
+						</DropdownMenuItem>
 						<DropdownMenuSeparator />
 						{onSignOut && (
 							<DropdownMenuItem onClick={onSignOut}>

@@ -90,11 +90,10 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 				"bg-background border-r transition-all duration-300 ease-in-out",
 				"flex flex-col h-full",
 				collapsed ? "w-16" : "w-64",
-				// Desktop: always visible
-				"lg:relative lg:translate-x-0 lg:block",
-				// Mobile: overlay sidebar
-				"fixed inset-y-0 left-0 z-40 lg:z-auto",
-				collapsed ? "lg:block hidden" : "block",
+				// Desktop: always visible and relative
+				"lg:relative lg:translate-x-0",
+				// Mobile: fixed overlay when expanded, hidden when collapsed
+				collapsed ? "hidden lg:block" : "fixed inset-y-0 left-0 z-40 lg:z-auto",
 				className,
 			)}
 		>
@@ -219,7 +218,8 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 			{/* Mobile Overlay - only show when sidebar is open on mobile */}
 			{!collapsed && (
 				<div
-					className="fixed inset-0 bg-black/20 lg:hidden z-30"
+					// Ensure overlay covers entire viewport and sits above the sidebar on mobile
+					className="fixed inset-0 bg-black/20 lg:hidden z-[100]"
 					onClick={onToggle}
 					aria-hidden="true"
 				/>

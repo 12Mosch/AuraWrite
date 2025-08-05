@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { FileText, FolderOpen, Search } from "lucide-react";
 import type React from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useReducer } from "react";
 import { cn } from "@/lib/utils";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -50,24 +50,99 @@ export const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
 	defaultFolderId,
 	className,
 }) => {
-	// State
-	const [title, setTitle] = useState("");
-	const [selectedFolderId, setSelectedFolderId] = useState<
-		Id<"folders"> | undefined
-	>(defaultFolderId);
-	const [selectedTemplateId, setSelectedTemplateId] = useState<
-		Id<"templates"> | undefined
-	>();
-	const [selectedCategory, setSelectedCategory] = useState<string>("all");
-	const [searchQuery, setSearchQuery] = useState("");
-	const [isCreating, setIsCreating] = useState(false);
-	const [previewTemplateId, setPreviewTemplateId] = useState<
-		Id<"templates"> | undefined
-	>();
-	const [showTemplateEditor, setShowTemplateEditor] = useState(false);
-	const [editingTemplateId, setEditingTemplateId] = useState<
-		Id<"templates"> | undefined
-	>();
+	// Consolidated reducer state
+	type ModalState = {
+		title: string;
+		selectedFolderId?: Id<"folders">;
+		selectedTemplateId?: Id<"templates">;
+		selectedCategory: string;
+		searchQuery: string;
+		isCreating: boolean;
+		previewTemplateId?: Id<"templates">;
+		showTemplateEditor: boolean;
+		editingTemplateId?: Id<"templates">;
+	};
+
+	type ModalAction =
+		| { type: "SET_TITLE"; title: string }
+		| { type: "SET_FOLDER"; folderId?: Id<"folders"> }
+		| { type: "SET_TEMPLATE"; templateId?: Id<"templates"> }
+		| { type: "SET_CATEGORY"; category: string }
+		| { type: "SET_SEARCH"; query: string }
+		| { type: "SET_CREATING"; value: boolean }
+		| { type: "SET_PREVIEW_TEMPLATE"; templateId?: Id<"templates"> }
+		| { type: "SHOW_TEMPLATE_EDITOR"; templateId?: Id<"templates"> }
+		| { type: "HIDE_TEMPLATE_EDITOR" }
+		| { type: "RESET_FORM"; defaultFolderId?: Id<"folders"> };
+
+	const initialState: ModalState = {
+		title: "",
+		selectedFolderId: defaultFolderId,
+		selectedTemplateId: undefined,
+		selectedCategory: "all",
+		searchQuery: "",
+		isCreating: false,
+		previewTemplateId: undefined,
+		showTemplateEditor: false,
+		editingTemplateId: undefined,
+	};
+
+	const modalReducer = (state: ModalState, action: ModalAction): ModalState => {
+		switch (action.type) {
+			case "SET_TITLE":
+				return { ...state, title: action.title };
+			case "SET_FOLDER":
+				return { ...state, selectedFolderId: action.folderId };
+			case "SET_TEMPLATE":
+				return { ...state, selectedTemplateId: action.templateId };
+			case "SET_CATEGORY":
+				// also clear search when category changes (preserving original behavior)
+				return { ...state, selectedCategory: action.category, searchQuery: "" };
+			case "SET_SEARCH":
+				return { ...state, searchQuery: action.query };
+			case "SET_CREATING":
+				return { ...state, isCreating: action.value };
+			case "SET_PREVIEW_TEMPLATE":
+				return { ...state, previewTemplateId: action.templateId };
+			case "SHOW_TEMPLATE_EDITOR":
+				return {
+					...state,
+					showTemplateEditor: true,
+					editingTemplateId: action.templateId,
+				};
+			case "HIDE_TEMPLATE_EDITOR":
+				return {
+					...state,
+					showTemplateEditor: false,
+					editingTemplateId: undefined,
+				};
+			case "RESET_FORM":
+				return {
+					...state,
+					title: "",
+					selectedTemplateId: undefined,
+					selectedFolderId: action.defaultFolderId,
+					searchQuery: "",
+					selectedCategory: "all",
+				};
+			default:
+				return state;
+		}
+	};
+
+	const [state, dispatch] = useReducer(modalReducer, initialState);
+
+	const {
+		title,
+		selectedFolderId,
+		selectedTemplateId,
+		selectedCategory,
+		searchQuery,
+		isCreating,
+		previewTemplateId,
+		showTemplateEditor,
+		editingTemplateId,
+	} = state;
 
 	// Queries
 	const templates = useQuery(api.templates.getTemplates, {
@@ -101,7 +176,7 @@ export const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
 	const handleCreateDocument = useCallback(async () => {
 		if (!title.trim()) return;
 
-		setIsCreating(true);
+		dispatch({ type: "SET_CREATING", value: true });
 		try {
 			let documentId: Id<"documents">;
 
@@ -113,28 +188,19 @@ export const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
 					folderId: selectedFolderId,
 				});
 			} else {
-				// Create blank document
+				// Create blank document (assign folder if selected for consistency)
 				documentId = await createDocument({
 					title: title.trim(),
 					content: JSON.stringify([
 						{ type: "paragraph", children: [{ text: "" }] },
 					]),
 					isPublic: false,
+					folderId: selectedFolderId,
 				});
-
-				// Move to folder if specified
-				if (selectedFolderId) {
-					// TODO: Add folder assignment to createDocument
-					// For now, we'll handle this in the UI layer
-				}
 			}
 
 			// Reset form
-			setTitle("");
-			setSelectedTemplateId(undefined);
-			setSelectedFolderId(defaultFolderId);
-			setSearchQuery("");
-			setSelectedCategory("all");
+			dispatch({ type: "RESET_FORM", defaultFolderId });
 
 			// Close modal and notify parent
 			onOpenChange(false);
@@ -142,7 +208,7 @@ export const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
 		} catch (error) {
 			console.error("Failed to create document:", error);
 		} finally {
-			setIsCreating(false);
+			dispatch({ type: "SET_CREATING", value: false });
 		}
 	}, [
 		title,
@@ -157,51 +223,46 @@ export const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
 
 	// Handle template selection
 	const handleTemplateSelect = useCallback((templateId?: Id<"templates">) => {
-		setSelectedTemplateId(templateId);
+		dispatch({ type: "SET_TEMPLATE", templateId });
 	}, []);
 
 	// Handle template preview
 	const handleTemplatePreview = useCallback((templateId: Id<"templates">) => {
-		setPreviewTemplateId(templateId);
+		dispatch({ type: "SET_PREVIEW_TEMPLATE", templateId });
 	}, []);
 
 	// Handle using template from preview
 	const handleUseTemplate = useCallback((templateId: Id<"templates">) => {
-		setSelectedTemplateId(templateId);
-		setPreviewTemplateId(undefined);
+		dispatch({ type: "SET_TEMPLATE", templateId });
+		dispatch({ type: "SET_PREVIEW_TEMPLATE", templateId: undefined });
 	}, []);
 
 	// Handle template creation
 	const handleCreateTemplate = useCallback(() => {
-		setEditingTemplateId(undefined);
-		setShowTemplateEditor(true);
+		dispatch({ type: "SHOW_TEMPLATE_EDITOR", templateId: undefined });
 	}, []);
 
 	// Handle template editing
 	const handleEditTemplate = useCallback((templateId: Id<"templates">) => {
-		setEditingTemplateId(templateId);
-		setShowTemplateEditor(true);
-		setPreviewTemplateId(undefined);
+		dispatch({ type: "SHOW_TEMPLATE_EDITOR", templateId });
+		dispatch({ type: "SET_PREVIEW_TEMPLATE", templateId: undefined });
 	}, []);
 
 	// Handle template editor close
 	const handleTemplateEditorClose = useCallback(() => {
-		setShowTemplateEditor(false);
-		setEditingTemplateId(undefined);
+		dispatch({ type: "HIDE_TEMPLATE_EDITOR" });
 	}, []);
 
 	// Handle template created/updated
 	const handleTemplateCreatedOrUpdated = useCallback(() => {
 		// Refresh templates list by invalidating the query
 		// The useQuery hook will automatically refetch
-		setShowTemplateEditor(false);
-		setEditingTemplateId(undefined);
+		dispatch({ type: "HIDE_TEMPLATE_EDITOR" });
 	}, []);
 
 	// Handle category change
 	const handleCategoryChange = useCallback((category: string) => {
-		setSelectedCategory(category);
-		setSearchQuery(""); // Clear search when changing category
+		dispatch({ type: "SET_CATEGORY", category });
 	}, []);
 
 	return (
@@ -222,7 +283,9 @@ export const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
 							id="document-title"
 							placeholder="Enter document title..."
 							value={title}
-							onChange={(e) => setTitle(e.target.value)}
+							onChange={(e) =>
+								dispatch({ type: "SET_TITLE", title: e.target.value })
+							}
 							className="w-full"
 						/>
 					</div>
@@ -233,9 +296,11 @@ export const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
 						<Select
 							value={selectedFolderId || "none"}
 							onValueChange={(value) =>
-								setSelectedFolderId(
-									value === "none" ? undefined : (value as Id<"folders">),
-								)
+								dispatch({
+									type: "SET_FOLDER",
+									folderId:
+										value === "none" ? undefined : (value as Id<"folders">),
+								})
 							}
 						>
 							<SelectTrigger>
@@ -288,7 +353,9 @@ export const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
 									<Input
 										placeholder="Search templates..."
 										value={searchQuery}
-										onChange={(e) => setSearchQuery(e.target.value)}
+										onChange={(e) =>
+											dispatch({ type: "SET_SEARCH", query: e.target.value })
+										}
 										className="pl-10 w-48"
 									/>
 								</div>
@@ -329,7 +396,10 @@ export const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
 				<TemplatePreview
 					templateId={previewTemplateId}
 					open={!!previewTemplateId}
-					onOpenChange={(open) => !open && setPreviewTemplateId(undefined)}
+					onOpenChange={(open) =>
+						!open &&
+						dispatch({ type: "SET_PREVIEW_TEMPLATE", templateId: undefined })
+					}
 					onUseTemplate={handleUseTemplate}
 					onEditTemplate={handleEditTemplate}
 				/>

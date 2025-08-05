@@ -3,6 +3,7 @@ import type React from "react";
 import { cn } from "@/lib/utils";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
 
 interface Template {
@@ -43,11 +44,15 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
 	};
 
 	const formatDate = (timestamp: number) => {
-		return new Date(timestamp).toLocaleDateString(undefined, {
+		const locale =
+			typeof navigator !== "undefined" && navigator.language
+				? navigator.language
+				: undefined;
+		return new Intl.DateTimeFormat(locale, {
 			year: "numeric",
 			month: "short",
 			day: "numeric",
-		});
+		}).format(new Date(timestamp));
 	};
 
 	return (
@@ -95,13 +100,14 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
 						<span>{formatDate(template.createdAt)}</span>
 					</div>
 					{onPreview && (
-						<button
-							type="button"
+						<Button
+							variant="link"
+							size="sm"
 							onClick={handlePreview}
-							className="text-primary hover:text-primary/80 font-medium transition-colors"
+							className="h-auto p-0 text-xs"
 						>
 							Preview
-						</button>
+						</Button>
 					)}
 				</div>
 			</CardContent>

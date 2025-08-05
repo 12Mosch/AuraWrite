@@ -55,7 +55,7 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 	);
 	const recentDocuments = useQuery(
 		api.documents.getRecentDocuments,
-		currentView === "recent" ? { limit: 20 } : "skip",
+		currentView === "recent" && !hasActiveFilters ? { limit: 20 } : "skip",
 	);
 	const searchResults = useQuery(
 		api.documents.searchDocuments,
@@ -169,20 +169,16 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 
 	// Drag and drop handlers
 	const handleDocumentMove = useCallback(
-		(documentId: Id<"documents">, folderId?: Id<"folders">) => {
+		(_documentId: Id<"documents">, _folderId?: Id<"folders">) => {
 			// Refresh the document list after move
 			// The mutation in DragDropProvider will handle the actual move
-			console.log(
-				`Document ${documentId} moved to folder ${folderId || "root"}`,
-			);
 		},
 		[],
 	);
 
 	const handleFolderMove = useCallback(
-		(folderId: Id<"folders">, parentId?: Id<"folders">) => {
+		(_folderId: Id<"folders">, _parentId?: Id<"folders">) => {
 			// Refresh the folder tree after move
-			console.log(`Folder ${folderId} moved to parent ${parentId || "root"}`);
 		},
 		[],
 	);
@@ -251,6 +247,8 @@ export const DocumentDashboard: React.FC<DocumentDashboardProps> = ({
 	const handleDocumentOpen = useCallback(
 		async (documentId: Id<"documents">) => {
 			// Track document access
+			// Best-effort update; do not block opening the document.
+			// Consider adding telemetry/monitoring for failure rates instead of user-facing alerts.
 			try {
 				await updateLastAccessed({ documentId });
 			} catch (error) {

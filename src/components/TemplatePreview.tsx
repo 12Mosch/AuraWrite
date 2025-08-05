@@ -80,23 +80,28 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({
 
 	// Parse template content for preview
 	const getContentPreview = (content: string) => {
+		// Guard against null/undefined/empty content
+		if (!content) return "No content available";
+
 		try {
 			const parsed = JSON.parse(content);
 			if (Array.isArray(parsed)) {
 				// Extract text from Slate.js format
-				return parsed
+				const extractedText = parsed
 					.map((node: SlateNode) => {
-						if (node.children) {
+						if (node?.children && Array.isArray(node.children)) {
 							return node.children
-								.map((child: SlateText) => child.text || "")
+								.map((child: SlateText) => child?.text || "")
 								.join("")
 								.trim();
 						}
 						return "";
 					})
 					.filter(Boolean)
-					.join("\n")
-					.slice(0, 500); // Limit preview length
+					.join("\n");
+
+				// Limit preview length after assembling the full text
+				return extractedText.slice(0, 500);
 			}
 		} catch {
 			// Fallback for plain text or other formats

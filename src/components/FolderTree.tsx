@@ -62,6 +62,18 @@ interface FolderNodeProps {
 	onCancelRename: () => void;
 	onConfirmCreate: (name: string) => void;
 	onConfirmRename: (name: string) => void;
+	// Per-node state derivation helpers passed from parent
+	getIsSelected: (folderId: Id<"folders">) => boolean;
+	getIsExpanded: (folderId: Id<"folders">) => boolean;
+	// Bubble up state setters from FolderTree so deeply nested nodes can access them
+	setCreatingInFolder: (folderId: Id<"folders"> | null) => void;
+	setRenamingFolder: (folderId: Id<"folders"> | null) => void;
+	handleCreateFolder: (name: string, parentId?: Id<"folders">) => Promise<void>;
+	handleRenameFolder: (
+		folderId: Id<"folders">,
+		newName: string,
+	) => Promise<void>;
+	handleDeleteFolder: (folderId: Id<"folders">) => Promise<void>;
 }
 
 const FolderNode: React.FC<FolderNodeProps> = ({
@@ -80,6 +92,13 @@ const FolderNode: React.FC<FolderNodeProps> = ({
 	onCancelRename,
 	onConfirmCreate,
 	onConfirmRename,
+	getIsSelected,
+	getIsExpanded,
+	setCreatingInFolder,
+	setRenamingFolder,
+	handleCreateFolder,
+	handleRenameFolder,
+	handleDeleteFolder,
 }) => {
 	const [createName, setCreateName] = useState("");
 	const [renameName, setRenameName] = useState(folder.name);
@@ -93,7 +112,7 @@ const FolderNode: React.FC<FolderNodeProps> = ({
 		transform,
 		isDragging,
 	} = useDraggable({
-		id: dragItem.id,
+		id: `folder-${folder._id}`,
 		data: dragItem,
 	});
 
@@ -187,11 +206,52 @@ const FolderNode: React.FC<FolderNodeProps> = ({
 
 				{/* Folder Name or Rename Input */}
 				{isRenaming ? (
-					<form onSubmit={handleRenameSubmit} className="flex-1">
+					<form
+						onSubmit={handleRenameSubmit}
+						className="flex-1"
+						// Prevent blur from canceling when submitting:
+						// If a mousedown happens inside the form (e.g. clicking a submit button),
+						// mark it so the subsequent onBlur doesn't cancel immediately.
+						onMouseDownCapture={(e) => {
+							// Attach a flag on the currentTarget to note an internal interaction
+							// that is likely to trigger a submit.
+							type FlaggedForm = HTMLFormElement & {
+								__mouseDownInside?: boolean;
+							};
+							const formEl = e.currentTarget as unknown as FlaggedForm;
+							formEl.__mouseDownInside = true;
+							// Reset the flag in the next tick so normal blurs still work later.
+							queueMicrotask(() => {
+								if (formEl.__mouseDownInside) {
+									delete formEl.__mouseDownInside;
+								}
+							});
+						}}
+					>
 						<Input
 							value={renameName}
 							onChange={(e) => setRenameName(e.target.value)}
-							onBlur={onCancelRename}
+							onBlur={(e) => {
+								// If blur is caused by clicking inside the form (submit),
+								// delay cancellation to allow onSubmit to run first.
+								const form =
+									e.currentTarget.form ??
+									(e.currentTarget.closest("form") as HTMLFormElement | null);
+								const mouseDownInside = !!(
+									form &&
+									(form as HTMLFormElement & { __mouseDownInside?: boolean })
+										.__mouseDownInside
+								);
+								if (mouseDownInside) {
+									setTimeout(() => {
+										// After submit handler runs, if we're still renaming and nothing submitted,
+										// cancel as a fallback.
+										onCancelRename();
+									}, 0);
+									return;
+								}
+								onCancelRename();
+							}}
 							autoFocus
 							className="h-6 text-sm"
 						/>
@@ -224,16 +284,30 @@ const FolderNode: React.FC<FolderNodeProps> = ({
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end">
-						<DropdownMenuItem onClick={() => onCreateChild(folder._id)}>
+						<DropdownMenuItem
+							onClick={() => {
+								onCreateChild(folder._id);
+								// ensure parent state is set when triggered from deep node
+								setCreatingInFolder(folder._id);
+							}}
+						>
 							<FolderPlus className="h-4 w-4 mr-2" />
 							New Subfolder
 						</DropdownMenuItem>
-						<DropdownMenuItem onClick={() => onRename(folder._id)}>
+						<DropdownMenuItem
+							onClick={() => {
+								onRename(folder._id);
+								setRenamingFolder(folder._id);
+							}}
+						>
 							Rename
 						</DropdownMenuItem>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem
-							onClick={() => onDelete(folder._id)}
+							onClick={() => {
+								onDelete(folder._id);
+								handleDeleteFolder(folder._id);
+							}}
 							className="text-destructive"
 						>
 							Delete
@@ -257,7 +331,11 @@ const FolderNode: React.FC<FolderNodeProps> = ({
 						<Input
 							value={createName}
 							onChange={(e) => setCreateName(e.target.value)}
-							onBlur={onCancelCreate}
+							onBlur={() => {
+								onCancelCreate();
+								// also clear parent state if this inline create loses focus
+								setCreatingInFolder(null);
+							}}
 							placeholder="Folder name"
 							autoFocus
 							className="h-6 text-sm flex-1"
@@ -274,8 +352,8 @@ const FolderNode: React.FC<FolderNodeProps> = ({
 							key={child._id}
 							folder={child}
 							level={level + 1}
-							isSelected={isSelected}
-							isExpanded={isExpanded}
+							isSelected={getIsSelected(child._id)}
+							isExpanded={getIsExpanded(child._id)}
 							onToggleExpand={onToggleExpand}
 							onSelect={onSelect}
 							onCreateChild={onCreateChild}
@@ -285,8 +363,15 @@ const FolderNode: React.FC<FolderNodeProps> = ({
 							isRenaming={false}
 							onCancelCreate={onCancelCreate}
 							onCancelRename={onCancelRename}
-							onConfirmCreate={onConfirmCreate}
-							onConfirmRename={onConfirmRename}
+							onConfirmCreate={(name) => handleCreateFolder(name, child._id)}
+							onConfirmRename={(name) => handleRenameFolder(child._id, name)}
+							getIsSelected={getIsSelected}
+							getIsExpanded={getIsExpanded}
+							setCreatingInFolder={setCreatingInFolder}
+							setRenamingFolder={setRenamingFolder}
+							handleCreateFolder={handleCreateFolder}
+							handleRenameFolder={handleRenameFolder}
+							handleDeleteFolder={handleDeleteFolder}
 						/>
 					))}
 				</div>
@@ -460,6 +545,13 @@ export const FolderTree: React.FC<FolderTreeProps> = ({
 					onCancelRename={() => setRenamingFolder(null)}
 					onConfirmCreate={(name) => handleCreateFolder(name, folder._id)}
 					onConfirmRename={(name) => handleRenameFolder(folder._id, name)}
+					getIsSelected={(id) => selectedFolderId === id}
+					getIsExpanded={(id) => expandedFolders.has(id)}
+					setCreatingInFolder={setCreatingInFolder}
+					setRenamingFolder={setRenamingFolder}
+					handleCreateFolder={handleCreateFolder}
+					handleRenameFolder={handleRenameFolder}
+					handleDeleteFolder={handleDeleteFolder}
 				/>
 			))}
 

@@ -9,8 +9,8 @@ import { InlineEditableTitle } from "./InlineEditableTitle";
 import type { Document } from "./MainContent";
 import { StatusBadge } from "./StatusBadge";
 import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
+import { Checkbox } from "./ui/checkbox";
 
 export interface DocumentCardProps {
 	document: Document;
@@ -76,7 +76,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 	const dragItem = useDragItem("document", document._id, document.title);
 	const { attributes, listeners, setNodeRef, transform, isDragging } =
 		useDraggable({
-			id: dragItem.id,
+			id: dragItem.data._id,
 			data: dragItem,
 		});
 
@@ -210,27 +210,24 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 
 					{/* Selection Checkbox */}
 					{onSelect && (
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-							onClick={handleSelectChange}
-						>
-							<div
-								className={cn(
-									"h-4 w-4 border-2 rounded",
-									selected
-										? "bg-primary border-primary"
-										: "border-muted-foreground",
-								)}
-							>
-								{selected && (
-									<div className="h-full w-full flex items-center justify-center">
-										<div className="h-2 w-2 bg-primary-foreground rounded-sm" />
-									</div>
-								)}
-							</div>
-						</Button>
+						<span className="opacity-0 group-hover:opacity-100 transition-opacity">
+							<Checkbox
+								checked={selected}
+								onCheckedChange={(checked) => {
+									// Radix can return boolean | "indeterminate"
+									const isChecked = checked === true;
+									onSelect?.(isChecked);
+								}}
+								onClick={(e) => {
+									// Prevent card click/open
+									e.stopPropagation();
+									// Mirror previous onClick on the wrapper button
+									handleSelectChange(e as unknown as React.MouseEvent);
+								}}
+								className="size-4"
+								aria-label="Select document"
+							/>
+						</span>
 					)}
 				</div>
 			</CardContent>

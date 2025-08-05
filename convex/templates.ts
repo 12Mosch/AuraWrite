@@ -1,10 +1,37 @@
 import { ConvexError, v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import {
+	checkFolderAccess,
 	checkTemplateAccess,
 	checkTemplateEditAccess,
 	getCurrentUser,
 } from "./authHelpers";
+
+/**
+ * Shared helper to filter and sort templates based on access and category
+ */
+async function filterAndSortTemplates(
+	templates: Doc<"templates">[],
+	userId: Id<"users">,
+	includeTeamTemplates: boolean,
+	category?: string,
+) {
+	// Filter by access permissions
+	let filtered = templates.filter(
+		(template) =>
+			template.createdBy === userId ||
+			(includeTeamTemplates && template.isTeamTemplate),
+	);
+
+	// Filter by category if provided
+	if (category) {
+		filtered = filtered.filter((template) => template.category === category);
+	}
+
+	// Sort by creation date (newest first)
+	return filtered.sort((a, b) => b.createdAt - a.createdAt);
+}
 
 /**
  * Query to get all templates accessible to the current user
@@ -31,26 +58,14 @@ export const getTemplates = query({
 	handler: async (ctx, { category, includeTeamTemplates = true }) => {
 		const userId = await getCurrentUser(ctx);
 
-		let templates = await ctx.db.query("templates").collect();
+		const templates = await ctx.db.query("templates").collect();
 
-		// Filter by access permissions
-		templates = templates.filter(
-			(template) =>
-				template.createdBy === userId ||
-				(includeTeamTemplates && template.isTeamTemplate),
+		return filterAndSortTemplates(
+			templates,
+			userId,
+			includeTeamTemplates,
+			category,
 		);
-
-		// Filter by category if provided
-		if (category) {
-			templates = templates.filter(
-				(template) => template.category === category,
-			);
-		}
-
-		// Sort by creation date (newest first)
-		templates.sort((a, b) => b.createdAt - a.createdAt);
-
-		return templates;
 	},
 });
 
@@ -79,22 +94,17 @@ export const getTemplatesByCategory = query({
 	handler: async (ctx, { category, includeTeamTemplates = true }) => {
 		const userId = await getCurrentUser(ctx);
 
-		let templates = await ctx.db
+		const templates = await ctx.db
 			.query("templates")
 			.withIndex("by_category", (q) => q.eq("category", category))
 			.collect();
 
-		// Filter by access permissions
-		templates = templates.filter(
-			(template) =>
-				template.createdBy === userId ||
-				(includeTeamTemplates && template.isTeamTemplate),
+		return filterAndSortTemplates(
+			templates,
+			userId,
+			includeTeamTemplates,
+			/* category already applied via index, but keep for safety */ category,
 		);
-
-		// Sort by creation date (newest first)
-		templates.sort((a, b) => b.createdAt - a.createdAt);
-
-		return templates;
 	},
 });
 
@@ -324,10 +334,8 @@ export const createDocumentFromTemplate = mutation({
 
 		// Validate folder if provided
 		if (folderId) {
-			const folder = await ctx.db.get(folderId);
-			if (!folder || folder.ownerId !== userId) {
-				throw new ConvexError("Invalid folder or access denied");
-			}
+			// Centralized access check ensures consistent errors and ownership validation
+			await checkFolderAccess(ctx, folderId, userId);
 		}
 
 		const now = Date.now();

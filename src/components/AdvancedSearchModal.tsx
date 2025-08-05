@@ -159,8 +159,18 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
 	// Fetch data for dropdowns
 	const folders = useQuery(api.folders.getUserFolders);
 
-	// Sample tags (in a real app, you'd fetch these from documents)
-	const availableTags = ["work", "personal", "urgent", "meeting", "project"];
+	// Fetch documents and derive unique tags locally (since getUniqueTags doesn't exist)
+	const docsForTags = useQuery(api.documents.getUserDocuments) ?? [];
+	const availableTags = Array.from(
+		new Set(
+			docsForTags
+				.flatMap((d) => d.tags ?? [])
+				.filter(
+					(t): t is string => typeof t === "string" && t.trim().length > 0,
+				)
+				.map((t) => t.trim()),
+		),
+	).sort((a, b) => a.localeCompare(b));
 
 	const handleCriteriaChange = useCallback(
 		<K extends keyof SearchCriteria>(key: K, value: SearchCriteria[K]) => {
@@ -235,15 +245,21 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
 					<div className="space-y-2">
 						<Label>Folder</Label>
 						<Select
-							value={criteria.folderId || "all"}
-							onValueChange={(value) =>
-								handleCriteriaChange(
-									"folderId",
-									(value === "all" ? undefined : value) as
-										| Id<"folders">
-										| undefined,
-								)
-							}
+							value={(criteria.folderId as string | undefined) ?? "all"}
+							onValueChange={(value: string) => {
+								if (value === "all") {
+									handleCriteriaChange("folderId", undefined);
+									return;
+								}
+								// Narrow string to Id<"folders"> by validating against available folder ids
+								const match = folders?.find((f) => f._id === value);
+								if (match) {
+									handleCriteriaChange("folderId", match._id);
+								} else {
+									// If value isn't a known id, clear selection to stay type-safe
+									handleCriteriaChange("folderId", undefined);
+								}
+							}}
 						>
 							<SelectTrigger>
 								<SelectValue placeholder="Select folder..." />
@@ -263,17 +279,15 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
 					<div className="space-y-2">
 						<Label>Status</Label>
 						<Select
-							value={criteria.status || "all"}
-							onValueChange={(value) =>
+							value={(criteria.status as string | undefined) ?? "all"}
+							onValueChange={(
+								value: "all" | "draft" | "published" | "archived",
+							) => {
 								handleCriteriaChange(
 									"status",
-									(value === "all" ? undefined : value) as
-										| "draft"
-										| "published"
-										| "archived"
-										| undefined,
-								)
-							}
+									value === "all" ? undefined : value,
+								);
+							}}
 						>
 							<SelectTrigger>
 								<SelectValue placeholder="Select status..." />
@@ -291,7 +305,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
 					<div className="space-y-2">
 						<Label>Tags</Label>
 						<div className="flex flex-wrap gap-1 mb-2">
-							{criteria.tags?.map((tag) => (
+							{criteria.tags?.map((tag: string) => (
 								<div
 									key={tag}
 									className="inline-flex items-center gap-1 px-2 py-1 bg-secondary text-secondary-foreground rounded-md text-xs"
@@ -329,8 +343,8 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
 								</DropdownMenuTrigger>
 								<DropdownMenuContent>
 									{availableTags
-										.filter((tag) => !criteria.tags?.includes(tag))
-										.map((tag) => (
+										.filter((tag: string) => !criteria.tags?.includes(tag))
+										.map((tag: string) => (
 											<DropdownMenuItem
 												key={tag}
 												onClick={() => handleAddTag(tag)}
@@ -357,17 +371,10 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
 						<div className="space-y-2">
 							<Label>Sort By</Label>
 							<Select
-								value={criteria.sortBy || "updatedAt"}
-								onValueChange={(value) =>
-									handleCriteriaChange(
-										"sortBy",
-										value as
-											| "title"
-											| "updatedAt"
-											| "createdAt"
-											| "lastAccessedAt",
-									)
-								}
+								value={(criteria.sortBy as string | undefined) ?? "updatedAt"}
+								onValueChange={(
+									value: "title" | "updatedAt" | "createdAt" | "lastAccessedAt",
+								) => handleCriteriaChange("sortBy", value)}
 							>
 								<SelectTrigger>
 									<SelectValue />
@@ -383,9 +390,9 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
 						<div className="space-y-2">
 							<Label>Sort Order</Label>
 							<Select
-								value={criteria.sortOrder || "desc"}
-								onValueChange={(value) =>
-									handleCriteriaChange("sortOrder", value as "asc" | "desc")
+								value={(criteria.sortOrder as string | undefined) ?? "desc"}
+								onValueChange={(value: "asc" | "desc") =>
+									handleCriteriaChange("sortOrder", value)
 								}
 							>
 								<SelectTrigger>

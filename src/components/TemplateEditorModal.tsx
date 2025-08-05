@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -61,6 +62,15 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
 	const [isTeamTemplate, setIsTeamTemplate] = useState(false);
 	const [isSaving, setIsSaving] = useState(false);
 
+	// Reusable form reset
+	const resetForm = useCallback(() => {
+		setName("");
+		setDescription("");
+		setContent("");
+		setCategory("business");
+		setIsTeamTemplate(false);
+	}, []);
+
 	// Determine if we're in edit mode
 	const isEditMode = !!templateId;
 
@@ -89,20 +99,12 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
 	useEffect(() => {
 		if (!open) {
 			// Reset form when modal closes
-			setName("");
-			setDescription("");
-			setContent("");
-			setCategory("business");
-			setIsTeamTemplate(false);
+			resetForm();
 		} else if (!isEditMode) {
 			// Reset form when opening in create mode
-			setName("");
-			setDescription("");
-			setContent("");
-			setCategory("business");
-			setIsTeamTemplate(false);
+			resetForm();
 		}
-	}, [open, isEditMode]);
+	}, [open, isEditMode, resetForm]);
 
 	// Validation
 	const isValid = useCallback(() => {
@@ -275,12 +277,10 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
 
 					{/* Team Template Toggle */}
 					<div className="flex items-center space-x-2">
-						<input
-							type="checkbox"
+						<Checkbox
 							id="team-template"
 							checked={isTeamTemplate}
-							onChange={(e) => setIsTeamTemplate(e.target.checked)}
-							className="rounded border-gray-300"
+							onCheckedChange={(checked: boolean) => setIsTeamTemplate(checked)}
 						/>
 						<Label htmlFor="team-template" className="text-sm">
 							Make this template available to all team members

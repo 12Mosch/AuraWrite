@@ -21,14 +21,21 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
 }) => {
 	if (documents.length === 0) {
 		return (
-			<div className="flex items-center justify-center h-64 text-muted-foreground">
-				<p>No documents found</p>
-			</div>
+			<output
+				className="flex items-center justify-center h-64 text-muted-foreground"
+				aria-live="polite"
+			>
+				<div className="text-center">
+					<p className="text-lg font-medium mb-2">No documents found</p>
+					<p className="text-sm">Try adjusting your search or filters</p>
+				</div>
+			</output>
 		);
 	}
 
 	return (
-		<div
+		<section
+			aria-label={`Document grid with ${documents.length} documents`}
 			className={cn(
 				"grid gap-4",
 				// Responsive grid columns
@@ -50,6 +57,6 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
 					className="h-fit"
 				/>
 			))}
-		</div>
+		</section>
 	);
 };

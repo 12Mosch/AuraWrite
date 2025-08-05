@@ -136,8 +136,10 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
 		{ value: "archived", label: "Archived" },
 	] as const;
 
-	// Sample tags (in a real app, you'd fetch these from documents)
-	const availableTags = ["work", "personal", "urgent", "meeting", "project"];
+	// Dynamic tags from backend
+	const availableTags = useQuery(api.documents.getAvailableTags, {});
+	const tagsLoading = availableTags === undefined;
+	const tagsError = availableTags === null ? "Failed to load tags" : undefined;
 
 	// Render active filter chips
 	const renderFilterChips = () => {
@@ -284,23 +286,48 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
 			</div>
 
 			{/* Tags Filter */}
-			<fieldset>
+			<div>
 				<legend className="text-sm font-medium mb-2 block">Tags</legend>
-				<div className="flex flex-wrap gap-1">
-					{availableTags.map((tag) => (
-						<Button
-							key={tag}
-							variant={filters.tags?.includes(tag) ? "default" : "outline"}
-							size="sm"
-							onClick={() => handleTagToggle(tag)}
-							className="text-xs"
-						>
-							<Tag className="h-3 w-3 mr-1" />
-							{tag}
-						</Button>
-					))}
-				</div>
-			</fieldset>
+				{tagsLoading && (
+					<div className="text-xs text-muted-foreground px-1 py-1">
+						Loading tags…
+					</div>
+				)}
+				{tagsError && (
+					<div className="text-xs text-destructive px-1 py-1">{tagsError}</div>
+				)}
+				<fieldset
+					disabled={
+						tagsLoading ||
+						!!tagsError ||
+						!availableTags ||
+						availableTags.length === 0
+					}
+				>
+					<div className="flex flex-wrap gap-1">
+						{(availableTags || []).map((tag) => (
+							<Button
+								key={tag}
+								variant={filters.tags?.includes(tag) ? "default" : "outline"}
+								size="sm"
+								onClick={() => handleTagToggle(tag)}
+								className="text-xs"
+							>
+								<Tag className="h-3 w-3 mr-1" />
+								{tag}
+							</Button>
+						))}
+						{!tagsLoading &&
+							!tagsError &&
+							availableTags &&
+							availableTags.length === 0 && (
+								<div className="text-xs text-muted-foreground px-1 py-1">
+									No tags available
+								</div>
+							)}
+					</div>
+				</fieldset>
+			</div>
 
 			{/* Favorites Filter */}
 			<div>

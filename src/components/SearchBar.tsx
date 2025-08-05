@@ -20,6 +20,7 @@ export interface SearchBarProps {
 	className?: string;
 	showShortcut?: boolean;
 	autoFocus?: boolean;
+	onError?: (error: unknown) => void;
 }
 
 interface SearchSuggestion {
@@ -37,6 +38,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 	className,
 	showShortcut = true,
 	autoFocus = false,
+	onError,
 }) => {
 	const [isOpen, setIsOpen] = useState(false);
 	const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -111,18 +113,18 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 		(e: React.ChangeEvent<HTMLInputElement>) => {
 			const newValue = e.target.value;
 			onChange(newValue);
-			setIsOpen(newValue.trim().length > 0 && suggestions.length > 0);
+			setIsOpen(newValue.trim().length > 0);
 			setSelectedIndex(-1);
 		},
-		[onChange, suggestions.length],
+		[onChange],
 	);
 
 	// Handle input focus
 	const handleInputFocus = useCallback(() => {
-		if (value.trim().length > 0 && suggestions.length > 0) {
+		if (value.trim().length > 0) {
 			setIsOpen(true);
 		}
-	}, [value, suggestions.length]);
+	}, [value]);
 
 	// Handle suggestion selection
 	const handleSuggestionSelect = useCallback(
@@ -139,14 +141,14 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 				try {
 					await addToHistory({ query: suggestion.query });
 				} catch (error) {
-					console.warn("Failed to add search to history:", error);
+					onError?.(error);
 				}
 			}
 
 			// Trigger search
 			onSearch?.(suggestion.query);
 		},
-		[onChange, onSearch, addToHistory, searchHistory],
+		[onChange, onSearch, addToHistory, searchHistory, onError],
 	);
 
 	// Handle keyboard navigation in suggestions
@@ -157,7 +159,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 					// Perform search on Enter
 					onSearch?.(value);
 					// Add to history
-					addToHistory({ query: value }).catch(console.warn);
+					addToHistory({ query: value }).catch((error) => {
+						onError?.(error);
+					});
 					setIsOpen(false);
 				}
 				return;
@@ -182,7 +186,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 						handleSuggestionSelect(suggestions[selectedIndex]);
 					} else if (value.trim()) {
 						onSearch?.(value);
-						addToHistory({ query: value }).catch(console.warn);
+						addToHistory({ query: value }).catch((error) => {
+							onError?.(error);
+						});
 						setIsOpen(false);
 					}
 					break;
@@ -203,6 +209,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 			onChange,
 			handleSuggestionSelect,
 			addToHistory,
+			onError,
 		],
 	);
 
@@ -273,9 +280,13 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 
 				{/* Keyboard shortcut hint */}
 				{showShortcut && !value && (
-					<div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-1 text-xs text-muted-foreground">
-						<Command className="h-3 w-3" />
-						<span>K</span>
+					<div
+						className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-1 text-xs text-muted-foreground"
+						role="note"
+						aria-label="Keyboard shortcut: Press Control and K on Windows or Command and K on Mac to focus the search"
+					>
+						<Command className="h-3 w-3" aria-hidden="true" />
+						<span aria-hidden="true">K</span>
 					</div>
 				)}
 			</div>

@@ -188,7 +188,7 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 			try {
 				await deleteSavedSearch({ savedSearchId: searchId });
 			} catch (error) {
-				console.error("Failed to delete saved search:", error);
+				console.warn("Failed to delete saved search:", error);
 			}
 		},
 		[deleteSavedSearch],
@@ -258,12 +258,6 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 							variant="ghost"
 							className="flex-1 min-w-0 justify-start p-0 h-auto font-normal"
 							onClick={() => handleSearchSelect(savedSearch)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" || e.key === " ") {
-									e.preventDefault();
-									handleSearchSelect(savedSearch);
-								}
-							}}
 						>
 							<div className="text-left w-full">
 								<div className="text-sm font-medium truncate">

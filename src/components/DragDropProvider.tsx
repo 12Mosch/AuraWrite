@@ -16,7 +16,6 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
 export interface DragItem {
-	id: string;
 	type: "document" | "folder";
 	data: {
 		_id: Id<"documents"> | Id<"folders">;
@@ -65,6 +64,65 @@ export const DragDropProvider: React.FC<DragDropProviderProps> = ({
 		// This can be used for visual feedback during drag
 	}, []);
 
+	// Extracted handlers for better maintainability and testability
+	const handleDocumentDrop = useCallback(
+		async (
+			dragItem: DragItem,
+			dropTarget: DragItem | null,
+			overId: string,
+			moveDocumentToFolder: (args: {
+				documentId: Id<"documents">;
+				folderId?: Id<"folders">;
+			}) => Promise<unknown>,
+			onDocumentMove?: (
+				documentId: Id<"documents">,
+				folderId?: Id<"folders">,
+			) => void,
+		) => {
+			const documentId = dragItem.data._id as Id<"documents">;
+
+			if (dropTarget?.type === "folder") {
+				const folderId = dropTarget.data._id as Id<"folders">;
+				await moveDocumentToFolder({ documentId, folderId });
+				onDocumentMove?.(documentId, folderId);
+			} else if (overId === "root-folder") {
+				await moveDocumentToFolder({ documentId, folderId: undefined });
+				onDocumentMove?.(documentId, undefined);
+			}
+		},
+		[],
+	);
+
+	const handleFolderDrop = useCallback(
+		async (
+			dragItem: DragItem,
+			dropTarget: DragItem | null,
+			overId: string,
+			updateFolder: (args: {
+				folderId: Id<"folders">;
+				parentId?: Id<"folders">;
+			}) => Promise<unknown>,
+			onFolderMove?: (
+				folderId: Id<"folders">,
+				parentId?: Id<"folders">,
+			) => void,
+		) => {
+			const folderId = dragItem.data._id as Id<"folders">;
+
+			if (dropTarget?.type === "folder") {
+				const parentId = dropTarget.data._id as Id<"folders">;
+				if (parentId !== folderId) {
+					await updateFolder({ folderId, parentId });
+					onFolderMove?.(folderId, parentId);
+				}
+			} else if (overId === "root-folder") {
+				await updateFolder({ folderId, parentId: undefined });
+				onFolderMove?.(folderId, undefined);
+			}
+		},
+		[],
+	);
+
 	const handleDragEnd = useCallback(
 		async (event: DragEndEvent) => {
 			const { active, over } = event;
@@ -76,46 +134,38 @@ export const DragDropProvider: React.FC<DragDropProviderProps> = ({
 			}
 
 			const dragItem = active.data.current as DragItem;
-			const dropTarget = over.data.current as DragItem;
+			const dropTarget = over.data.current as DragItem | null;
 
 			try {
 				if (dragItem.type === "document") {
-					// Moving a document
-					const documentId = dragItem.data._id as Id<"documents">;
-
-					if (dropTarget?.type === "folder") {
-						// Drop on folder - move document to folder
-						const folderId = dropTarget.data._id as Id<"folders">;
-						await moveDocumentToFolder({ documentId, folderId });
-						onDocumentMove?.(documentId, folderId);
-					} else if (over.id === "root-folder") {
-						// Drop on root - move document to root (no folder)
-						await moveDocumentToFolder({ documentId, folderId: undefined });
-						onDocumentMove?.(documentId, undefined);
-					}
+					await handleDocumentDrop(
+						dragItem,
+						dropTarget,
+						over.id as string,
+						moveDocumentToFolder,
+						onDocumentMove,
+					);
 				} else if (dragItem.type === "folder") {
-					// Moving a folder
-					const folderId = dragItem.data._id as Id<"folders">;
-
-					if (dropTarget?.type === "folder") {
-						// Drop on another folder - make it a subfolder
-						const parentId = dropTarget.data._id as Id<"folders">;
-						if (parentId !== folderId) {
-							// Prevent dropping folder on itself
-							await updateFolder({ folderId, parentId });
-							onFolderMove?.(folderId, parentId);
-						}
-					} else if (over.id === "root-folder") {
-						// Drop on root - move folder to root level
-						await updateFolder({ folderId, parentId: undefined });
-						onFolderMove?.(folderId, undefined);
-					}
+					await handleFolderDrop(
+						dragItem,
+						dropTarget,
+						over.id as string,
+						updateFolder,
+						onFolderMove,
+					);
 				}
 			} catch (error) {
 				console.error("Drag and drop operation failed:", error);
 			}
 		},
-		[moveDocumentToFolder, updateFolder, onDocumentMove, onFolderMove],
+		[
+			handleDocumentDrop,
+			handleFolderDrop,
+			moveDocumentToFolder,
+			updateFolder,
+			onDocumentMove,
+			onFolderMove,
+		],
 	);
 
 	return (
@@ -154,7 +204,6 @@ export const useDragItem = (
 	name?: string,
 ): DragItem => {
 	return {
-		id: `${type}-${id}`,
 		type,
 		data: {
 			_id: id,
