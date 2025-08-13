@@ -52,6 +52,7 @@ export interface SavedSearchesProps {
 	onSaveCurrentSearch?: (name: string) => void;
 	currentSearchCriteria?: SearchCriteria;
 	className?: string;
+	onError?: (error: unknown) => void;
 }
 
 interface SaveSearchDialogProps {
@@ -132,6 +133,7 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 	onSaveCurrentSearch,
 	currentSearchCriteria,
 	className,
+	onError,
 }) => {
 	const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
 	const [isSaving, setIsSaving] = useState(false);
@@ -168,12 +170,16 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 				onSaveCurrentSearch?.(name);
 				setIsSaveDialogOpen(false);
 			} catch (error) {
-				console.warn("Failed to save search:", error);
+				if (onError) {
+					onError(
+						error instanceof Error ? error : new Error("Failed to save search"),
+					);
+				}
 			} finally {
 				setIsSaving(false);
 			}
 		},
-		[currentSearchCriteria, createSavedSearch, onSaveCurrentSearch],
+		[currentSearchCriteria, createSavedSearch, onSaveCurrentSearch, onError],
 	);
 
 	// Handle search selection
@@ -200,12 +206,18 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 			try {
 				await deleteSavedSearch({ savedSearchId: searchId });
 			} catch (error) {
-				console.warn("Failed to delete saved search:", error);
+				if (onError) {
+					onError(
+						error instanceof Error
+							? error
+							: new Error("Failed to delete saved search"),
+					);
+				}
 			} finally {
 				setDeletingId(null);
 			}
 		},
-		[deleteSavedSearch],
+		[deleteSavedSearch, onError],
 	);
 
 	// Check if current search can be saved

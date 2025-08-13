@@ -168,6 +168,7 @@ const schema = defineSchema({
 	})
 		.index("by_user", ["userId"])
 		.index("by_user_searched", ["userId", "searchedAt"])
+		.index("by_searchedAt", ["searchedAt"])
 		.index("by_query", ["query"])
 		.index("by_user_query", ["userId", "query"]), // More efficient for user-specific deduplication
 });

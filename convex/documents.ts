@@ -933,6 +933,7 @@ export const getDocumentsByStatus = query({
 			v.literal("archived"),
 		),
 		limit: v.optional(v.number()),
+		offset: v.optional(v.number()),
 	},
 	returns: v.array(
 		v.object({
@@ -962,27 +963,54 @@ export const getDocumentsByStatus = query({
 			_creationTime: v.number(),
 		}),
 	),
-	handler: async (ctx, { status, limit = 50 }) => {
+	handler: async (ctx, { status, limit = 50, offset = 0 }) => {
 		const userId = await getCurrentUser(ctx);
 
-		const documents = await ctx.db
+		// Bounded window prevents unbounded scans even with large offsets.
+		const safeLimit = Math.max(1, Math.min(100, limit));
+		const safeOffset = Math.max(0, offset);
+		const MAX_WINDOW = 500;
+		const window = Math.min(MAX_WINDOW, safeOffset + safeLimit);
+
+		// 1) Owned docs: leverage compound index (ownerId, status)
+		const owned = await ctx.db
+			.query("documents")
+			.withIndex("by_owner_status", (q) =>
+				q.eq("ownerId", userId).eq("status", status),
+			)
+			.order("desc")
+			.take(window);
+
+		// 2) Public or collaborated docs: narrow by status first, then access-filter
+		const statusMatched = await ctx.db
 			.query("documents")
 			.withIndex("by_status", (q) => q.eq("status", status))
-			.collect();
+			.order("desc")
+			.take(window);
 
-		// Filter by ownership and access
-		const accessibleDocuments = documents.filter((doc) => {
-			return (
+		const accessibleNonOwned = statusMatched.filter(
+			(doc) => doc.isPublic === true || doc.collaborators?.includes(userId),
+		);
+
+		// Merge and de-duplicate by _id
+		const merged = new Map(owned.map((d) => [d._id, d]));
+		for (const d of accessibleNonOwned) merged.set(d._id, d);
+
+		// Safety net: enforce access constraints
+		const results = Array.from(merged.values()).filter(
+			(doc) =>
 				doc.ownerId === userId ||
-				doc.isPublic ||
-				doc.collaborators?.includes(userId)
-			);
-		});
+				doc.isPublic === true ||
+				doc.collaborators?.includes(userId),
+		);
 
-		// Sort by updated date (newest first)
-		accessibleDocuments.sort((a, b) => b.updatedAt - a.updatedAt);
+		// Business-level ordering: most recently updated first
+		results.sort((a, b) => b.updatedAt - a.updatedAt);
 
-		return accessibleDocuments.slice(0, limit);
+		// Offset/limit pagination on merged results
+		const start = safeOffset;
+		const end = start + safeLimit;
+		return results.slice(start, end);
 	},
 });
 

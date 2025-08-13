@@ -98,6 +98,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
 				collapsed ? "hidden lg:block" : "fixed inset-y-0 left-0 z-40 lg:z-auto",
 				className,
 			)}
+			aria-label="Navigation sidebar"
 		>
 			{/* Sidebar Header */}
 			<div className="h-14 flex items-center justify-between px-3 border-b">

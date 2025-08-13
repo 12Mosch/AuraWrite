@@ -16,6 +16,7 @@ import type {
 import type * as auth from "../auth.js";
 import type * as authHelpers from "../authHelpers.js";
 import type * as collaboration from "../collaboration.js";
+import type * as crons from "../crons.js";
 import type * as documents from "../documents.js";
 import type * as folders from "../folders.js";
 import type * as http from "../http.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authHelpers: typeof authHelpers;
   collaboration: typeof collaboration;
+  crons: typeof crons;
   documents: typeof documents;
   folders: typeof folders;
   http: typeof http;

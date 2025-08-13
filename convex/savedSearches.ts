@@ -1,6 +1,11 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import {
+	internalMutation,
+	type MutationCtx,
+	mutation,
+	query,
+} from "./_generated/server";
 import { getCurrentUser } from "./authHelpers";
 
 // Type definitions for saved search filters
@@ -16,6 +21,170 @@ const filterSchema = v.object({
 			end: v.number(),
 		}),
 	),
+});
+
+// ===== Search history retention config, helpers, and cleanup =====
+const MS_IN_DAY = 86_400_000;
+
+function parsePositiveInt(input: string | undefined, fallback: number): number {
+	const n = Number(input);
+	return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function safeEnvGet(ctx: MutationCtx, key: string): string | undefined {
+	// Narrow the shape of ctx to avoid `any` while supporting Convex env access.
+	type EnvCtx = { env?: { get?: (k: string) => string | undefined } };
+	try {
+		const maybe = ctx as unknown as EnvCtx;
+		return maybe?.env?.get?.(key);
+	} catch {
+		return undefined;
+	}
+}
+
+function getMaxPerUser(ctx: MutationCtx): number {
+	return parsePositiveInt(safeEnvGet(ctx, "SEARCH_HISTORY_MAX_PER_USER"), 200);
+}
+
+function getDeleteBatchSize(ctx: MutationCtx): number {
+	return parsePositiveInt(
+		safeEnvGet(ctx, "SEARCH_HISTORY_DELETE_BATCH_SIZE"),
+		200,
+	);
+}
+
+function getRetentionDays(ctx: MutationCtx): number {
+	return parsePositiveInt(safeEnvGet(ctx, "SEARCH_HISTORY_RETENTION_DAYS"), 30);
+}
+
+/**
+ * Enforce a per-user cap on the number of search history entries.
+ * Keeps the newest N (maxPerUser) entries and deletes older ones in ascending time order.
+ * Idempotent and safe to run concurrently.
+ */
+async function enforcePerUserCap(
+	ctx: MutationCtx,
+	userId: Id<"users">,
+): Promise<{ deleted: number }> {
+	const maxPerUser = getMaxPerUser(ctx);
+	if (maxPerUser <= 0) return { deleted: 0 };
+
+	// Fetch the newest "maxPerUser" entries to keep.
+	const keepers = await ctx.db
+		.query("searchHistory")
+		.withIndex("by_user_searched", (q) => q.eq("userId", userId))
+		.order("desc")
+		.take(maxPerUser);
+
+	// If we currently have fewer than the cap, nothing to do.
+	if (keepers.length < maxPerUser) return { deleted: 0 };
+
+	// Keep exact N newest by id to handle duplicate timestamps safely.
+	const keepIds = new Set(keepers.map((d) => d._id));
+
+	const batchSize = Math.min(1000, Math.max(1, getDeleteBatchSize(ctx)));
+	let deleted = 0;
+	const start = Date.now();
+
+	// Delete from the oldest side going forward, skipping keeper docs.
+	while (true) {
+		const batch = await ctx.db
+			.query("searchHistory")
+			.withIndex("by_user_searched", (q) => q.eq("userId", userId))
+			.order("asc")
+			.take(batchSize);
+
+		if (batch.length === 0) break;
+
+		let deletedInBatch = 0;
+		for (const doc of batch) {
+			if (!keepIds.has(doc._id)) {
+				await ctx.db.delete(doc._id);
+				deleted += 1;
+				deletedInBatch += 1;
+			}
+		}
+
+		// If we didn't delete anything in this batch, we've reached the kept range.
+		if (deletedInBatch === 0) break;
+		// Safety time bound to avoid long-running mutation.
+		if (Date.now() - start > 5000) break;
+	}
+
+	const duration = Date.now() - start;
+	console.log("[searchHistory.enforceCap]", {
+		userId,
+		maxPerUser,
+		deleted,
+		durationMs: duration,
+	});
+
+	return { deleted };
+}
+
+/**
+ * Background cleanup job: delete entries older than retentionDays.
+ * Uses global searchedAt index for efficient age-based deletion.
+ */
+export const cleanupOldSearchHistory = internalMutation({
+	args: {
+		retentionDays: v.optional(v.number()),
+		batchSize: v.optional(v.number()),
+	},
+	returns: v.object({
+		deleted: v.number(),
+		cutoff: v.number(),
+		durationMs: v.number(),
+	}),
+	handler: async (ctx, { retentionDays, batchSize }) => {
+		const days =
+			retentionDays ?? getRetentionDays(ctx as unknown as MutationCtx);
+		const batch = Math.min(
+			1000,
+			Math.max(
+				1,
+				batchSize ?? getDeleteBatchSize(ctx as unknown as MutationCtx),
+			),
+		);
+		const cutoff = Date.now() - days * MS_IN_DAY;
+
+		let deleted = 0;
+		const start = Date.now();
+
+		while (true) {
+			const olds = await ctx.db
+				.query("searchHistory")
+				.withIndex("by_searchedAt", (q) => q.lte("searchedAt", cutoff))
+				.order("asc")
+				.take(batch);
+
+			if (olds.length === 0) break;
+
+			for (const doc of olds) {
+				try {
+					await ctx.db.delete(doc._id);
+					deleted += 1;
+				} catch (e) {
+					// If already deleted by another concurrent worker, skip.
+					console.warn("[searchHistory.cleanupOld] concurrent delete", {
+						_id: doc._id,
+						error: (e as Error)?.message,
+					});
+				}
+			}
+
+			if (olds.length < batch) break;
+			// Safety time bound to avoid long-running mutation.
+			if (Date.now() - start > 10000) break;
+		}
+
+		const duration = Date.now() - start;
+		console.log(
+			`[searchHistory.cleanupOld] cutoff=${new Date(cutoff).toISOString()} deleted=${deleted} durationMs=${duration}`,
+		);
+
+		return { deleted, cutoff, durationMs: duration };
+	},
 });
 
 /**
@@ -302,25 +471,31 @@ export const addToSearchHistory = mutation({
 	handler: async (ctx, { query, resultCount }) => {
 		const userId = await getCurrentUser(ctx);
 
-		// Don't save empty queries
-		if (query.trim().length === 0) {
+		// Validate and normalize query
+		const trimmed = query.trim();
+		if (trimmed.length === 0) {
 			throw new ConvexError("Cannot save empty search query");
 		}
-
-		// Limit query length
-		if (query.length > 500) {
+		if (trimmed.length > 500) {
 			throw new ConvexError("Search query too long");
 		}
 
-		// TODO: Retention policy: periodically delete old searchHistory entries beyond N days.
-		// This can be implemented via a Convex cron or scheduled function.
-
-		return await ctx.db.insert("searchHistory", {
-			query: query.trim(),
+		const now = Date.now();
+		const id = await ctx.db.insert("searchHistory", {
+			query: trimmed,
 			userId,
-			searchedAt: Date.now(),
+			searchedAt: now,
 			resultCount,
 		});
+
+		// Enforce per-user cap. Best-effort and idempotent.
+		try {
+			await enforcePerUserCap(ctx, userId);
+		} catch (err) {
+			console.error("[searchHistory.enforcePerUserCap] error", err);
+		}
+
+		return id;
 	},
 });
 
