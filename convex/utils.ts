@@ -1,7 +1,7 @@
 /**
  * Shared Convex utilities.
- * parsePositiveInt: Coerces input to a positive integer with Math.floor semantics.
- * Falls back to the provided default when input is not a finite positive number.
+ * parsePositiveInt: Returns input if it's a strictly positive integer; otherwise returns the fallback.
+ * Does not round or floor non-integer values; non-integers, NaN, Infinity, and non-positives use the fallback.
  */
 export function parsePositiveInt(input: unknown, fallback: number): number {
 	const n = Number(input);
