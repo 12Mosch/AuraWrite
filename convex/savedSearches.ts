@@ -24,12 +24,43 @@ const filterSchema = v.object({
 	),
 });
 
+// Normalize filter inputs to keep tags trimmed/deduped and preserve date ranges.
+function normalizeFilters(f: {
+	folderId?: Id<"folders">;
+	status?: "draft" | "published" | "archived";
+	tags?: string[];
+	dateRange?: { start: number; end: number };
+}) {
+	// Trim and dedup tags; drop empties.
+	const tags =
+		f.tags && Array.isArray(f.tags)
+			? Array.from(
+					new Set(f.tags.map((t) => t.trim()).filter((t) => t.length > 0)),
+				)
+			: undefined;
+
+	// Ensure dateRange stays intact if provided.
+	const dateRange = f.dateRange
+		? { start: f.dateRange.start, end: f.dateRange.end }
+		: undefined;
+
+	return {
+		folderId: f.folderId,
+		status: f.status,
+		tags,
+		dateRange,
+	};
+}
+
 // ===== Search history retention config, helpers, and cleanup =====
 const MS_IN_DAY = 86_400_000;
 
 // Runtime config helper: reads Convex env first, then falls back to process.env.
 // Parsing/validation uses parsePositiveInt and logs clear messages on malformed values.
-type EnvCtx = { env?: { get?: (k: string) => string | undefined } };
+// Accept either a Convex MutationCtx (imported above) or a lightweight Env-like object.
+type EnvCtx =
+	| MutationCtx
+	| { env?: { get?: (k: string) => string | undefined } };
 
 const CONFIG_DEFAULTS = {
 	SEARCH_HISTORY_MAX_PER_USER: 200,
@@ -38,11 +69,27 @@ const CONFIG_DEFAULTS = {
 } as const;
 
 function runtimeEnvGet(
-	ctx: unknown,
+	ctx: EnvCtx | undefined,
 	key: keyof typeof CONFIG_DEFAULTS | string,
 ): string | undefined {
-	const fromConvex = (ctx as EnvCtx)?.env?.get?.(key);
-	if (fromConvex !== undefined) return fromConvex;
+	// Narrow using a type predicate to avoid `any`.
+	function isEnvLike(
+		x: unknown,
+	): x is { env: { get: (k: string) => string | undefined } } {
+		return (
+			typeof x === "object" &&
+			x !== null &&
+			"env" in x &&
+			typeof (x as { env?: unknown }).env === "object" &&
+			typeof (x as { env?: { get?: unknown } }).env?.get === "function"
+		);
+	}
+
+	// If ctx is a Convex-like env object with env.get, prefer that.
+	if (ctx && isEnvLike(ctx)) {
+		const val = ctx.env.get(key);
+		if (val !== undefined) return val;
+	}
 	// Fallback to process.env when not in Convex or when Convex value is undefined
 	try {
 		return typeof process !== "undefined" ? process.env?.[key] : undefined;
@@ -52,7 +99,7 @@ function runtimeEnvGet(
 }
 
 function readPositiveIntConfig(
-	ctx: unknown,
+	ctx: EnvCtx | undefined,
 	key: keyof typeof CONFIG_DEFAULTS,
 	def: number,
 ): number {
@@ -67,19 +114,19 @@ function readPositiveIntConfig(
 }
 
 const searchHistoryConfig = {
-	maxPerUser: (ctx: unknown): number =>
+	maxPerUser: (ctx: EnvCtx | undefined): number =>
 		readPositiveIntConfig(
 			ctx,
 			"SEARCH_HISTORY_MAX_PER_USER",
 			CONFIG_DEFAULTS.SEARCH_HISTORY_MAX_PER_USER,
 		),
-	deleteBatchSize: (ctx: unknown): number =>
+	deleteBatchSize: (ctx: EnvCtx | undefined): number =>
 		readPositiveIntConfig(
 			ctx,
 			"SEARCH_HISTORY_DELETE_BATCH_SIZE",
 			CONFIG_DEFAULTS.SEARCH_HISTORY_DELETE_BATCH_SIZE,
 		),
-	retentionDays: (ctx: unknown): number =>
+	retentionDays: (ctx: EnvCtx | undefined): number =>
 		readPositiveIntConfig(
 			ctx,
 			"SEARCH_HISTORY_RETENTION_DAYS",
@@ -313,7 +360,7 @@ export const createSavedSearch = mutation({
 		return await ctx.db.insert("savedSearches", {
 			name: name.trim(),
 			query: query?.trim() || undefined,
-			filters,
+			filters: normalizeFilters(filters),
 			sortBy,
 			sortOrder,
 			userId,
@@ -408,7 +455,10 @@ export const updateSavedSearch = mutation({
 		};
 
 		if (name !== undefined) updates.name = name.trim();
-		if (query !== undefined) updates.query = query;
+		if (query !== undefined) {
+			const tq = query.trim();
+			updates.query = tq.length > 0 ? tq : undefined;
+		}
 		if (filters !== undefined) {
 			// Validate date range if provided
 			if (filters.dateRange) {
@@ -418,7 +468,7 @@ export const updateSavedSearch = mutation({
 					);
 				}
 			}
-			updates.filters = filters;
+			updates.filters = normalizeFilters(filters);
 		}
 		if (sortBy !== undefined) updates.sortBy = sortBy;
 		if (sortOrder !== undefined) updates.sortOrder = sortOrder;
@@ -474,11 +524,12 @@ export const getSearchHistory = query({
 		const safeLimit = Number.isNaN(parsedLimit) ? 1 : parsedLimit;
 		const clampedLimit = Math.max(1, Math.min(Math.floor(safeLimit), 50));
 
+		const pageSize = Math.min(200, clampedLimit * 3);
 		const history = await ctx.db
 			.query("searchHistory")
 			.withIndex("by_user_searched", (q) => q.eq("userId", userId))
 			.order("desc")
-			.take(clampedLimit); // Cap at 50 for performance
+			.take(pageSize); // Fetch extra to offset dedupe
 
 		// Deduplicate by query, keeping most recent
 		const uniqueQueries = new Map<string, (typeof history)[0]>();
@@ -526,7 +577,10 @@ export const addToSearchHistory = mutation({
 			query: trimmed,
 			userId,
 			searchedAt: now,
-			resultCount,
+			resultCount:
+				typeof resultCount === "number" && Number.isFinite(resultCount)
+					? Math.max(0, Math.floor(resultCount))
+					: undefined,
 		});
 
 		// Enforce per-user cap. Best-effort and idempotent.
@@ -554,7 +608,15 @@ export const clearSearchHistory = mutation({
 	handler: async (ctx, { olderThanMs }) => {
 		const userId = await getCurrentUser(ctx);
 		const now = Date.now();
-		const cutoff = olderThanMs ? now - Math.max(olderThanMs, 0) : undefined;
+		const cutoff =
+			olderThanMs !== undefined
+				? now - Math.max(Math.floor(olderThanMs), 0)
+				: undefined;
+		const batchSize = Math.min(
+			200,
+			Math.max(1, searchHistoryConfig.deleteBatchSize(ctx)),
+		);
+		const start = Date.now();
 
 		let deleted = 0;
 
@@ -564,7 +626,7 @@ export const clearSearchHistory = mutation({
 				.query("searchHistory")
 				.withIndex("by_user_searched", (q) => q.eq("userId", userId))
 				.order("asc")
-				.take(200);
+				.take(batchSize);
 
 			if (batch.length === 0) break;
 
@@ -579,6 +641,8 @@ export const clearSearchHistory = mutation({
 
 			// If we didn't delete anything in this batch and a cutoff is set, remaining are newer than cutoff
 			if (deletedInBatch === 0 && cutoff) break;
+			// Safety bound to avoid long-running mutation.
+			if (Date.now() - start > 5000) break;
 		}
 
 		return { deleted };
