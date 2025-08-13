@@ -73,6 +73,34 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 		}
 	};
 
+	// Ensure focused toolbar children are scrolled into view when the toolbar is horizontally
+	// scrollable so keyboard users don't lose focus off-screen.
+	const handleChildFocus = (e: React.FocusEvent<HTMLElement>) => {
+		const target = e.currentTarget;
+		// nearest keeps it from moving the container too aggressively
+		target.scrollIntoView({
+			inline: "nearest",
+			block: "nearest",
+			behavior: "smooth",
+		});
+	};
+
+	// Presentational-only: derive booleans from props for consistent visuals/aria
+	const isBold = Boolean(activeFormats?.bold);
+	const isItalic = Boolean(activeFormats?.italic);
+	const isUnderline = Boolean(activeFormats?.underline);
+	const isStrikethrough = Boolean(activeFormats?.strikethrough);
+	const isCode = Boolean(activeFormats?.code);
+
+	const isAlignLeft = currentAlignment === "left";
+	const isAlignCenter = currentAlignment === "center";
+	const isAlignRight = currentAlignment === "right";
+	const isAlignJustify = currentAlignment === "justify";
+
+	const isBulletList = activeFormats?.blockType === "bulleted-list";
+	const isNumberedList = activeFormats?.blockType === "numbered-list";
+	const isBlockquote = activeFormats?.blockType === "blockquote";
+
 	// Horizontal overflow detection for gradient masks
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const [showLeftMask, setShowLeftMask] = useState(false);
@@ -130,6 +158,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 		<TooltipProvider>
 			<div
 				ref={containerRef}
+				role="toolbar"
+				aria-label="Editor toolbar"
 				className="relative flex items-center justify-between gap-1 p-2 bg-background border-b overflow-x-auto scroll-smooth"
 			>
 				{/* Left side: Toolbar controls */}
@@ -160,6 +190,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 									variant="ghost"
 									size="sm"
 									onClick={() => handleAction("edit.undo")}
+									aria-label="Undo"
+									aria-keyshortcuts="Ctrl+Z Meta+Z"
+									title="Undo (Ctrl+Z)"
+									onFocus={handleChildFocus}
 								>
 									<Undo className="h-4 w-4" />
 								</Button>
@@ -173,6 +207,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 									variant="ghost"
 									size="sm"
 									onClick={() => handleAction("edit.redo")}
+									aria-label="Redo"
+									aria-keyshortcuts="Ctrl+Y Meta+Shift+Z"
+									title="Redo (Ctrl+Y)"
+									onFocus={handleChildFocus}
 								>
 									<Redo className="h-4 w-4" />
 								</Button>
@@ -232,71 +270,130 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={activeFormats.bold}
+									pressed={isBold}
 									onPressedChange={() => handleAction("format.bold")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isBold}
+									aria-label="Bold"
+									aria-keyshortcuts="Ctrl+B Meta+B"
+									title={isBold ? "Bold — active (Ctrl+B)" : "Bold (Ctrl+B)"}
+									onFocus={handleChildFocus}
 								>
-									<Bold className="h-4 w-4" />
+									<Bold
+										className={`${isBold ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Bold (Ctrl+B)</TooltipContent>
+							<TooltipContent>
+								{isBold ? "Bold — active (Ctrl+B)" : "Bold (Ctrl+B)"}
+							</TooltipContent>
 						</Tooltip>
 
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={activeFormats.italic}
+									pressed={isItalic}
 									onPressedChange={() => handleAction("format.italic")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isItalic}
+									aria-label="Italic"
+									aria-keyshortcuts="Ctrl+I Meta+I"
+									title={
+										isItalic ? "Italic — active (Ctrl+I)" : "Italic (Ctrl+I)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<Italic className="h-4 w-4" />
+									<Italic
+										className={`${isItalic ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Italic (Ctrl+I)</TooltipContent>
+							<TooltipContent>
+								{isItalic ? "Italic — active (Ctrl+I)" : "Italic (Ctrl+I)"}
+							</TooltipContent>
 						</Tooltip>
 
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={activeFormats.underline}
+									pressed={isUnderline}
 									onPressedChange={() => handleAction("format.underline")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isUnderline}
+									aria-label="Underline"
+									aria-keyshortcuts="Ctrl+U Meta+U"
+									title={
+										isUnderline
+											? "Underline — active (Ctrl+U)"
+											: "Underline (Ctrl+U)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<Underline className="h-4 w-4" />
+									<Underline
+										className={`${isUnderline ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Underline (Ctrl+U)</TooltipContent>
+							<TooltipContent>
+								{isUnderline
+									? "Underline — active (Ctrl+U)"
+									: "Underline (Ctrl+U)"}
+							</TooltipContent>
 						</Tooltip>
 
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={activeFormats.strikethrough}
+									pressed={isStrikethrough}
 									onPressedChange={() => handleAction("format.strikethrough")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isStrikethrough}
+									aria-label="Strikethrough"
+									aria-keyshortcuts="Ctrl+Shift+X Meta+Shift+X"
+									title={
+										isStrikethrough
+											? "Strikethrough — active (Ctrl+Shift+X)"
+											: "Strikethrough (Ctrl+Shift+X)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<Strikethrough className="h-4 w-4" />
+									<Strikethrough
+										className={`${isStrikethrough ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Strikethrough (Ctrl+Shift+X)</TooltipContent>
+							<TooltipContent>
+								{isStrikethrough
+									? "Strikethrough — active (Ctrl+Shift+X)"
+									: "Strikethrough (Ctrl+Shift+X)"}
+							</TooltipContent>
 						</Tooltip>
 
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={activeFormats.code}
+									pressed={isCode}
 									onPressedChange={() => handleAction("format.code")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isCode}
+									aria-label="Code"
+									aria-keyshortcuts="Ctrl+` Meta+`"
+									title={isCode ? "Code — active (Ctrl+`)" : "Code (Ctrl+`)"}
+									onFocus={handleChildFocus}
 								>
-									<Code className="h-4 w-4" />
+									<Code
+										className={`${isCode ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Code (Ctrl+`)</TooltipContent>
+							<TooltipContent>
+								{isCode ? "Code — active (Ctrl+`)" : "Code (Ctrl+`)"}
+							</TooltipContent>
 						</Tooltip>
 					</div>
 
@@ -307,57 +404,117 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={currentAlignment === "left"}
+									pressed={isAlignLeft}
 									onPressedChange={() => handleAction("format.alignLeft")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isAlignLeft}
+									aria-label="Align left"
+									aria-keyshortcuts="Ctrl+Shift+L Meta+Shift+L"
+									title={
+										isAlignLeft
+											? "Align Left — active (Ctrl+Shift+L)"
+											: "Align Left (Ctrl+Shift+L)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<AlignLeft className="h-4 w-4" />
+									<AlignLeft
+										className={`${isAlignLeft ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Align Left (Ctrl+Shift+L)</TooltipContent>
+							<TooltipContent>
+								{isAlignLeft
+									? "Align Left — active (Ctrl+Shift+L)"
+									: "Align Left (Ctrl+Shift+L)"}
+							</TooltipContent>
 						</Tooltip>
 
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={currentAlignment === "center"}
+									pressed={isAlignCenter}
 									onPressedChange={() => handleAction("format.alignCenter")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isAlignCenter}
+									aria-label="Align center"
+									aria-keyshortcuts="Ctrl+Shift+E Meta+Shift+E"
+									title={
+										isAlignCenter
+											? "Align Center — active (Ctrl+Shift+E)"
+											: "Align Center (Ctrl+Shift+E)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<AlignCenter className="h-4 w-4" />
+									<AlignCenter
+										className={`${isAlignCenter ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Align Center (Ctrl+Shift+E)</TooltipContent>
+							<TooltipContent>
+								{isAlignCenter
+									? "Align Center — active (Ctrl+Shift+E)"
+									: "Align Center (Ctrl+Shift+E)"}
+							</TooltipContent>
 						</Tooltip>
 
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={currentAlignment === "right"}
+									pressed={isAlignRight}
 									onPressedChange={() => handleAction("format.alignRight")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isAlignRight}
+									aria-label="Align right"
+									aria-keyshortcuts="Ctrl+Shift+R Meta+Shift+R"
+									title={
+										isAlignRight
+											? "Align Right — active (Ctrl+Shift+R)"
+											: "Align Right (Ctrl+Shift+R)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<AlignRight className="h-4 w-4" />
+									<AlignRight
+										className={`${isAlignRight ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Align Right (Ctrl+Shift+R)</TooltipContent>
+							<TooltipContent>
+								{isAlignRight
+									? "Align Right — active (Ctrl+Shift+R)"
+									: "Align Right (Ctrl+Shift+R)"}
+							</TooltipContent>
 						</Tooltip>
 
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={currentAlignment === "justify"}
+									pressed={isAlignJustify}
 									onPressedChange={() => handleAction("format.alignJustify")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isAlignJustify}
+									aria-label="Justify"
+									aria-keyshortcuts="Ctrl+Shift+J Meta+Shift+J"
+									title={
+										isAlignJustify
+											? "Justify — active (Ctrl+Shift+J)"
+											: "Justify (Ctrl+Shift+J)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<AlignJustify className="h-4 w-4" />
+									<AlignJustify
+										className={`${isAlignJustify ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Justify (Ctrl+Shift+J)</TooltipContent>
+							<TooltipContent>
+								{isAlignJustify
+									? "Justify — active (Ctrl+Shift+J)"
+									: "Justify (Ctrl+Shift+J)"}
+							</TooltipContent>
 						</Tooltip>
 					</div>
 
@@ -368,43 +525,88 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={activeFormats.blockType === "bulleted-list"}
+									pressed={isBulletList}
 									onPressedChange={() => handleAction("format.bulletList")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isBulletList}
+									aria-label="Bullet list"
+									aria-keyshortcuts="Ctrl+Shift+8 Meta+Shift+8"
+									title={
+										isBulletList
+											? "Bullet List — active (Ctrl+Shift+8)"
+											: "Bullet List (Ctrl+Shift+8)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<List className="h-4 w-4" />
+									<List
+										className={`${isBulletList ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Bullet List (Ctrl+Shift+8)</TooltipContent>
+							<TooltipContent>
+								{isBulletList
+									? "Bullet List — active (Ctrl+Shift+8)"
+									: "Bullet List (Ctrl+Shift+8)"}
+							</TooltipContent>
 						</Tooltip>
 
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={activeFormats.blockType === "numbered-list"}
+									pressed={isNumberedList}
 									onPressedChange={() => handleAction("format.numberedList")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isNumberedList}
+									aria-label="Numbered list"
+									aria-keyshortcuts="Ctrl+Shift+7 Meta+Shift+7"
+									title={
+										isNumberedList
+											? "Numbered List — active (Ctrl+Shift+7)"
+											: "Numbered List (Ctrl+Shift+7)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<ListOrdered className="h-4 w-4" />
+									<ListOrdered
+										className={`${isNumberedList ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Numbered List (Ctrl+Shift+7)</TooltipContent>
+							<TooltipContent>
+								{isNumberedList
+									? "Numbered List — active (Ctrl+Shift+7)"
+									: "Numbered List (Ctrl+Shift+7)"}
+							</TooltipContent>
 						</Tooltip>
 
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Toggle
-									pressed={activeFormats.blockType === "blockquote"}
+									pressed={isBlockquote}
 									onPressedChange={() => handleAction("format.blockquote")}
 									size="sm"
 									className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+									aria-pressed={isBlockquote}
+									aria-label="Quote"
+									aria-keyshortcuts="Ctrl+Shift+Q Meta+Shift+Q"
+									title={
+										isBlockquote
+											? "Quote — active (Ctrl+Shift+Q)"
+											: "Quote (Ctrl+Shift+Q)"
+									}
+									onFocus={handleChildFocus}
 								>
-									<Quote className="h-4 w-4" />
+									<Quote
+										className={`${isBlockquote ? "toolbar-icon-active text-accent-foreground" : "text-muted-foreground"} h-4 w-4`}
+									/>
 								</Toggle>
 							</TooltipTrigger>
-							<TooltipContent>Quote (Ctrl+Shift+Q)</TooltipContent>
+							<TooltipContent>
+								{isBlockquote
+									? "Quote — active (Ctrl+Shift+Q)"
+									: "Quote (Ctrl+Shift+Q)"}
+							</TooltipContent>
 						</Tooltip>
 					</div>
 
@@ -418,6 +620,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 									variant="ghost"
 									size="sm"
 									onClick={() => handleAction("insert.link")}
+									aria-label="Insert link"
+									aria-keyshortcuts="Ctrl+K Meta+K"
+									title="Insert Link (Ctrl+K)"
+									onFocus={handleChildFocus}
 								>
 									<Link className="h-4 w-4" />
 								</Button>
@@ -431,6 +637,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 									variant="ghost"
 									size="sm"
 									onClick={() => handleAction("insert.image")}
+									aria-label="Insert image"
+									title="Insert Image"
+									onFocus={handleChildFocus}
 								>
 									<Image className="h-4 w-4" />
 								</Button>
@@ -453,10 +662,16 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
 				{/* Gradient masks to hint horizontal scroll on small screens */}
 				{showLeftMask && (
-					<div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-background to-transparent md:hidden" />
+					<div
+						className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-background to-transparent md:hidden"
+						aria-hidden="true"
+					/>
 				)}
 				{showRightMask && (
-					<div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent md:hidden" />
+					<div
+						className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent md:hidden"
+						aria-hidden="true"
+					/>
 				)}
 			</div>
 		</TooltipProvider>
