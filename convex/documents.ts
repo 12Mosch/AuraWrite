@@ -133,11 +133,28 @@ export const getDocument = query({
 		try {
 			const userId = await getCurrentUser(ctx);
 			return await checkDocumentAccess(ctx, documentId, userId);
-		} catch (error) {
-			// Return null if document not found or access denied
-			// This allows the frontend to handle missing documents gracefully
-			console.warn(`Document access failed for ${documentId}:`, error);
-			return null;
+		} catch (error: unknown) {
+			const isExpected = (err: unknown) => {
+				if (err instanceof ConvexError) {
+					const data = err.data;
+					const msg = typeof data === "string" ? data : (err.message ?? "");
+					return /not found|access denied/i.test(String(msg));
+				}
+				if (err instanceof Error)
+					return /not found|access denied/i.test(err.message);
+				if (typeof err === "string")
+					return /not found|access denied/i.test(err);
+				return false;
+			};
+			if (isExpected(error)) {
+				console.info(
+					`Document access expected failure for ${documentId}:`,
+					error,
+				);
+				return null;
+			}
+			console.error(`Unexpected error fetching document ${documentId}:`, error);
+			throw error;
 		}
 	},
 });
@@ -178,11 +195,31 @@ export const getDocumentForRecovery = query({
 		try {
 			const userId = await getCurrentUser(ctx);
 			return await checkDocumentAccess(ctx, documentId, userId);
-		} catch (error) {
-			// Return null if document not found or access denied
-			// This allows recovery to handle missing documents gracefully
-			console.warn(`Document recovery failed for ${documentId}:`, error);
-			return null;
+		} catch (error: unknown) {
+			const isExpected = (err: unknown) => {
+				if (err instanceof ConvexError) {
+					const data = err.data;
+					const msg = typeof data === "string" ? data : (err.message ?? "");
+					return /not found|access denied/i.test(String(msg));
+				}
+				if (err instanceof Error)
+					return /not found|access denied/i.test(err.message);
+				if (typeof err === "string")
+					return /not found|access denied/i.test(err);
+				return false;
+			};
+			if (isExpected(error)) {
+				console.info(
+					`Document recovery expected failure for ${documentId}:`,
+					error,
+				);
+				return null;
+			}
+			console.error(
+				`Unexpected error fetching document for recovery ${documentId}:`,
+				error,
+			);
+			throw error;
 		}
 	},
 });

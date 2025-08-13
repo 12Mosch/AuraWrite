@@ -7,6 +7,7 @@ import {
 	query,
 } from "./_generated/server";
 import { getCurrentUser } from "./authHelpers";
+import { parsePositiveInt } from "./utils";
 
 // Type definitions for saved search filters
 const filterSchema = v.object({
@@ -26,36 +27,65 @@ const filterSchema = v.object({
 // ===== Search history retention config, helpers, and cleanup =====
 const MS_IN_DAY = 86_400_000;
 
-function parsePositiveInt(input: string | undefined, fallback: number): number {
-	const n = Number(input);
-	return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
+// Runtime config helper: reads Convex env first, then falls back to process.env.
+// Parsing/validation uses parsePositiveInt and logs clear messages on malformed values.
+type EnvCtx = { env?: { get?: (k: string) => string | undefined } };
 
-function safeEnvGet(ctx: MutationCtx, key: string): string | undefined {
-	// Narrow the shape of ctx to avoid `any` while supporting Convex env access.
-	type EnvCtx = { env?: { get?: (k: string) => string | undefined } };
+const CONFIG_DEFAULTS = {
+	SEARCH_HISTORY_MAX_PER_USER: 200,
+	SEARCH_HISTORY_DELETE_BATCH_SIZE: 200,
+	SEARCH_HISTORY_RETENTION_DAYS: 30,
+} as const;
+
+function runtimeEnvGet(
+	ctx: unknown,
+	key: keyof typeof CONFIG_DEFAULTS | string,
+): string | undefined {
+	const fromConvex = (ctx as EnvCtx)?.env?.get?.(key);
+	if (fromConvex !== undefined) return fromConvex;
+	// Fallback to process.env when not in Convex or when Convex value is undefined
 	try {
-		const maybe = ctx as unknown as EnvCtx;
-		return maybe?.env?.get?.(key);
+		return typeof process !== "undefined" ? process.env?.[key] : undefined;
 	} catch {
 		return undefined;
 	}
 }
 
-function getMaxPerUser(ctx: MutationCtx): number {
-	return parsePositiveInt(safeEnvGet(ctx, "SEARCH_HISTORY_MAX_PER_USER"), 200);
+function readPositiveIntConfig(
+	ctx: unknown,
+	key: keyof typeof CONFIG_DEFAULTS,
+	def: number,
+): number {
+	const raw = runtimeEnvGet(ctx, key);
+	const parsed = parsePositiveInt(raw, def);
+	if (raw !== undefined && parsed === def) {
+		console.error(
+			`[searchHistory.config] ${key} invalid: '${raw}' -> using default ${def}`,
+		);
+	}
+	return parsed;
 }
 
-function getDeleteBatchSize(ctx: MutationCtx): number {
-	return parsePositiveInt(
-		safeEnvGet(ctx, "SEARCH_HISTORY_DELETE_BATCH_SIZE"),
-		200,
-	);
-}
-
-function getRetentionDays(ctx: MutationCtx): number {
-	return parsePositiveInt(safeEnvGet(ctx, "SEARCH_HISTORY_RETENTION_DAYS"), 30);
-}
+const searchHistoryConfig = {
+	maxPerUser: (ctx: unknown): number =>
+		readPositiveIntConfig(
+			ctx,
+			"SEARCH_HISTORY_MAX_PER_USER",
+			CONFIG_DEFAULTS.SEARCH_HISTORY_MAX_PER_USER,
+		),
+	deleteBatchSize: (ctx: unknown): number =>
+		readPositiveIntConfig(
+			ctx,
+			"SEARCH_HISTORY_DELETE_BATCH_SIZE",
+			CONFIG_DEFAULTS.SEARCH_HISTORY_DELETE_BATCH_SIZE,
+		),
+	retentionDays: (ctx: unknown): number =>
+		readPositiveIntConfig(
+			ctx,
+			"SEARCH_HISTORY_RETENTION_DAYS",
+			CONFIG_DEFAULTS.SEARCH_HISTORY_RETENTION_DAYS,
+		),
+};
 
 /**
  * Enforce a per-user cap on the number of search history entries.
@@ -66,7 +96,7 @@ async function enforcePerUserCap(
 	ctx: MutationCtx,
 	userId: Id<"users">,
 ): Promise<{ deleted: number }> {
-	const maxPerUser = getMaxPerUser(ctx);
+	const maxPerUser = searchHistoryConfig.maxPerUser(ctx);
 	if (maxPerUser <= 0) return { deleted: 0 };
 
 	// Fetch the newest "maxPerUser" entries to keep.
@@ -82,7 +112,10 @@ async function enforcePerUserCap(
 	// Keep exact N newest by id to handle duplicate timestamps safely.
 	const keepIds = new Set(keepers.map((d) => d._id));
 
-	const batchSize = Math.min(1000, Math.max(1, getDeleteBatchSize(ctx)));
+	const batchSize = Math.min(
+		200,
+		Math.max(1, searchHistoryConfig.deleteBatchSize(ctx)),
+	);
 	let deleted = 0;
 	const start = Date.now();
 
@@ -137,14 +170,10 @@ export const cleanupOldSearchHistory = internalMutation({
 		durationMs: v.number(),
 	}),
 	handler: async (ctx, { retentionDays, batchSize }) => {
-		const days =
-			retentionDays ?? getRetentionDays(ctx as unknown as MutationCtx);
+		const days = retentionDays ?? searchHistoryConfig.retentionDays(ctx);
 		const batch = Math.min(
 			1000,
-			Math.max(
-				1,
-				batchSize ?? getDeleteBatchSize(ctx as unknown as MutationCtx),
-			),
+			Math.max(1, batchSize ?? searchHistoryConfig.deleteBatchSize(ctx)),
 		);
 		const cutoff = Date.now() - days * MS_IN_DAY;
 
@@ -538,8 +567,8 @@ export const clearSearchHistory = mutation({
 
 			// If we didn't delete anything in this batch and a cutoff is set, remaining are newer than cutoff
 			if (deletedInBatch === 0 && cutoff) break;
-			// If fewer than batch size returned, we've reached the end
-			if (batch.length < 200 && !cutoff) break;
+			// If no entries returned or we processed fewer than expected, we're done
+			if (batch.length === 0) break;
 		}
 
 		return { deleted };

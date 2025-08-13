@@ -1,12 +1,9 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
+import { parsePositiveInt } from "./utils";
 
 // Allow configuring the cleanup cadence at build/deploy time.
 // Falls back to a safe default if not provided.
-function parsePositiveInt(input: unknown, fallback: number): number {
-	const n = Number(input);
-	return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
 
 const DEFAULT_MINUTES = 60;
 // Attempt to read from process.env if available at build time.

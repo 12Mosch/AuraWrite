@@ -24,6 +24,7 @@ import type * as savedSearches from "../savedSearches.js";
 import type * as subscriptions from "../subscriptions.js";
 import type * as templates from "../templates.js";
 import type * as users from "../users.js";
+import type * as utils from "../utils.js";
 import type * as yjsSync from "../yjsSync.js";
 
 /**
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   subscriptions: typeof subscriptions;
   templates: typeof templates;
   users: typeof users;
+  utils: typeof utils;
   yjsSync: typeof yjsSync;
 }>;
 export declare const api: FilterApi<

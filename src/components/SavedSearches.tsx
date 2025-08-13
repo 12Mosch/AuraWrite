@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "convex/react";
 import { Bookmark, MoreHorizontal, Plus, Search, Trash2 } from "lucide-react";
 import type React from "react";
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -206,13 +207,19 @@ export const SavedSearches: React.FC<SavedSearchesProps> = ({
 			try {
 				await deleteSavedSearch({ savedSearchId: searchId });
 			} catch (error) {
-				if (onError) {
-					onError(
-						error instanceof Error
-							? error
-							: new Error("Failed to delete saved search"),
-					);
-				}
+				// Surface a user-visible error toast, while still forwarding through onError
+				const err =
+					error instanceof Error
+						? error
+						: new Error("Failed to delete saved search");
+
+				// Visual feedback to the user
+				toast.error("Failed to delete saved search", {
+					description: err.message,
+				});
+
+				// Preserve external error handling hook if provided
+				onError?.(err);
 			} finally {
 				setDeletingId(null);
 			}
