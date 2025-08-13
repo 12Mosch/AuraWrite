@@ -44,3 +44,74 @@ export async function checkDocumentAccess(
 
 	return document;
 }
+
+/**
+ * Helper function to check folder access permissions
+ * Verifies that a user has access to a folder (owner only)
+ */
+export async function checkFolderAccess(
+	ctx: QueryCtx | MutationCtx,
+	folderId: Id<"folders">,
+	userId: Id<"users">,
+): Promise<Doc<"folders">> {
+	const folder = await ctx.db.get(folderId);
+	if (!folder) {
+		throw new ConvexError("Folder not found");
+	}
+
+	if (folder.ownerId !== userId) {
+		throw new ConvexError(
+			"Access denied: You don't have permission to access this folder",
+		);
+	}
+
+	return folder;
+}
+
+/**
+ * Helper function to check template access permissions
+ * Verifies that a user has access to a template (creator or team template)
+ */
+export async function checkTemplateAccess(
+	ctx: QueryCtx | MutationCtx,
+	templateId: Id<"templates">,
+	userId: Id<"users">,
+): Promise<Doc<"templates">> {
+	const template = await ctx.db.get(templateId);
+	if (!template) {
+		throw new ConvexError("Template not found");
+	}
+
+	const hasAccess = template.createdBy === userId || template.isTeamTemplate;
+
+	if (!hasAccess) {
+		throw new ConvexError(
+			"Access denied: You don't have permission to access this template",
+		);
+	}
+
+	return template;
+}
+
+/**
+ * Helper function to check template edit permissions
+ * Verifies that a user can edit a template (creator only)
+ */
+export async function checkTemplateEditAccess(
+	ctx: QueryCtx | MutationCtx,
+	templateId: Id<"templates">,
+	userId: Id<"users">,
+): Promise<Doc<"templates">> {
+	const template = await ctx.db.get(templateId);
+	if (!template) {
+		throw new ConvexError("Template not found");
+	}
+
+	if (template.createdBy !== userId) {
+		throw new ConvexError(
+			"Access denied: Only the template creator can edit this template",
+		);
+	}
+
+	return template;
+}

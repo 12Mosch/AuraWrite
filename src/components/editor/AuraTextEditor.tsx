@@ -89,6 +89,7 @@ interface AuraTextEditorProps {
 	onChange?: (value: Descendant[]) => void;
 	onSignOut?: () => void;
 	onNewDocument?: () => Promise<void>; // Callback to create and navigate to a new document
+	onExitToDashboard?: () => void; // Callback to exit to dashboard
 	// Status bar configuration
 	showCharCount?: boolean; // Default: true
 	showReadingTime?: boolean; // Default: true
@@ -107,6 +108,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	onChange,
 	onSignOut,
 	onNewDocument,
+	onExitToDashboard,
 	// Status bar configuration
 	showCharCount = true,
 	showReadingTime = true,
@@ -124,6 +126,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 	// Dialog state for unsaved changes confirmation
 	const [showNewDocumentDialog, setShowNewDocumentDialog] = useState(false);
+	const [showExitDialog, setShowExitDialog] = useState(false);
 	const [showLinkDialog, setShowLinkDialog] = useState(false);
 
 	// Editor instance ref for undo/redo operations
@@ -223,6 +226,24 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			handleNewDocument();
 		}
 	}, [isModified, handleNewDocument]);
+
+	// Handle exit to dashboard
+	const handleExitToDashboard = useCallback(() => {
+		if (!onExitToDashboard) return;
+
+		onExitToDashboard();
+	}, [onExitToDashboard]);
+
+	// Handle exit to dashboard with unsaved changes check
+	const handleExitToDashboardWithConfirmation = useCallback(() => {
+		if (isModified) {
+			// Show confirmation dialog if there are unsaved changes
+			setShowExitDialog(true);
+		} else {
+			// No unsaved changes, proceed directly
+			handleExitToDashboard();
+		}
+	}, [isModified, handleExitToDashboard]);
 
 	// Handle menu actions
 	const handleMenuAction = useCallback(
@@ -400,6 +421,15 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		setShowNewDocumentDialog(false);
 	}, []);
 
+	const handleConfirmExit = useCallback(() => {
+		setShowExitDialog(false);
+		handleExitToDashboard();
+	}, [handleExitToDashboard]);
+
+	const handleCancelExit = useCallback(() => {
+		setShowExitDialog(false);
+	}, []);
+
 	return (
 		<div className={`aura-text-editor h-full ${className}`}>
 			<EditorLayout
@@ -425,6 +455,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				showCharCount={showCharCount}
 				showReadingTime={showReadingTime}
 				readingWPM={readingWPM}
+				onExitToDashboard={handleExitToDashboardWithConfirmation}
 			>
 				<div className="h-full overflow-auto">
 					<div className="mx-auto max-w-[80ch] px-4 sm:px-6 md:px-8 py-6">
@@ -465,6 +496,28 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 						</Button>
 						<Button variant="destructive" onClick={handleConfirmNewDocument}>
 							Create New Document
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			{/* Exit to Dashboard Confirmation Dialog */}
+			<Dialog open={showExitDialog} onOpenChange={setShowExitDialog}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Exit to Dashboard</DialogTitle>
+						<DialogDescription>
+							You have unsaved changes in the current document. Exiting to the
+							dashboard will discard these changes. Are you sure you want to
+							continue?
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button variant="outline" onClick={handleCancelExit}>
+							Cancel
+						</Button>
+						<Button variant="destructive" onClick={handleConfirmExit}>
+							Exit to Dashboard
 						</Button>
 					</DialogFooter>
 				</DialogContent>
