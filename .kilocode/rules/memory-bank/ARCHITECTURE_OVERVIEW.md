@@ -4,11 +4,11 @@ Purpose
 - Lightweight summary of AuraWrite’s core architecture for fast onboarding and consistent decision-making.
 
 Sources
-- See [PROJECT_DESCRIPTION.md](.kilocode/rules/memory-bank/PROJECT_DESCRIPTION.md)
-- See [TECH_STACK.md](.kilocode/rules/memory-bank/TECH_STACK.md)
-- See [README.md](README.md)
-- See [src/ui/App.tsx](src/ui/App.tsx)
-- See [convex/schema.ts](convex/schema.ts)
+- See [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md)
+- See [TECH_STACK.md](TECH_STACK.md)
+- See [README.md](../../../README.md)
+- See [src/ui/App.tsx](../../../src/ui/App.tsx)
+- See [convex/schema.ts](../../../convex/schema.ts)
 
 Surfaces
 - Web app: Vite + React 19 single-page application.
@@ -58,7 +58,7 @@ Editor and Collaboration
 
 Backend and Data
 - Convex hosts typed queries, mutations, actions, and subscriptions for real-time updates.
-- Schema includes documents, documentVersions, collaborationSessions, folders, templates, savedSearches, searchHistory (see [convex/schema.ts](convex/schema.ts)).
+- Schema includes documents, documentVersions, collaborationSessions, folders, templates, savedSearches, searchHistory (see [convex/schema.ts](../../../convex/schema.ts)).
 - Search indexes power fast lookups, such as search_title on documents.
 
 Auth
@@ -79,4 +79,4 @@ Error Handling Summary
 - Queries: surfacing via error boundaries at render time.
 - Mutations: explicit try/catch with user feedback and optional optimistic updates.
 - Actions: explicit try/catch; consider manual retry policies.
-- See policy details in [ERROR_HANDLING_POLICY.md](.kilocode/rules/memory-bank/ERROR_HANDLING_POLICY.md).
+- See policy details in [ERROR_HANDLING_POLICY.md](./ERROR_HANDLING_POLICY.md).

@@ -4,13 +4,13 @@ Purpose
 - Lightweight summary of how AuraWrite handles errors across queries, mutations, and actions.
 
 Sources
-- See [docs/CONVEX_ERROR_HANDLING.md](docs/CONVEX_ERROR_HANDLING.md)
-- See [src/ui/App.tsx](src/ui/App.tsx)
-- See [src/components/ErrorBoundary.tsx](src/components/ErrorBoundary.tsx)
-- See [src/components/ConvexErrorBoundary.tsx](src/components/ConvexErrorBoundary.tsx)
+- See [../../../docs/CONVEX_ERROR_HANDLING.md](../../../docs/CONVEX_ERROR_HANDLING.md)
+- See [../../../src/ui/App.tsx](../../../src/ui/App.tsx)
+- See [../../../src/components/ErrorBoundary.tsx](../../../src/components/ErrorBoundary.tsx)
+- See [../../../src/components/ConvexErrorBoundary.tsx](../../../src/components/ConvexErrorBoundary.tsx)
 
 Overview
-- Convex queries throw during render; handle via Error Boundaries, not try/catch.
+- Query errors surface at render time; handle via Error Boundaries, not try/catch.
 - Mutations and actions reject Promises; handle via try/catch (or .catch).
 - Provide user-friendly feedback and logging; avoid exposing raw technical details.
 
@@ -31,7 +31,7 @@ Actions
 
 Error Categorization
 - Boundary components should categorize errors for consistent UX:
-  - Network, Authentication, Rate Limit, Validation, Server/Internal.
+  - Network, Authentication, Authorization/Permission, Rate Limit, Validation, Server/Internal.
 - Show tailored messages and appropriate retry affordances per category.
 
 UX Guidelines
@@ -51,5 +51,5 @@ Quick Rules
 - Keep UI responsive and informative (loading, error, retry).
 
 References
-- Implementation details and examples: [docs/CONVEX_ERROR_HANDLING.md](docs/CONVEX_ERROR_HANDLING.md)
-- App shell boundary usage: [src/ui/App.tsx](src/ui/App.tsx)
+- Implementation details and examples: [../../../docs/CONVEX_ERROR_HANDLING.md](../../../docs/CONVEX_ERROR_HANDLING.md)
+- App shell boundary usage: [../../../src/ui/App.tsx](../../../src/ui/App.tsx)

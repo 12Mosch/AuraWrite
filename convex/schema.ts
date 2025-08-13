@@ -43,7 +43,12 @@ const schema = defineSchema({
 		.searchIndex("search_title", {
 			searchField: "title",
 			filterFields: ["ownerId", "isPublic", "status", "folderId"],
-		}),
+		})
+		// Additional indexes referenced in DATA_MODEL.md for common filtered queries.
+		// by_template: fast lookup of documents created from a given template
+		.index("by_template", ["templateId"])
+		// by_public: quick filtering by public visibility
+		.index("by_public", ["isPublic"]),
 
 	// Document versions for history/undo functionality
 	documentVersions: defineTable({
@@ -52,6 +57,10 @@ const schema = defineSchema({
 		version: v.number(),
 		createdBy: v.id("users"),
 		createdAt: v.number(),
+		// Canonical Y.Doc snapshot (binary) to restore exact runtime state for rollbacks
+		yjsSnapshot: v.optional(v.bytes()),
+		// Protocol/schema version for the Yjs snapshot (numeric, increment on breaking changes)
+		yjsProtocolVersion: v.optional(v.number()),
 	})
 		.index("by_document", ["documentId"])
 		.index("by_document_version", ["documentId", "version"]),
@@ -88,7 +97,9 @@ const schema = defineSchema({
 	})
 		.index("by_document", ["documentId"])
 		.index("by_user_document", ["userId", "documentId"])
-		.index("by_document_last_seen", ["documentId", "lastSeen"]), // Optimized for time-based queries
+		.index("by_document_last_seen", ["documentId", "lastSeen"]) // Optimized for time-based queries
+		// Additional index for reverse lookup (document -> user) used by presence lists/UI
+		.index("by_document_user", ["documentId", "userId"]),
 
 	// Folders table for document organization
 	folders: defineTable({
@@ -115,6 +126,8 @@ const schema = defineSchema({
 		updatedAt: v.number(),
 	})
 		.index("by_creator", ["createdBy"])
+		// Composite index to support listing templates by creator ordered by update time
+		.index("by_creator_updated", ["createdBy", "updatedAt"])
 		.index("by_category", ["category"])
 		.index("by_team_template", ["isTeamTemplate"])
 		.searchIndex("search_templates", {
@@ -157,7 +170,9 @@ const schema = defineSchema({
 		updatedAt: v.number(),
 	})
 		.index("by_user", ["userId"])
-		.index("by_user_created", ["userId", "createdAt"]),
+		.index("by_user_created", ["userId", "createdAt"])
+		// Composite index used to enforce/lookup saved-search names per user
+		.index("by_user_name", ["userId", "name"]),
 
 	// Search history table for autocomplete and recent searches
 	searchHistory: defineTable({

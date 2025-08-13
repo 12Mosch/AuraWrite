@@ -2,6 +2,8 @@
 
 This page summarizes the core technologies used by AuraWrite.
 
+Note: Version numbers reflect package.json as of 2025-08. Prefer updating this page when package.json changes.
+
 Application surfaces
 - Web app: Vite + React 19
 - Desktop app: Electron 37 (main and preload built from TypeScript)

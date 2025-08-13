@@ -145,6 +145,7 @@ async function createDocumentVersion(
 	documentId: Id<"documents">,
 	yjsState: ArrayBuffer,
 	userId: Id<"users">,
+	yjsProtocolVersion = 1, // default protocol version; bump on breaking changes
 ) {
 	// Create Y.Doc before try block to ensure it's available for cleanup
 	const tempDoc = new Y.Doc();
@@ -191,28 +192,78 @@ async function createDocumentVersion(
 			]);
 		}
 
-		// Get the next version number
-		const lastVersion = await ctx.db
-			.query("documentVersions")
-			.withIndex("by_document", (q) => q.eq("documentId", documentId))
-			.order("desc")
-			.first();
+		// Determine next version and safely insert to avoid race conditions.
+		// Loop with limited retries: read latest, attempt insert; if a concurrent writer created the same version,
+		// retry by recomputing the next version. This enforces uniqueness for (documentId, version) at write time.
+		const MAX_RETRIES = 5;
+		let attempt = 0;
+		let insertedId: Id<"documentVersions"> | null = null;
+		while (attempt < MAX_RETRIES && !insertedId) {
+			attempt++;
 
-		const nextVersion = lastVersion ? lastVersion.version + 1 : 1;
+			// Read the most recent version for this document
+			const lastVersion = await ctx.db
+				.query("documentVersions")
+				.withIndex("by_document", (q) => q.eq("documentId", documentId))
+				.order("desc")
+				.first();
 
-		// Create the version record
-		const versionId = await ctx.db.insert("documentVersions", {
-			documentId,
-			content: slateContent,
-			version: nextVersion,
-			createdBy: userId,
-			createdAt: Date.now(),
-		});
+			const nextVersion = lastVersion ? lastVersion.version + 1 : 1;
 
-		console.log(
-			`Created document version ${nextVersion} for document ${documentId}`,
+			// Prepare the record including the canonical Yjs snapshot and protocol version
+			const record = {
+				documentId,
+				content: slateContent,
+				version: nextVersion,
+				createdBy: userId,
+				createdAt: Date.now(),
+				yjsSnapshot: yjsState,
+				yjsProtocolVersion,
+			};
+
+			try {
+				// Attempt insert.
+				insertedId = await ctx.db.insert("documentVersions", record);
+
+				// Double-check uniqueness by querying whether there exist multiple entries
+				// with the same (documentId, version). If duplicates exist, delete the extra
+				// inserted record and retry.
+				const sameVersion = await ctx.db
+					.query("documentVersions")
+					.withIndex("by_document_version", (q) =>
+						q.eq("documentId", documentId).eq("version", nextVersion),
+					)
+					.collect();
+
+				if (sameVersion.length > 1) {
+					// Conflict detected: remove the record we just inserted and retry.
+					console.warn(
+						`Version conflict detected for document ${documentId} version ${nextVersion}, retrying (attempt ${attempt})`,
+					);
+					await ctx.db.delete(insertedId);
+					insertedId = null;
+					// Loop will retry after incrementing attempt
+				} else {
+					// Success
+					console.log(
+						`Created document version ${nextVersion} for document ${documentId}`,
+					);
+					return insertedId;
+				}
+			} catch (err) {
+				console.warn(
+					`Failed to insert document version for document ${documentId} (attempt ${attempt}):`,
+					err,
+				);
+				// If insert failed for some reason, ensure insertedId is null and retry
+				insertedId = null;
+			}
+		}
+
+		console.error(
+			`Failed to create unique document version for ${documentId} after ${MAX_RETRIES} attempts`,
 		);
-		return versionId;
+		return null;
 	} catch (error) {
 		console.error("Failed to create document version:", error);
 		// Don't throw - versioning failure shouldn't break sync
