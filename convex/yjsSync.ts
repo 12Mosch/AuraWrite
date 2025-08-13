@@ -193,23 +193,29 @@ async function createDocumentVersion(
 		}
 
 		// Determine next version and safely insert to avoid race conditions.
-		// Loop with limited retries: read latest, attempt insert; if a concurrent writer created the same version,
-		// retry by recomputing the next version. This enforces uniqueness for (documentId, version) at write time.
+		// Strategy:
+		//  - Read the highest version using the by_document_version index ordered by version desc
+		//  - Attempt insert for nextVersion
+		//  - If multiple rows exist for the same (documentId, version), pick a deterministic winner
+		//    (smallest createdAt, then smallest _id) and delete the other conflicting rows.
+		//  - Retry a bounded number of times with a small jittered backoff to reduce contention.
 		const MAX_RETRIES = 5;
 		let attempt = 0;
-		let insertedId: Id<"documentVersions"> | null = null;
-		while (attempt < MAX_RETRIES && !insertedId) {
+		let winnerId: Id<"documentVersions"> | null = null;
+		while (attempt < MAX_RETRIES && !winnerId) {
 			attempt++;
-
-			// Read the most recent version for this document
-			const lastVersion = await ctx.db
+	
+			// Read the highest version deterministically using the by_document_version index
+			const lastVersionRow = await ctx.db
 				.query("documentVersions")
-				.withIndex("by_document", (q) => q.eq("documentId", documentId))
+				.withIndex("by_document_version", (q) =>
+					q.eq("documentId", documentId),
+				)
 				.order("desc")
 				.first();
-
-			const nextVersion = lastVersion ? lastVersion.version + 1 : 1;
-
+	
+			const nextVersion = lastVersionRow ? lastVersionRow.version + 1 : 1;
+	
 			// Prepare the record including the canonical Yjs snapshot and protocol version
 			const record = {
 				documentId,
@@ -220,46 +226,90 @@ async function createDocumentVersion(
 				yjsSnapshot: yjsState,
 				yjsProtocolVersion,
 			};
-
+	
+			let insertedId: Id<"documentVersions"> | null = null;
 			try {
 				// Attempt insert.
 				insertedId = await ctx.db.insert("documentVersions", record);
-
-				// Double-check uniqueness by querying whether there exist multiple entries
-				// with the same (documentId, version). If duplicates exist, delete the extra
-				// inserted record and retry.
-				const sameVersion = await ctx.db
+	
+				// Query all rows that share the same (documentId, version) using the strict index.
+				const sameVersionRows = await ctx.db
 					.query("documentVersions")
 					.withIndex("by_document_version", (q) =>
 						q.eq("documentId", documentId).eq("version", nextVersion),
 					)
 					.collect();
-
-				if (sameVersion.length > 1) {
-					// Conflict detected: remove the record we just inserted and retry.
-					console.warn(
-						`Version conflict detected for document ${documentId} version ${nextVersion}, retrying (attempt ${attempt})`,
-					);
-					await ctx.db.delete(insertedId);
-					insertedId = null;
-					// Loop will retry after incrementing attempt
-				} else {
-					// Success
+	
+				if (sameVersionRows.length === 1) {
+					// No conflict, our inserted row is the unique winner.
+					winnerId = insertedId;
 					console.log(
-						`Created document version ${nextVersion} for document ${documentId}`,
+						`Created document version ${nextVersion} for document ${documentId} (id=${winnerId})`,
 					);
-					return insertedId;
+					return winnerId;
 				}
+	
+				// Conflict detected: choose a deterministic winner among the rows.
+				// Criteria: smallest createdAt, then smallest _id (Convex Ids are comparable as strings).
+				let chosen = sameVersionRows[0];
+				for (const row of sameVersionRows) {
+					if (
+						row.createdAt < chosen.createdAt ||
+						(row.createdAt === chosen.createdAt && String(row._id) < String(chosen._id))
+					) {
+						chosen = row;
+					}
+				}
+	
+				const chosenId: Id<"documentVersions"> = chosen._id as Id<"documentVersions">;
+				// Delete all other conflicting rows (do NOT delete the chosen winner).
+				for (const row of sameVersionRows) {
+					const idToMaybeDelete = row._id as Id<"documentVersions">;
+					if (String(idToMaybeDelete) !== String(chosenId)) {
+						try {
+							await ctx.db.delete(idToMaybeDelete);
+						} catch (delErr) {
+							// Log and continue; best-effort cleanup to leave the deterministic winner.
+							console.warn(
+								`Failed to delete conflicting documentVersion ${idToMaybeDelete} for document ${documentId} version ${nextVersion}:`,
+								delErr,
+							);
+						}
+					}
+				}
+	
+				// If our inserted row wasn't the chosen winner, set winnerId to chosen and return it.
+				winnerId = chosenId;
+				console.log(
+					`Resolved document version ${nextVersion} for document ${documentId}, keeping id=${winnerId}`,
+				);
+				return winnerId;
 			} catch (err) {
 				console.warn(
-					`Failed to insert document version for document ${documentId} (attempt ${attempt}):`,
+					`Failed to insert/resolve document version for document ${documentId} (attempt ${attempt}):`,
 					err,
 				);
-				// If insert failed for some reason, ensure insertedId is null and retry
-				insertedId = null;
+				// On transient failures, fall through to retry after jittered backoff
+			} finally {
+				// If we inserted a row but did not win and it's still present, avoid leaving stray rows:
+				// We'll attempt to clean it up on the next loop iteration or best-effort now.
+				// Note: we don't delete blindly here to avoid races where another process already
+				// cleaned up; delete failures are non-fatal.
+				// Small best-effort cleanup:
+				if (insertedId && !winnerId) {
+					try {
+						// It's possible the insertedId was deleted by the conflict resolution above;
+						// ignore errors if delete fails.
+						await ctx.db.delete(insertedId);
+					} catch (_e) {}
+				}
 			}
+	
+			// Jittered backoff before retrying to reduce contention.
+			const backoffMs = 50 + Math.floor(Math.random() * 100); // 50-150ms
+			await new Promise((r) => setTimeout(r, backoffMs));
 		}
-
+	
 		console.error(
 			`Failed to create unique document version for ${documentId} after ${MAX_RETRIES} attempts`,
 		);
