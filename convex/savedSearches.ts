@@ -176,7 +176,10 @@ export const cleanupOldSearchHistory = internalMutation({
 		);
 		const batch = Math.max(
 			1,
-			Math.min(200, Math.floor(batchSize ?? searchHistoryConfig.deleteBatchSize(ctx))),
+			Math.min(
+				200,
+				Math.floor(batchSize ?? searchHistoryConfig.deleteBatchSize(ctx)),
+			),
 		);
 		const cutoff = Date.now() - days * MS_IN_DAY;
 
@@ -464,13 +467,13 @@ export const getSearchHistory = query({
 	),
 	handler: async (ctx, { limit = 10 }) => {
 		const userId = await getCurrentUser(ctx);
-	
+
 		// Normalize and clamp the incoming limit to a safe integer in [1, 50].
 		// Convert to number, default to 1 if NaN, drop fractional part, then clamp.
 		const parsedLimit = Number(limit);
 		const safeLimit = Number.isNaN(parsedLimit) ? 1 : parsedLimit;
 		const clampedLimit = Math.max(1, Math.min(Math.floor(safeLimit), 50));
-	
+
 		const history = await ctx.db
 			.query("searchHistory")
 			.withIndex("by_user_searched", (q) => q.eq("userId", userId))
@@ -562,9 +565,9 @@ export const clearSearchHistory = mutation({
 				.withIndex("by_user_searched", (q) => q.eq("userId", userId))
 				.order("asc")
 				.take(200);
-	
+
 			if (batch.length === 0) break;
-	
+
 			let deletedInBatch = 0;
 			for (const item of batch) {
 				if (!cutoff || item.searchedAt <= cutoff) {
@@ -573,7 +576,7 @@ export const clearSearchHistory = mutation({
 					deletedInBatch += 1;
 				}
 			}
-	
+
 			// If we didn't delete anything in this batch and a cutoff is set, remaining are newer than cutoff
 			if (deletedInBatch === 0 && cutoff) break;
 		}
