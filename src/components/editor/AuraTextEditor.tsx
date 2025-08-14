@@ -1,5 +1,12 @@
 import type React from "react";
-import { useCallback, useMemo, useReducer, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useReducer,
+	useRef,
+	useState,
+} from "react";
 import type { Descendant, Editor } from "slate";
 import { Range } from "slate";
 import { HistoryEditor } from "slate-history";
@@ -137,6 +144,16 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	// Track whether local edits have occurred (used to distinguish remote/initial syncs)
 	const hasLocalEditsRef = useRef(false);
 
+	// Reset autosave / local-edit markers when the active document changes to avoid
+	// leaking state between documents if the component remains mounted.
+	useEffect(() => {
+		// Reference documentId to make the dependency explicit for biome's
+		// exhaustive-deps check. This is a deliberate no-op use.
+		void documentId;
+		pendingAutosaveRef.current = false;
+		hasLocalEditsRef.current = false;
+	}, [documentId]);
+
 	// Selection state for bottom status bar
 	const [selectionStatus, setSelectionStatus] = useState<SelectionStatus>({
 		line: 1,
@@ -264,6 +281,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 						if (syncStatus === "synced") {
 							setLastSaved(new Date());
 							setIsModified(false);
+							// Clear local edits marker as we've persisted them
+							hasLocalEditsRef.current = false;
 							pendingAutosaveRef.current = false;
 						} else {
 							// Wait for the collaboration layer to report 'synced' before
@@ -438,8 +457,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				// autosave flag if it was already set by an explicit save action.
 				// (No-op here.)
 			} else if (status === "synced") {
-				if (pendingAutosaveRef.current && hasLocalEditsRef.current) {
-					// This was a local save / local edits that reached the server.
+				if (pendingAutosaveRef.current || hasLocalEditsRef.current) {
 					setLastSaved(new Date());
 					setIsModified(false);
 					// Clear local edits marker as we've persisted them
@@ -450,8 +468,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			} else if (
 				status === "error" ||
 				status === "offline" ||
-				status === "disabled" ||
-				status === "pending"
+				status === "disabled"
 			) {
 				// Do not mark as saved in these states; clear any pending autosave flag
 				pendingAutosaveRef.current = false;
