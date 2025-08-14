@@ -132,6 +132,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
 
+	// Track autosave completion to update lastSaved on successful sync
+	const pendingAutosaveRef = useRef(false);
+
 	// Selection state for bottom status bar
 	const [selectionStatus, setSelectionStatus] = useState<SelectionStatus>({
 		line: 1,
@@ -407,6 +410,25 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				| "disabled",
 		) => {
 			setSyncStatus(status);
+
+			// Detect autosave completion: when we move from syncing -> synced,
+			// update the lastSaved timestamp and clear the modified flag.
+			if (status === "syncing") {
+				pendingAutosaveRef.current = true;
+			} else if (status === "synced") {
+				if (pendingAutosaveRef.current) {
+					setLastSaved(new Date());
+					setIsModified(false);
+				}
+				pendingAutosaveRef.current = false;
+			} else if (
+				status === "error" ||
+				status === "offline" ||
+				status === "disabled"
+			) {
+				// Do not mark as saved in these states; clear any pending autosave flag
+				pendingAutosaveRef.current = false;
+			}
 		},
 		[],
 	);

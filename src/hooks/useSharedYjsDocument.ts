@@ -343,20 +343,72 @@ export const useSharedYjsDocument = (
 
 	// Update local state when document state changes
 	useEffect(() => {
+		// Reads latest manager-backed flags into React state
 		const updateState = () => {
 			setIsSynced(docInfo.isSynced);
 			setPersistenceError(docInfo.persistenceError);
 			setPersistenceAvailable(docInfo.persistenceAvailable);
 		};
 
-		// Initial state update
+		// Initial state update to reflect current values immediately
 		updateState();
 
-		// Set up polling to check for state changes
-		// TODO: Use events instead of polling
-		const interval = setInterval(updateState, 500); // More frequent updates for better responsiveness
+		// Batch rapid event bursts (typing/remote updates) to avoid render churn.
+		// Prefer animation frame; fall back to a microtask when RAF is unavailable (e.g., tests).
+		let rafId: number | null = null;
+		const scheduleUpdate = () => {
+			if (rafId !== null) return;
+			if (typeof requestAnimationFrame !== "undefined") {
+				rafId = requestAnimationFrame(() => {
+					rafId = null;
+					updateState();
+				});
+			} else {
+				queueMicrotask(() => {
+					updateState();
+				});
+			}
+		};
 
-		return () => clearInterval(interval);
+		const { yDoc, indexeddbProvider } = docInfo;
+
+		// Y.Doc fires on both local edits and remote merges; keep hook state in sync.
+		const onDocUpdate = () => {
+			// Document content changed; reflect any related status updates.
+			scheduleUpdate();
+		};
+		// afterTransaction helps catch batched structural changes as a single tick.
+		const onAfterTransaction = () => {
+			scheduleUpdate();
+		};
+
+		// Persistence provider events:
+		// - "synced": initial load from IndexedDB completed
+		// - "error": local persistence failed or became unavailable
+		const onSynced = () => {
+			scheduleUpdate();
+		};
+		const onPersistenceError = () => {
+			scheduleUpdate();
+		};
+
+		// Register listeners
+		yDoc.on("update", onDocUpdate);
+		yDoc.on("afterTransaction", onAfterTransaction);
+		indexeddbProvider?.on("synced", onSynced);
+		indexeddbProvider?.on("error", onPersistenceError);
+
+		// Cleanup all listeners to avoid leaks when hook unmounts or doc changes
+		return () => {
+			yDoc.off("update", onDocUpdate);
+			yDoc.off("afterTransaction", onAfterTransaction);
+			indexeddbProvider?.off("synced", onSynced);
+			indexeddbProvider?.off("error", onPersistenceError);
+			if (rafId !== null && typeof cancelAnimationFrame !== "undefined") {
+				cancelAnimationFrame(rafId);
+				rafId = null;
+			}
+		};
 	}, [docInfo]);
 
 	const isDebug = process.env.NODE_ENV === "development";
