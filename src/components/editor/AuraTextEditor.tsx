@@ -1,5 +1,12 @@
 import type React from "react";
-import { useCallback, useMemo, useReducer, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useReducer,
+	useRef,
+	useState,
+} from "react";
 import type { Descendant, Editor } from "slate";
 import { Range } from "slate";
 import { HistoryEditor } from "slate-history";
@@ -132,6 +139,21 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
 
+	// Track autosave completion to update lastSaved on successful sync
+	const pendingAutosaveRef = useRef(false);
+	// Track whether local edits have occurred (used to distinguish remote/initial syncs)
+	const hasLocalEditsRef = useRef(false);
+
+	// Reset autosave / local-edit markers when the active document changes to avoid
+	// leaking state between documents if the component remains mounted.
+	useEffect(() => {
+		// Reference documentId to make the dependency explicit for biome's
+		// exhaustive-deps check. This is a deliberate no-op use.
+		void documentId;
+		pendingAutosaveRef.current = false;
+		hasLocalEditsRef.current = false;
+	}, [documentId]);
+
 	// Selection state for bottom status bar
 	const [selectionStatus, setSelectionStatus] = useState<SelectionStatus>({
 		line: 1,
@@ -184,6 +206,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const handleEditorChange = useCallback(
 		(value: Descendant[]) => {
 			setEditorValue(value);
+			// Mark that the user has performed a local edit. This helps us avoid
+			// treating remote/initial syncs as confirmations of a local save.
+			hasLocalEditsRef.current = true;
 			setIsModified(true);
 			onChange?.(value);
 		},
@@ -252,8 +277,19 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				case "file.save":
 					if (onSave) {
 						onSave(editorValue);
-						setIsModified(false);
-						setLastSaved(new Date());
+						// If there’s nothing to sync, finalize immediately; otherwise wait for 'synced'.
+						if (syncStatus === "synced") {
+							setLastSaved(new Date());
+							setIsModified(false);
+							// Clear local edits marker as we've persisted them
+							hasLocalEditsRef.current = false;
+							pendingAutosaveRef.current = false;
+						} else {
+							// Wait for the collaboration layer to report 'synced' before
+							// clearing modified state and updating lastSaved to avoid
+							// showing "Saved" when the backing sync ultimately fails.
+							pendingAutosaveRef.current = true;
+						}
 					}
 					break;
 				case "file.new":
@@ -279,7 +315,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					console.log("Menu action:", action, data);
 			}
 		},
-		[editorValue, onSave, handleNewDocumentWithConfirmation],
+		[editorValue, onSave, handleNewDocumentWithConfirmation, syncStatus],
 	);
 
 	// Handle formatting changes from the editor
@@ -407,6 +443,36 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				| "disabled",
 		) => {
 			setSyncStatus(status);
+
+			// Only finalize an autosave when we see a 'synced' state that corresponds
+			// to an explicit local save/edit. We use two refs:
+			// - pendingAutosaveRef is set by an explicit save action (file.save) or
+			//   when we intentionally wait for sync finalization.
+			// - hasLocalEditsRef is set when the user performs local edits.
+			//
+			// This avoids treating remote/initial sync completions as confirmations
+			// of a local save.
+			if (status === "syncing") {
+				// Do not assume syncing implies a local autosave; only keep the pending
+				// autosave flag if it was already set by an explicit save action.
+				// (No-op here.)
+			} else if (status === "synced") {
+				if (pendingAutosaveRef.current || hasLocalEditsRef.current) {
+					setLastSaved(new Date());
+					setIsModified(false);
+					// Clear local edits marker as we've persisted them
+					hasLocalEditsRef.current = false;
+				}
+				// Clear pending autosave regardless so we don't hold the flag forever.
+				pendingAutosaveRef.current = false;
+			} else if (
+				status === "error" ||
+				status === "offline" ||
+				status === "disabled"
+			) {
+				// Do not mark as saved in these states; clear any pending autosave flag
+				pendingAutosaveRef.current = false;
+			}
 		},
 		[],
 	);

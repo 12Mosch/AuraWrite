@@ -1,10 +1,18 @@
 import { slateNodesToInsertDelta } from "@slate-yjs/core";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Descendant } from "slate";
 import { IndexeddbPersistence } from "y-indexeddb";
 import * as Y from "yjs";
 import type { Id } from "../../convex/_generated/dataModel";
 import { useCloudRecovery } from "../utils/cloudRecovery";
+
+/** Lightweight dev-only logger to avoid noisy production logs */
+const debugLog = (...args: unknown[]) => {
+	if (process.env.NODE_ENV === "development") {
+		// eslint-disable-next-line no-console
+		console.log(...args);
+	}
+};
 
 /**
  * Global document manager to ensure Y.Doc instances are shared across components
@@ -26,7 +34,7 @@ class YjsDocumentManager {
 
 	static getInstance(): YjsDocumentManager {
 		if (!YjsDocumentManager.instance) {
-			console.log("Creating new YjsDocumentManager singleton instance");
+			debugLog("Creating new YjsDocumentManager singleton instance");
 			YjsDocumentManager.instance = new YjsDocumentManager();
 		}
 		return YjsDocumentManager.instance;
@@ -45,7 +53,7 @@ class YjsDocumentManager {
 		let docInfo = this.documents.get(documentId);
 
 		if (!docInfo) {
-			console.log(`Creating new shared Y.Doc for document: ${documentId}`);
+			debugLog(`Creating new shared Y.Doc for document: ${documentId}`);
 
 			// Create a new Y.Doc instance
 			const yDoc = new Y.Doc();
@@ -64,7 +72,7 @@ class YjsDocumentManager {
 				persistenceAvailable: true,
 			};
 		} else {
-			console.log(`Reusing existing shared Y.Doc for document: ${documentId}`);
+			debugLog(`Reusing existing shared Y.Doc for document: ${documentId}`);
 		}
 
 		// Only set up persistence and initial value for new documents
@@ -79,9 +87,7 @@ class YjsDocumentManager {
 					options.initialValue &&
 					options.initialValue.length > 0
 				) {
-					console.log(
-						"Loading initial value into shared Y.Doc (no persistence)",
-					);
+					debugLog("Loading initial value into shared Y.Doc (no persistence)");
 					const initialValue = options.initialValue;
 					docInfo.yDoc.transact(() => {
 						docInfo.sharedType.applyDelta(
@@ -90,6 +96,7 @@ class YjsDocumentManager {
 					});
 				}
 				docInfo.isSynced = true;
+				docInfo.persistenceAvailable = false;
 			}
 
 			this.documents.set(documentId, docInfo);
@@ -97,7 +104,7 @@ class YjsDocumentManager {
 
 		// Increment reference count
 		docInfo.refCount++;
-		console.log(`Y.Doc reference count for ${documentId}: ${docInfo.refCount}`);
+		debugLog(`Y.Doc reference count for ${documentId}: ${docInfo.refCount}`);
 
 		return docInfo;
 	}
@@ -129,7 +136,7 @@ class YjsDocumentManager {
 			// Handle sync events
 			indexeddbProvider.whenSynced
 				.then(() => {
-					console.log(
+					debugLog(
 						`Shared Y.Doc synced with IndexedDB for document: ${documentId}`,
 					);
 					docInfo.isSynced = true;
@@ -142,7 +149,7 @@ class YjsDocumentManager {
 						options.initialValue &&
 						options.initialValue.length > 0
 					) {
-						console.log("Loading initial value into empty shared Y.Doc");
+						debugLog("Loading initial value into empty shared Y.Doc");
 						const initialValue = options.initialValue;
 						docInfo.yDoc.transact(() => {
 							docInfo.sharedType.applyDelta(
@@ -153,13 +160,16 @@ class YjsDocumentManager {
 				})
 				.catch(async (error) => {
 					console.error("IndexedDB sync failed for shared document:", error);
+					const message =
+						error instanceof Error
+							? error.message
+							: typeof error === "string"
+								? error
+								: JSON.stringify(error);
 
 					// Attempt cloud-based recovery for corrupted documents
-					if (
-						error.message?.includes("corrupt") ||
-						error.message?.includes("invalid")
-					) {
-						console.log(
+					if (message.includes("corrupt") || message.includes("invalid")) {
+						debugLog(
 							"Attempting to recover corrupted shared document from cloud...",
 						);
 						try {
@@ -171,7 +181,7 @@ class YjsDocumentManager {
 									// Apply recovered content to current document
 									const recoveredState = Y.encodeStateAsUpdate(recoveredDoc);
 									Y.applyUpdate(docInfo.yDoc, recoveredState);
-									console.log("Shared document recovery successful from cloud");
+									debugLog("Shared document recovery successful from cloud");
 									docInfo.persistenceError =
 										"Document was recovered from cloud. Some recent changes may have been lost.";
 									recoveredDoc.destroy(); // Clean up recovered document
@@ -180,7 +190,7 @@ class YjsDocumentManager {
 									const fallbackDoc = options.createFallback();
 									const fallbackState = Y.encodeStateAsUpdate(fallbackDoc);
 									Y.applyUpdate(docInfo.yDoc, fallbackState);
-									console.log(
+									debugLog(
 										"Using fallback document with recovery message for shared doc",
 									);
 									docInfo.persistenceError =
@@ -197,7 +207,7 @@ class YjsDocumentManager {
 								"Document recovery failed. Starting with empty document.";
 						}
 					} else {
-						docInfo.persistenceError = `Failed to sync with local storage: ${error.message}`;
+						docInfo.persistenceError = `Failed to sync with local storage: ${message}`;
 					}
 
 					docInfo.persistenceAvailable = false;
@@ -234,13 +244,11 @@ class YjsDocumentManager {
 		const docInfo = this.documents.get(documentId);
 		if (docInfo) {
 			docInfo.refCount--;
-			console.log(
-				`Y.Doc reference count for ${documentId}: ${docInfo.refCount}`,
-			);
+			debugLog(`Y.Doc reference count for ${documentId}: ${docInfo.refCount}`);
 
 			// Clean up document when no more references
 			if (docInfo.refCount <= 0) {
-				console.log(`Cleaning up shared Y.Doc for document: ${documentId}`);
+				debugLog(`Cleaning up shared Y.Doc for document: ${documentId}`);
 
 				// Clean up IndexedDB provider
 				if (docInfo.indexeddbProvider) {
@@ -320,10 +328,15 @@ export const useSharedYjsDocument = (
 
 	// Get shared document instance
 	const documentManager = YjsDocumentManager.getInstance();
-	const docInfo = useMemo(() => {
-		// Convert documentId to string for consistent handling
-		const docIdString =
-			typeof documentId === "string" ? documentId : String(documentId);
+	// Normalize doc id once
+	const docIdString =
+		typeof documentId === "string" ? documentId : String(documentId);
+	const prevDocIdRef = useRef(docIdString);
+
+	// Synchronously acquire once on initial mount; subsequent identity changes handled in effect.
+	const [docInfo, setDocInfo] = useState<
+		ReturnType<YjsDocumentManager["getDocument"]>
+	>(() => {
 		return documentManager.getDocument(docIdString, {
 			initialValue,
 			enablePersistence,
@@ -331,45 +344,121 @@ export const useSharedYjsDocument = (
 			recoverDocument,
 			createFallback,
 		});
-	}, [
-		documentId,
-		enablePersistence,
-		enableGarbageCollection,
-		recoverDocument,
-		createFallback,
-		initialValue,
-		documentManager.getDocument,
-	]);
+	});
+
+	/* biome-ignore lint: Acquisition is intentionally keyed only by doc identity to prevent refCount leaks from option changes. */
+	useEffect(() => {
+		const prevId = prevDocIdRef.current;
+
+		// Initial mount: already acquired by lazy initializer; only release on unmount
+		if (prevId === docIdString) {
+			return () => {
+				debugLog(
+					`Releasing shared Y.Doc reference for document: ${docIdString}`,
+				);
+				documentManager.releaseDocument(docIdString);
+			};
+		}
+
+		// Identity changed: acquire new and release previous on cleanup
+		const acquired = documentManager.getDocument(docIdString, {
+			initialValue,
+			enablePersistence,
+			enableGarbageCollection,
+			recoverDocument,
+			createFallback,
+		});
+		setDocInfo(acquired);
+		prevDocIdRef.current = docIdString;
+
+		return () => {
+			debugLog(`Releasing shared Y.Doc reference for document: ${prevId}`);
+			documentManager.releaseDocument(prevId);
+		};
+	}, [docIdString]);
 
 	// Update local state when document state changes
 	useEffect(() => {
+		// Reads latest manager-backed flags into React state
 		const updateState = () => {
 			setIsSynced(docInfo.isSynced);
 			setPersistenceError(docInfo.persistenceError);
 			setPersistenceAvailable(docInfo.persistenceAvailable);
 		};
 
-		// Initial state update
+		// Initial state update to reflect current values immediately
 		updateState();
 
-		// Set up polling to check for state changes
-		// TODO: Use events instead of polling
-		const interval = setInterval(updateState, 500); // More frequent updates for better responsiveness
+		// Batch rapid event bursts (typing/remote updates) to avoid render churn.
+		// Prefer animation frame; fall back to a microtask when RAF is unavailable (e.g., tests).
+		let rafId: number | null = null;
+		const scheduleUpdate = () => {
+			if (rafId !== null) return;
+			if (typeof requestAnimationFrame !== "undefined") {
+				rafId = requestAnimationFrame(() => {
+					rafId = null;
+					updateState();
+				});
+			} else {
+				queueMicrotask(() => {
+					updateState();
+				});
+			}
+		};
 
-		return () => clearInterval(interval);
+		const { yDoc, indexeddbProvider } = docInfo;
+
+		// Y.Doc fires on both local edits and remote merges; keep hook state in sync.
+		const onDocUpdate = () => {
+			// Document content changed; reflect any related status updates.
+			scheduleUpdate();
+		};
+		// afterTransaction helps catch batched structural changes as a single tick.
+		const onAfterTransaction = () => {
+			scheduleUpdate();
+		};
+
+		// Persistence provider events:
+		// - "synced": initial load from IndexedDB completed
+		// - "error": local persistence failed or became unavailable
+		const onSynced = () => {
+			scheduleUpdate();
+		};
+		const onPersistenceError = () => {
+			scheduleUpdate();
+		};
+
+		// Register listeners
+		yDoc.on("update", onDocUpdate);
+		yDoc.on("afterTransaction", onAfterTransaction);
+		indexeddbProvider?.on("synced", onSynced);
+		indexeddbProvider?.on("error", onPersistenceError);
+
+		// Cleanup all listeners to avoid leaks when hook unmounts or doc changes
+		return () => {
+			yDoc.off("update", onDocUpdate);
+			yDoc.off("afterTransaction", onAfterTransaction);
+			indexeddbProvider?.off("synced", onSynced);
+			indexeddbProvider?.off("error", onPersistenceError);
+			if (rafId !== null && typeof cancelAnimationFrame !== "undefined") {
+				cancelAnimationFrame(rafId);
+				rafId = null;
+			}
+		};
 	}, [docInfo]);
 
 	const isDebug = process.env.NODE_ENV === "development";
 
 	// Set up event listeners for debugging
 	useEffect(() => {
+		if (!isDebug) return;
 		const { yDoc } = docInfo;
 		const docIdString =
 			typeof documentId === "string" ? documentId : String(documentId);
 
 		const handleUpdate = (update: Uint8Array, origin: unknown) => {
 			if (!isDebug) return;
-			console.log("Shared Y.Doc update received:", {
+			debugLog("Shared Y.Doc update received:", {
 				documentId: docIdString,
 				updateSize: update.length,
 				origin: origin?.constructor?.name || origin,
@@ -381,7 +470,7 @@ export const useSharedYjsDocument = (
 		const handleAfterTransaction = (transaction: Y.Transaction) => {
 			if (!isDebug) return;
 			if (transaction.changed.size > 0) {
-				console.log("Shared Y.Doc transaction completed:", {
+				debugLog("Shared Y.Doc transaction completed:", {
 					documentId: docIdString,
 					changedTypes: Array.from(transaction.changed.keys()).map(
 						(type) => type.constructor.name,
@@ -397,26 +486,13 @@ export const useSharedYjsDocument = (
 
 		// Cleanup function
 		return () => {
-			if (!isDebug) return;
-			console.log(
+			debugLog(
 				`Cleaning up shared Y.Doc event listeners for document: ${docIdString}`,
 			);
 			yDoc.off("update", handleUpdate);
 			yDoc.off("afterTransaction", handleAfterTransaction);
 		};
 	}, [docInfo, documentId, isDebug]);
-
-	// Release document reference on unmount
-	useEffect(() => {
-		return () => {
-			const docIdString =
-				typeof documentId === "string" ? documentId : String(documentId);
-			console.log(
-				`Releasing shared Y.Doc reference for document: ${docIdString}`,
-			);
-			documentManager.releaseDocument(docIdString);
-		};
-	}, [documentId, documentManager]);
 
 	return {
 		yDoc: docInfo.yDoc,

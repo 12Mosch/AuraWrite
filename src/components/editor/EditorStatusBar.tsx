@@ -1,13 +1,6 @@
-import {
-	CheckCircle2,
-	Clock,
-	CloudOff,
-	Loader2,
-	Save,
-	Wifi,
-	WifiOff,
-} from "lucide-react";
+import { CheckCircle2, Clock, CloudOff, Loader2, Save } from "lucide-react";
 import type React from "react";
+import { useEffect, useState } from "react";
 import {
 	Tooltip,
 	TooltipContent,
@@ -38,10 +31,9 @@ interface EditorStatusBarProps {
 /**
  * Format a compact relative timestamp, falling back to date for older times.
  */
-function formatLastSaved(date?: Date) {
+function formatLastSaved(date?: Date, nowTs: number = Date.now()) {
 	if (!date) return "Never";
-	const now = Date.now();
-	const diff = now - date.getTime();
+	const diff = nowTs - date.getTime();
 	const minute = 60_000;
 	const hour = 60 * minute;
 	const day = 24 * hour;
@@ -66,12 +58,10 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
 
 	const connection = normalized === "offline" ? "offline" : "online";
 
-	const connectionIcon =
-		connection === "online" ? (
-			<Wifi className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-		) : (
-			<WifiOff className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-		);
+	// Treat the sync layer as authoritative for display:
+	// - If normalized is "synced", we consider the document saved for UX purposes,
+	//   even if upstream isModified was flipped by non-content events (e.g. selection/awareness).
+	const derivedModified = normalized !== "synced" && isModified;
 
 	const saveState = (() => {
 		if (normalized === "syncing")
@@ -91,7 +81,7 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
 					<CloudOff className="h-3.5 w-3.5 text-red-600" aria-hidden="true" />
 				),
 			};
-		if (isModified)
+		if (derivedModified)
 			return {
 				label: "Unsaved changes",
 				icon: (
@@ -113,11 +103,19 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
 		if (normalized === "syncing") return "bg-blue-500";
 		if (normalized === "error") return "bg-red-500";
 		if (connection === "offline") return "bg-amber-500";
-		if (!isModified) return "bg-emerald-500";
+		if (!derivedModified) return "bg-emerald-500";
 		return "bg-amber-500";
 	})();
 
-	const lastSavedLabel = formatLastSaved(lastSaved);
+	// Periodically re-render to keep the relative "Last sync" label accurate
+	const [nowTs, setNowTs] = useState<number>(Date.now());
+	useEffect(() => {
+		if (!lastSaved) return;
+		const id = window.setInterval(() => setNowTs(Date.now()), 30_000);
+		return () => window.clearInterval(id);
+	}, [lastSaved]);
+
+	const lastSavedLabel = formatLastSaved(lastSaved, nowTs);
 
 	return (
 		<TooltipProvider delayDuration={200}>
@@ -150,7 +148,6 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<div className="inline-flex items-center gap-1.5">
-							{connectionIcon}
 							<span className="hidden sm:inline">
 								{connection === "online" ? "Online" : "Offline"}
 							</span>
@@ -181,7 +178,7 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
 									? "Saving"
 									: normalized === "error"
 										? "Error"
-										: isModified
+										: derivedModified
 											? "Unsaved"
 											: "Saved"}
 							</span>
