@@ -19,6 +19,8 @@ const schema = defineSchema({
 		createdAt: v.number(),
 		updatedAt: v.number(),
 		yjsUpdatedAt: v.optional(v.number()), // Last Y.Doc update timestamp
+		// Optional native filesystem path where the document was saved locally via "Save As"
+		filePath: v.optional(v.string()),
 		tags: v.optional(v.array(v.string())), // Document tags for organization
 		status: v.optional(
 			v.union(

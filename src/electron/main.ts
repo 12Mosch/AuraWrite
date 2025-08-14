@@ -1,5 +1,28 @@
-const path = require("node:path");
-const { app, BrowserWindow, ipcMain, shell, Menu } = require("electron");
+import path = require("node:path");
+import fs = require("node:fs"); // filesystem utilities used by save-as handler
+
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+
+/**
+ * Types for the save-as IPC handler
+ */
+type SaveAsOptions = {
+	documentId?: string;
+	documentTitle?: string;
+	defaultPath?: string;
+	format: "yjs-v1" | "slate-v1";
+	// Accept either ArrayBuffer or SharedArrayBuffer from the renderer to avoid
+	// strict typing mismatches when SharedArrayBuffer is produced by the runtime.
+	yjsUpdate?: ArrayBuffer | SharedArrayBuffer;
+	yjsProtocolVersion?: number;
+	slateContent?: unknown;
+};
+
+// Extend App type locally to store a guard flag without using `any`
+interface AppWithSaveFlag {
+	_auraSaveAsInProgress?: boolean;
+}
+const electronApp = app as unknown as AppWithSaveFlag;
 
 // Helper function to send menu actions
 const sendMenuAction = (action: string) => {
@@ -173,7 +196,13 @@ const createMenuTemplate = () => {
 // Set up the application menu
 const setupMenu = () => {
 	const template = createMenuTemplate();
-	const menu = Menu.buildFromTemplate(template);
+	// Cast the template into Electron-expected types via unknown to avoid `any`.
+	const menu = Menu.buildFromTemplate(
+		template as unknown as (
+			| Electron.MenuItemConstructorOptions
+			| Electron.MenuItem
+		)[],
+	);
 	Menu.setApplicationMenu(menu);
 };
 
@@ -251,6 +280,108 @@ ipcMain.handle("open-external", async (_event: unknown, url: string) => {
 		};
 	}
 });
+
+// IPC handler to save a document to user's filesystem via Save As dialog.
+// Expects options describing the payload and format. Performs an atomic write.
+ipcMain.handle(
+	"save-as-native",
+	async (_event: unknown, options: SaveAsOptions) => {
+		// Prevent multiple concurrent Save As dialogs across rapid invocations.
+		if (electronApp._auraSaveAsInProgress === true) {
+			return {
+				success: false,
+				error: { code: "BUSY", message: "Save As dialog already open" },
+			};
+		}
+		electronApp._auraSaveAsInProgress = true;
+		try {
+			// Basic validation
+			if (!options || typeof options !== "object" || !options.format) {
+				return {
+					success: false,
+					error: {
+						code: "INVALID_PAYLOAD",
+						message: "Missing or invalid options.format",
+					},
+				};
+			}
+
+			// Determine default filename and filters
+			const defaultName =
+				options.defaultPath ||
+				(options.documentTitle
+					? `${String(options.documentTitle)}.awdoc`
+					: "Untitled.awdoc");
+			const isYjs = options.format === "yjs-v1";
+			const filters = isYjs
+				? [{ name: "AuraWrite Document", extensions: ["awdoc"] }]
+				: [{ name: "JSON", extensions: ["json"] }];
+
+			const { canceled, filePath } = await dialog.showSaveDialog({
+				title: "Save As",
+				defaultPath: defaultName,
+				filters,
+				properties: ["createDirectory", "showOverwriteConfirmation"],
+			});
+
+			if (canceled || !filePath) {
+				return {
+					success: false,
+					error: { code: "CANCELLED", message: "User cancelled" },
+				};
+			}
+
+			// Build JSON envelope
+			let envelope: unknown = null;
+			if (isYjs) {
+				if (!options.yjsUpdate) {
+					return {
+						success: false,
+						error: {
+							code: "INVALID_PAYLOAD",
+							message: "Missing yjsUpdate for yjs-v1 format",
+						},
+					};
+				}
+				// options.yjsUpdate is an ArrayBuffer per SaveAsOptions
+				const updateBuf = Buffer.from(new Uint8Array(options.yjsUpdate));
+				envelope = {
+					format: "aura-v1",
+					yjsProtocolVersion: options.yjsProtocolVersion || 1,
+					title: options.documentTitle || null,
+					updatedAt: Date.now(),
+					yjsUpdateBase64: updateBuf.toString("base64"),
+				};
+			} else {
+				// slate-v1
+				envelope = {
+					format: "slate-v1",
+					title: options.documentTitle || null,
+					updatedAt: Date.now(),
+					content: options.slateContent ?? null,
+				};
+			}
+
+			const json = JSON.stringify(envelope, null, 2);
+			const tmpPath = `${filePath}.tmp`;
+			await fs.promises.writeFile(tmpPath, json, "utf8");
+			await fs.promises.rename(tmpPath, filePath);
+			const bytesWritten = Buffer.byteLength(json, "utf8");
+			return { success: true, filePath, bytesWritten };
+		} catch (err) {
+			console.error("Failed to save-as-native:", err);
+			return {
+				success: false,
+				error: {
+					code: "WRITE_FAILED",
+					message: err instanceof Error ? err.message : String(err),
+				},
+			};
+		} finally {
+			electronApp._auraSaveAsInProgress = false;
+		}
+	},
+);
 
 app.whenReady().then(() => {
 	setupMenu();

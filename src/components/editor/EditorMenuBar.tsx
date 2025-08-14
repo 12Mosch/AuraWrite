@@ -58,7 +58,19 @@ export const EditorMenuBar: React.FC<EditorMenuBarProps> = ({
 	useEffect(() => {
 		const electronWindow = window as WindowWithElectronAPI;
 		if (isElectron() && electronWindow.electronAPI?.onMenuAction) {
+			// Debounce duplicate menu events that may be emitted rapidly (menu click + accelerator).
+			const lastActionRef: { action: string; ts: number } = {
+				action: "",
+				ts: 0,
+			};
 			const handleMenuAction = (action: string) => {
+				const now = Date.now();
+				// If same action fired within 300ms, ignore as duplicate.
+				if (action === lastActionRef.action && now - lastActionRef.ts < 300) {
+					return;
+				}
+				lastActionRef.action = action;
+				lastActionRef.ts = now;
 				handleAction(action as MenuAction);
 			};
 

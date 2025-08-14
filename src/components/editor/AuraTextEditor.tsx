@@ -1,3 +1,4 @@
+import { useMutation } from "convex/react";
 import type React from "react";
 import {
 	useCallback,
@@ -10,7 +11,10 @@ import {
 import type { Descendant, Editor } from "slate";
 import { Range } from "slate";
 import { HistoryEditor } from "slate-history";
+import * as Y from "yjs";
+import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { useSharedYjsDocument } from "../../hooks/useSharedYjsDocument";
 import {
 	type getActiveFormats,
 	getCurrentLink,
@@ -135,6 +139,15 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const [showNewDocumentDialog, setShowNewDocumentDialog] = useState(false);
 	const [showExitDialog, setShowExitDialog] = useState(false);
 	const [showLinkDialog, setShowLinkDialog] = useState(false);
+	// Guard to avoid re-entrant Save As dialogs (menu action might fire twice)
+	const isSavingRef = useRef(false);
+
+	// Access shared Y.Doc for Yjs-native save support
+	// useSharedYjsDocument returns a stable yDoc instance shared across components.
+	const { yDoc } = useSharedYjsDocument({ documentId: String(documentId) });
+
+	// Convex mutation to update document metadata (used to persist saved file path)
+	const updateDocument = useMutation(api.documents.updateDocument);
 
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
@@ -292,6 +305,129 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 						}
 					}
 					break;
+
+				case "file.saveAs": {
+					// Prevent multiple dialogs if the action fires repeatedly in quick succession.
+					if (isSavingRef.current) {
+						console.debug(
+							"Save As already in progress, ignoring duplicate action",
+						);
+						break;
+					}
+					isSavingRef.current = true;
+					// Asynchronous save-as flow to avoid blocking the menu handler.
+					(async () => {
+						try {
+							// Prefer the global ambient type from src/ui/types.d.ts
+							const api = window.electronAPI;
+
+							if (api && typeof api.saveAsNative === "function") {
+								// Prefer Yjs-native snapshot when available.
+								let usedYjs = false;
+								try {
+									if (typeof yDoc !== "undefined" && yDoc) {
+										// Encode current Y.Doc state as a binary update
+										const update = Y.encodeStateAsUpdate(yDoc);
+										// Convert to ArrayBuffer for IPC (handle Uint8Array or ArrayBuffer)
+										const arrayBuffer =
+											update instanceof ArrayBuffer
+												? update
+												: update.buffer.slice(
+														update.byteOffset,
+														update.byteOffset + update.byteLength,
+													);
+										const res = await api.saveAsNative({
+											// Preserve the typed Id<"documents"> rather than coercing to string
+											documentId,
+											documentTitle,
+											defaultPath: `${documentTitle || "Untitled"}.awdoc`,
+											format: "yjs-v1",
+											// Ensure a plain ArrayBuffer is passed; arrayBuffer was constructed above to be a true ArrayBuffer.
+											yjsUpdate: arrayBuffer as ArrayBuffer,
+											yjsProtocolVersion: 1,
+										});
+										usedYjs = true;
+										if (res && "success" in res && res.success) {
+											setLastSaved(new Date());
+											setIsModified(false);
+											console.log("Save As (Yjs) succeeded:", res.filePath);
+											// Persist saved file path into document metadata
+											try {
+												await updateDocument({
+													// Cast to the Convex Id type to satisfy TS while keeping runtime value intact
+													documentId: documentId as unknown as Id<"documents">,
+													filePath: res.filePath,
+												});
+											} catch (err) {
+												console.warn(
+													"Failed to persist filePath to document:",
+													err,
+												);
+											}
+											// Successful Yjs save; skip slate fallback.
+										} else {
+											console.warn(
+												"Save As (Yjs) failed or cancelled:",
+												res?.error ?? res,
+											);
+										}
+									}
+								} catch (err) {
+									console.error("Yjs Save As failed:", err);
+								}
+								// If Yjs path was not used or failed, fall back to Slate JSON.
+								if (!usedYjs) {
+									const res = await api.saveAsNative({
+										documentId,
+										documentTitle,
+										defaultPath: `${documentTitle || "Untitled"}.json`,
+										format: "slate-v1",
+										slateContent: editorValue,
+									});
+									if (res && "success" in res && res.success) {
+										setLastSaved(new Date());
+										setIsModified(false);
+										console.log(
+											"Save As succeeded (slate fallback):",
+											res.filePath,
+										);
+									} else {
+										console.warn(
+											"Save As failed or cancelled:",
+											res?.error ?? res,
+										);
+									}
+								}
+							} else {
+								// Browser fallback: download JSON
+								const envelope = {
+									format: "slate-v1",
+									title: documentTitle || null,
+									updatedAt: Date.now(),
+									content: editorValue,
+								};
+								const blob = new Blob([JSON.stringify(envelope, null, 2)], {
+									type: "application/json",
+								});
+								const url = URL.createObjectURL(blob);
+								const a = document.createElement("a");
+								a.href = url;
+								a.download = `${documentTitle || "Untitled"}.json`;
+								document.body.appendChild(a);
+								a.click();
+								a.remove();
+								URL.revokeObjectURL(url);
+								setLastSaved(new Date());
+								setIsModified(false);
+							}
+						} catch (err) {
+							console.error("Save As failed:", err);
+						} finally {
+							isSavingRef.current = false;
+						}
+					})();
+					break;
+				}
 				case "file.new":
 					handleNewDocumentWithConfirmation();
 					break;
@@ -315,7 +451,18 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					console.log("Menu action:", action, data);
 			}
 		},
-		[editorValue, onSave, handleNewDocumentWithConfirmation, syncStatus],
+		[
+			editorValue,
+			onSave,
+			handleNewDocumentWithConfirmation,
+			syncStatus,
+			documentId,
+			documentTitle,
+			// include yDoc because Save As now uses the shared Y.Doc snapshot
+			yDoc,
+			// include updateDocument mutation so linter knows it's used inside the callback
+			updateDocument,
+		],
 	);
 
 	// Handle formatting changes from the editor

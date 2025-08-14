@@ -277,6 +277,8 @@ export const updateDocument = mutation({
 		title: v.optional(v.string()),
 		content: v.optional(v.string()),
 		isPublic: v.optional(v.boolean()),
+		// Optional native file path persisted by Save As
+		filePath: v.optional(v.string()),
 	},
 	returns: v.id("documents"),
 	handler: async (ctx, { documentId, title, content, isPublic }) => {

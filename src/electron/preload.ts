@@ -9,11 +9,38 @@ import type { IpcRendererEvent } from "electron";
  * between the main process and the renderer process.
  */
 
+// Define types for saveAsNative options and result
+type SaveAsOptions = {
+	documentId?: string;
+	documentTitle?: string;
+	defaultPath?: string;
+	format: "yjs-v1" | "slate-v1";
+	yjsUpdate?: ArrayBuffer; // required when format === 'yjs-v1'
+	yjsProtocolVersion?: number;
+	slateContent?: unknown; // required when format === 'slate-v1'
+};
+
+type SaveAsResult =
+	| { success: true; filePath: string; bytesWritten?: number }
+	| { success: false; error: { code: string; message: string } };
+
 // Define the API interface
 interface ElectronAPI {
 	openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 	onMenuAction: (callback: (action: string) => void) => void;
 	removeMenuActionListener: (callback: (action: string) => void) => void;
+	/**
+	 * saveAsNative - persist a document to the user's filesystem via a Save dialog.
+	 *
+	 * Validation expectations (renderer should ensure):
+	 *  - options.format must be present and be either 'yjs-v1' or 'slate-v1'
+	 *  - when format === 'yjs-v1', options.yjsUpdate must be provided as an ArrayBuffer
+	 *  - when format === 'slate-v1', options.slateContent must be provided
+	 *
+	 * The method is promise-based and will return a SaveAsResult describing the
+	 * outcome. The renderer can inspect error.code to handle CANCELLED vs WRITE_FAILED.
+	 */
+	saveAsNative: (options: SaveAsOptions) => Promise<SaveAsResult>;
 }
 
 // Store wrapper functions to enable proper cleanup
@@ -41,6 +68,9 @@ const electronAPI: ElectronAPI = {
 			menuActionListeners.delete(callback);
 		}
 	},
+	// saveAsNative bridge - forwards options to main via ipcRenderer.invoke
+	saveAsNative: (options: SaveAsOptions) =>
+		ipcRenderer.invoke("save-as-native", options),
 };
 
 // Expose the API to the renderer process
