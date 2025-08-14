@@ -130,6 +130,11 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
 					className,
 				)}
 			>
+				{/* Live region for assistive tech: announce save/sync status updates */}
+				<div aria-live="polite" className="sr-only">
+					{saveState.label}. {connection === "online" ? "Online" : "Offline"}.
+					Last saved: {lastSaved ? lastSaved.toLocaleString() : "Never"}
+				</div>
 				{/* Subtle animated dot to reflect current health */}
 				<div className="relative h-2.5 w-2.5" aria-hidden="true">
 					<span className={cn("absolute inset-0 rounded-full", dotClass)} />

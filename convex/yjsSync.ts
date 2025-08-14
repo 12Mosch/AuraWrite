@@ -204,18 +204,16 @@ async function createDocumentVersion(
 		let winnerId: Id<"documentVersions"> | null = null;
 		while (attempt < MAX_RETRIES && !winnerId) {
 			attempt++;
-	
+
 			// Read the highest version deterministically using the by_document_version index
 			const lastVersionRow = await ctx.db
 				.query("documentVersions")
-				.withIndex("by_document_version", (q) =>
-					q.eq("documentId", documentId),
-				)
+				.withIndex("by_document_version", (q) => q.eq("documentId", documentId))
 				.order("desc")
 				.first();
-	
+
 			const nextVersion = lastVersionRow ? lastVersionRow.version + 1 : 1;
-	
+
 			// Prepare the record including the canonical Yjs snapshot and protocol version
 			const record = {
 				documentId,
@@ -226,12 +224,12 @@ async function createDocumentVersion(
 				yjsSnapshot: yjsState,
 				yjsProtocolVersion,
 			};
-	
+
 			let insertedId: Id<"documentVersions"> | null = null;
 			try {
 				// Attempt insert.
 				insertedId = await ctx.db.insert("documentVersions", record);
-	
+
 				// Query all rows that share the same (documentId, version) using the strict index.
 				const sameVersionRows = await ctx.db
 					.query("documentVersions")
@@ -239,7 +237,7 @@ async function createDocumentVersion(
 						q.eq("documentId", documentId).eq("version", nextVersion),
 					)
 					.collect();
-	
+
 				if (sameVersionRows.length === 1) {
 					// No conflict, our inserted row is the unique winner.
 					winnerId = insertedId;
@@ -248,20 +246,22 @@ async function createDocumentVersion(
 					);
 					return winnerId;
 				}
-	
+
 				// Conflict detected: choose a deterministic winner among the rows.
 				// Criteria: smallest createdAt, then smallest _id (Convex Ids are comparable as strings).
 				let chosen = sameVersionRows[0];
 				for (const row of sameVersionRows) {
 					if (
 						row.createdAt < chosen.createdAt ||
-						(row.createdAt === chosen.createdAt && String(row._id) < String(chosen._id))
+						(row.createdAt === chosen.createdAt &&
+							String(row._id) < String(chosen._id))
 					) {
 						chosen = row;
 					}
 				}
-	
-				const chosenId: Id<"documentVersions"> = chosen._id as Id<"documentVersions">;
+
+				const chosenId: Id<"documentVersions"> =
+					chosen._id as Id<"documentVersions">;
 				// Delete all other conflicting rows (do NOT delete the chosen winner).
 				for (const row of sameVersionRows) {
 					const idToMaybeDelete = row._id as Id<"documentVersions">;
@@ -277,7 +277,7 @@ async function createDocumentVersion(
 						}
 					}
 				}
-	
+
 				// If our inserted row wasn't the chosen winner, set winnerId to chosen and return it.
 				winnerId = chosenId;
 				console.log(
@@ -304,12 +304,12 @@ async function createDocumentVersion(
 					} catch (_e) {}
 				}
 			}
-	
+
 			// Jittered backoff before retrying to reduce contention.
 			const backoffMs = 50 + Math.floor(Math.random() * 100); // 50-150ms
 			await new Promise((r) => setTimeout(r, backoffMs));
 		}
-	
+
 		console.error(
 			`Failed to create unique document version for ${documentId} after ${MAX_RETRIES} attempts`,
 		);
