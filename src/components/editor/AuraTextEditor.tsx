@@ -255,8 +255,10 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				case "file.save":
 					if (onSave) {
 						onSave(editorValue);
-						setIsModified(false);
-						setLastSaved(new Date());
+						// Wait for the collaboration layer to report 'synced' before
+						// clearing modified state and updating lastSaved to avoid
+						// showing "Saved" when the backing sync ultimately fails.
+						pendingAutosaveRef.current = true; // wait for 'synced' to finalize
 					}
 					break;
 				case "file.new":
@@ -424,7 +426,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			} else if (
 				status === "error" ||
 				status === "offline" ||
-				status === "disabled"
+				status === "disabled" ||
+				status === "pending"
 			) {
 				// Do not mark as saved in these states; clear any pending autosave flag
 				pendingAutosaveRef.current = false;
