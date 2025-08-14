@@ -145,7 +145,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 	// Access shared Y.Doc for Yjs-native save support
 	// useSharedYjsDocument returns a stable yDoc instance shared across components.
-	const { yDoc } = useSharedYjsDocument({ documentId: String(documentId) });
+	const { yDoc } = useSharedYjsDocument({ documentId });
 
 	// Convex mutation to update document metadata (used elsewhere)
 	// When persisting a per-user Save As path we use setUserDocumentLocalPath (per-user mapping).
@@ -330,7 +330,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 								typeof electronApi.saveAsNative === "function"
 							) {
 								// Prefer Yjs-native snapshot when available.
-								let usedYjs = false;
+								let yjsSucceeded = false;
+								let yjsCancelled = false;
 								try {
 									if (typeof yDoc !== "undefined" && yDoc) {
 										// Encode current Y.Doc state as a binary update
@@ -353,9 +354,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 											yjsUpdate: arrayBuffer as ArrayBuffer,
 											yjsProtocolVersion: 1,
 										});
-										// Only mark Yjs as used after a confirmed success response
+										// Only mark Yjs as succeeded after a confirmed success response
 										if (res && "success" in res && res.success) {
-											usedYjs = true;
+											yjsSucceeded = true;
 											setLastSaved(new Date());
 											setIsModified(false);
 											console.log("Save As (Yjs) succeeded");
@@ -369,9 +370,6 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 													await setUserDocumentLocalPath({
 														documentId,
 														filePath: res.filePath,
-													} as unknown as {
-														documentId: Id<"documents">;
-														filePath?: string;
 													});
 												} catch (err) {
 													console.warn(
@@ -422,7 +420,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 															(maybeError as Record<string, unknown>).message,
 														)
 													: "An error occurred while saving to your filesystem.";
-											if (errCode && errCode !== "CANCELLED") {
+											yjsCancelled = errCode === "CANCELLED";
+											if (!yjsCancelled) {
 												toast.error("Save As failed", {
 													description: errMessage,
 												});
@@ -430,7 +429,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 										}
 									}
 								} catch (err) {
-									// Ensure usedYjs remains false on exception so the slate fallback runs.
+									// Ensure yjsSucceeded remains false on exception so the slate fallback runs.
 									console.error("Yjs Save As failed:", err);
 									toast.error("Save As failed", {
 										description:
@@ -442,8 +441,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 													),
 									});
 								}
-								// If Yjs path was not used or failed, fall back to Slate JSON.
-								if (!usedYjs) {
+								// If Yjs path wasn’t used/succeeded and wasn’t cancelled, fall back to Slate JSON.
+								if (!yjsSucceeded && !yjsCancelled) {
 									const res = await electronApi.saveAsNative({
 										documentId,
 										documentTitle,
@@ -463,9 +462,6 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 											await setUserDocumentLocalPath({
 												documentId,
 												filePath: filePathFromRes as string | undefined,
-											} as unknown as {
-												documentId: Id<"documents">;
-												filePath?: string;
 											});
 										} catch (err) {
 											console.warn(

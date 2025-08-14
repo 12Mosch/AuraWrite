@@ -3,26 +3,11 @@ import * as path from "node:path";
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 
-/**
- * Types for the save-as IPC handler
- */
-type SaveAsOptions = {
-	documentId?: string;
-	documentTitle?: string;
-	defaultPath?: string;
-	format: "yjs-v1" | "slate-v1";
-	// Accept either ArrayBuffer or SharedArrayBuffer from the renderer to avoid
-	// strict typing mismatches when SharedArrayBuffer is produced by the runtime.
-	yjsUpdate?: ArrayBuffer | SharedArrayBuffer;
-	yjsProtocolVersion?: number;
-	slateContent?: unknown;
-};
+import type { SaveAsOptions } from "../shared/saveAs";
 
-// Extend App type locally to store a guard flag without using `any`
-interface AppWithSaveFlag {
-	_auraSaveAsInProgress?: boolean;
-}
-const electronApp = app as unknown as AppWithSaveFlag;
+// Module-local in-flight guard to prevent concurrent Save As dialogs.
+// Prefer a simple module-local boolean over augmenting the Electron App global.
+let saveAsInProgress = false;
 
 // Helper function to send menu actions
 const sendMenuAction = (action: string) => {
@@ -283,13 +268,13 @@ ipcMain.handle(
 	"save-as-native",
 	async (_event: unknown, options: SaveAsOptions) => {
 		// Prevent multiple concurrent Save As dialogs across rapid invocations.
-		if (electronApp._auraSaveAsInProgress === true) {
+		if (saveAsInProgress === true) {
 			return {
 				success: false,
 				error: { code: "BUSY", message: "Save As dialog already open" },
 			};
 		}
-		electronApp._auraSaveAsInProgress = true;
+		saveAsInProgress = true;
 		try {
 			// Basic validation
 			if (!options || typeof options !== "object" || !options.format) {
@@ -415,7 +400,7 @@ ipcMain.handle(
 				},
 			};
 		} finally {
-			electronApp._auraSaveAsInProgress = false;
+			saveAsInProgress = false;
 		}
 	},
 );

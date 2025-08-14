@@ -1,4 +1,9 @@
-export type SaveAsErrorCode = "CANCELLED" | "WRITE_FAILED";
+export type SaveAsErrorCode =
+	| "CANCELLED"
+	| "WRITE_FAILED"
+	| "INVALID_OPTIONS"
+	| "DIALOG_FAILED"
+	| "SERIALIZE_FAILED";
 
 export interface SaveAsSuccess {
 	success: true;
@@ -13,12 +18,32 @@ export interface SaveAsFailure {
 
 export type SaveAsResult = SaveAsSuccess | SaveAsFailure;
 
-export interface SaveAsOptions {
+export interface SaveAsBase {
 	documentId?: string;
 	documentTitle?: string;
 	defaultPath?: string;
-	format: "yjs-v1" | "slate-v1";
-	yjsUpdate?: ArrayBuffer; // required when format === 'yjs-v1'
-	yjsProtocolVersion?: number;
-	slateContent?: unknown; // required when format === 'slate-v1'
 }
+
+/**
+ * Options for saving a Yjs-format document.
+ * - format is the discriminant.
+ * - yjsUpdate is required and accepts binary buffers used across IPC.
+ */
+export interface SaveAsYjsOptions extends SaveAsBase {
+	format: "yjs-v1";
+	yjsUpdate: Uint8Array | ArrayBuffer;
+	yjsProtocolVersion?: number;
+}
+
+/**
+ * Options for saving a Slate-format document.
+ */
+export interface SaveAsSlateOptions extends SaveAsBase {
+	format: "slate-v1";
+	slateContent: unknown;
+}
+
+/**
+ * Discriminated union of save options.
+ */
+export type SaveAsOptions = SaveAsYjsOptions | SaveAsSlateOptions;

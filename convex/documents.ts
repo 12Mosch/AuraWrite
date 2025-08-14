@@ -353,32 +353,109 @@ export const setUserDocumentLocalPath = mutation({
 			normalized = trimmed;
 		}
 
-		// Look for existing mapping for this user/document
-		const existing = await ctx.db
-			.query("documentLocalPaths")
-			.withIndex("by_user_document", (q) =>
-				q.eq("userId", userId).eq("documentId", documentId),
-			)
-			.take(1);
+		// Compute deterministic composite key for (userId, documentId) so concurrent writes collide.
+		const compositeKey = `${String(userId)}|${String(documentId)}`;
 
-		if (existing.length === 0) {
-			// Insert new mapping
-			const id = await ctx.db.insert("documentLocalPaths", {
+		// Look for existing mapping for this user/document using the synthetic composite key index
+		const found = await ctx.db
+			.query("documentLocalPaths")
+			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+			.collect();
+
+		// If exactly one row exists, patch it and return its id
+		if (found.length === 1) {
+			await ctx.db.patch(found[0]._id, {
+				filePath: normalized,
+				updatedAt: now,
+			});
+			return found[0]._id as Id<"documentLocalPaths">;
+		}
+
+		// If none exist, attempt to insert and then re-query the index to confirm
+		if (found.length === 0) {
+			const insertedId = await ctx.db.insert("documentLocalPaths", {
 				documentId,
 				userId,
+				compositeKey,
 				filePath: normalized,
 				createdAt: now,
 				updatedAt: now,
 			});
-			return id;
-		} else {
-			// Patch existing mapping
-			await ctx.db.patch(existing[0]._id, {
+
+			// Re-query with the composite index to detect races
+			const afterInsert = await ctx.db
+				.query("documentLocalPaths")
+				.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+				.collect();
+
+			// If only one row exists after insert, return it (might be the one we inserted or another)
+			if (afterInsert.length === 1) {
+				const row = afterInsert[0];
+				// Ensure the surviving row has the expected filePath and timestamp
+				await ctx.db.patch(row._id, {
+					// ensure compositeKey persists (no-op if already present)
+					compositeKey,
+					filePath: normalized,
+					updatedAt: now,
+				});
+				return row._id as Id<"documentLocalPaths">;
+			}
+
+			// If multiple rows exist (race), pick one deterministically to keep and delete the rest
+			if (afterInsert.length > 1) {
+				// Prefer keeping a row that matches the insertedId if present; otherwise keep the first
+				const survivor =
+					afterInsert.find((r) => r._id === insertedId) || afterInsert[0];
+				// Patch the survivor to ensure correct values
+				await ctx.db.patch(survivor._id, {
+					compositeKey,
+					filePath: normalized,
+					updatedAt: now,
+				});
+				// Delete extras
+				for (const r of afterInsert) {
+					if (r._id !== survivor._id) {
+						await ctx.db.delete(r._id);
+					}
+				}
+				return survivor._id as Id<"documentLocalPaths">;
+			}
+
+			// Fallback: if we couldn't observe any rows after insert, throw to avoid returning undefined
+			if (insertedId) {
+				// As a conservative fallback, return the insertedId after patching it to ensure consistency
+				await ctx.db.patch(insertedId, {
+					compositeKey,
+					filePath: normalized,
+					updatedAt: now,
+				});
+				return insertedId as Id<"documentLocalPaths">;
+			}
+			throw new ConvexError(
+				"Failed to create or reconcile documentLocalPaths entry",
+			);
+		}
+
+		// If multiple rows were found initially (rare), resolve by keeping one and deleting the extras
+		if (found.length > 1) {
+			// Keep the first as survivor and patch it
+			const survivor = found[0];
+			await ctx.db.patch(survivor._id, {
+				compositeKey,
 				filePath: normalized,
 				updatedAt: now,
 			});
-			return existing[0]._id;
+			// Delete the others
+			for (const r of found.slice(1)) {
+				await ctx.db.delete(r._id);
+			}
+			return survivor._id as Id<"documentLocalPaths">;
 		}
+
+		// Shouldn't reach here; ensure we never return undefined
+		throw new ConvexError(
+			"Failed to locate or create documentLocalPaths entry",
+		);
 	},
 });
 
@@ -395,11 +472,11 @@ export const clearUserDocumentLocalPath = mutation({
 		const userId = await getCurrentUser(ctx);
 		await checkDocumentEditAccess(ctx, documentId, userId);
 
+		const compositeKey = `${String(userId)}|${String(documentId)}`;
+
 		const existing = await ctx.db
 			.query("documentLocalPaths")
-			.withIndex("by_user_document", (q) =>
-				q.eq("userId", userId).eq("documentId", documentId),
-			)
+			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
 			.take(1);
 
 		if (existing.length === 0) return null;

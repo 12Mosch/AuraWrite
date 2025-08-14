@@ -17,5 +17,5 @@
 		// isolated modules for better performance
 		"isolatedModules": true
 	},
-	"include": ["main.ts", "preload.ts"]
+	"include": ["main.ts", "preload.ts", "../types/**/*.d.ts"]
 }
