@@ -4,6 +4,26 @@ import type { Id } from "./_generated/dataModel";
 import { type MutationCtx, mutation, query } from "./_generated/server";
 import { checkDocumentAccess, getCurrentUser } from "./authHelpers";
 
+// Lightweight gated debug helper to avoid leaking user content in production
+const YJS_DEBUG =
+	typeof process !== "undefined" &&
+	process.env &&
+	process.env.NODE_ENV !== "production" &&
+	typeof process !== "undefined" &&
+	process.env &&
+	(process.env.YJS_DEBUG === "1" || process.env.DEBUG?.includes("yjs"));
+const dbg = (...args: unknown[]) => {
+	if (YJS_DEBUG) {
+		try {
+			console.debug(...args);
+		} catch {}
+	}
+};
+
+// Threshold for how many batched updates should trigger creating a document version.
+// Keep this as a named constant so it can be tuned and referenced in comments/tests.
+export const DOCUMENT_VERSION_THRESHOLD = 10;
+
 // Type definitions for Y.js Delta operations
 interface DeltaOperation {
 	insert: string | object;
@@ -74,11 +94,40 @@ export function deltaToSlateNodes(delta: DeltaOperation[]): SlateNode[] {
 		children: [],
 	};
 
+	// Diagnostics: track delta composition and sample embedded inserts
+	let __dbg_stringInserts = 0;
+	let __dbg_objectInserts = 0;
+	const __dbg_embeddedSamples: Array<{
+		kind: string;
+		keys: string[];
+		preview?: string | null;
+	}> = [];
+
+	const __summarizeEmbedded = (obj: unknown) => {
+		const isObject = typeof obj === "object" && obj !== null;
+		const ctorName = isObject
+			? ((obj as { constructor?: { name?: string } })?.constructor?.name ??
+				"object")
+			: typeof obj;
+		const keys = isObject
+			? Object.keys(obj as Record<string, unknown>).slice(0, 8)
+			: [];
+		let preview: string | null = null;
+		try {
+			const s = String(obj);
+			preview = s.length > 80 ? `${s.slice(0, 80)}…` : s;
+		} catch {
+			preview = null;
+		}
+		return { kind: ctorName, keys, preview };
+	};
+
 	for (const op of delta) {
 		if (typeof op.insert === "string") {
 			// Handle text insertion
 			const text = op.insert;
 			const attributes = op.attributes || {};
+			__dbg_stringInserts++;
 
 			// Split text by newlines to create separate paragraphs
 			const lines = text.split("\n");
@@ -114,12 +163,101 @@ export function deltaToSlateNodes(delta: DeltaOperation[]): SlateNode[] {
 				}
 			}
 		} else if (typeof op.insert === "object") {
-			// Handle embedded objects (like images, links, etc.)
-			// For now, we'll skip these or convert them to text
-			console.warn(
-				"Embedded objects in Y.js delta not fully supported:",
-				op.insert,
-			);
+			// Handle embedded objects conservatively:
+			// - Try to extract a meaningful text preview (toString or .text)
+			// - If none is available, insert a visible placeholder character to
+			//   avoid silently dropping content and to keep paragraph structure stable.
+			__dbg_objectInserts++;
+			// Only perform expensive / potentially PII-prone sample extraction when debug is enabled
+			if (YJS_DEBUG) {
+				try {
+					if (__dbg_embeddedSamples.length < 3) {
+						__dbg_embeddedSamples.push(__summarizeEmbedded(op.insert));
+					}
+				} catch {}
+			}
+
+			let embeddedText = "";
+			try {
+				const maybeObj = op.insert;
+				// Prefer an explicit string 'text' property when present.
+				if (
+					typeof maybeObj === "object" &&
+					maybeObj !== null &&
+					"text" in maybeObj &&
+					typeof (maybeObj as { text: unknown }).text === "string"
+				) {
+					embeddedText = String((maybeObj as { text: string }).text);
+				} else if (
+					typeof maybeObj === "object" &&
+					maybeObj !== null &&
+					"toString" in maybeObj &&
+					typeof (maybeObj as { toString: unknown }).toString === "function"
+				) {
+					// Use toString() only if it returns a non-default, non-empty string.
+					try {
+						const s = (maybeObj as { toString: () => string }).toString();
+						// Filter out default "[object ...]" outputs which are unhelpful.
+						if (
+							typeof s === "string" &&
+							s.length > 0 &&
+							!/^\[object .*]$/.test(s)
+						) {
+							embeddedText = s;
+						} else {
+							embeddedText = "\uFFFC";
+						}
+					} catch {
+						embeddedText = "\uFFFC";
+					}
+				} else {
+					// No meaningful text available — use a unicode object replacement
+					// character to preserve document layout and make the embed visible.
+					// This avoids silently losing content in downstream snapshots.
+					embeddedText = "\uFFFC";
+				}
+			} catch {
+				embeddedText = "\uFFFC";
+			}
+
+			// Log when we had to fall back to a placeholder for easier diagnostics.
+			if (embeddedText === "\uFFFC") {
+				try {
+					dbg("[yjsSync] embedded object converted to placeholder", {
+						sample: __dbg_embeddedSamples[__dbg_embeddedSamples.length - 1],
+						opAttributes: op.attributes,
+					});
+				} catch {}
+			}
+
+			// Split text (or placeholder) by newlines to create separate paragraphs
+			const lines = embeddedText.split("\n");
+			for (let i = 0; i < lines.length; i++) {
+				const line = lines[i];
+
+				// Add text (or placeholder) to current paragraph if non-empty (align with string branch)
+				if (line.length > 0) {
+					const textNode: SlateTextNode = { text: line };
+					const attributes = op.attributes || {};
+					if (attributes.bold) textNode.bold = true;
+					if (attributes.italic) textNode.italic = true;
+					if (attributes.underline) textNode.underline = true;
+					if (attributes.code) textNode.code = true;
+					currentParagraph.children.push(textNode);
+				}
+
+				// If there's a newline (except for the last line), finish current paragraph
+				if (i < lines.length - 1) {
+					if (currentParagraph.children.length === 0) {
+						currentParagraph.children.push({ text: "" });
+					}
+					nodes.push(currentParagraph);
+					currentParagraph = {
+						type: "paragraph",
+						children: [],
+					};
+				}
+			}
 		}
 	}
 
@@ -133,6 +271,16 @@ export function deltaToSlateNodes(delta: DeltaOperation[]): SlateNode[] {
 			children: [{ text: "" }],
 		});
 	}
+
+	// Emit a concise debug summary for diagnostics
+	try {
+		dbg("[yjsSync:deltaToSlateNodes] delta summary", {
+			totalOps: delta.length,
+			stringInserts: __dbg_stringInserts,
+			objectInserts: __dbg_objectInserts,
+			embeddedSamples: __dbg_embeddedSamples,
+		});
+	} catch {}
 
 	return nodes;
 }
@@ -161,7 +309,45 @@ async function createDocumentVersion(
 
 		try {
 			// Use Y.XmlText's toDelta() method to get the rich content with formatting
+			dbg("[yjsSync:createDocumentVersion] starting delta extraction", {
+				documentId,
+				yjsProtocolVersion,
+			});
 			const delta = sharedType.toDelta();
+			try {
+				const objectOps = delta.filter(
+					(op: DeltaOperation) => typeof op.insert === "object",
+				).length;
+				const totalOps = delta.length;
+				dbg("[yjsSync:createDocumentVersion] delta stats", {
+					documentId,
+					totalOps,
+					objectOps,
+					stringOps: totalOps - objectOps,
+					sample:
+						objectOps > 0
+							? delta
+									.filter((op: DeltaOperation) => typeof op.insert === "object")
+									.slice(0, 2)
+									.map((op: DeltaOperation) => {
+										const ins: unknown = op.insert;
+										const kind =
+											typeof ins === "object" && ins !== null
+												? ((ins as { constructor?: { name?: string } })
+														?.constructor?.name ?? "object")
+												: typeof ins;
+										const keys =
+											typeof ins === "object" && ins !== null
+												? Object.keys(ins as Record<string, unknown>).slice(
+														0,
+														6,
+													)
+												: [];
+										return { kind, keys };
+									})
+							: [],
+				});
+			} catch {}
 
 			// Convert delta to Slate.js nodes
 			// Delta format: [{ insert: "text", attributes: { bold: true } }, ...]
@@ -248,13 +434,25 @@ async function createDocumentVersion(
 				}
 
 				// Conflict detected: choose a deterministic winner among the rows.
-				// Criteria: smallest createdAt, then smallest _id (Convex Ids are comparable as strings).
+				// Criteria: prefer smallest _creationTime (always present) or fallback to createdAt,
+				// then smallest _id as a final tiebreaker so selection is deterministic.
 				let chosen = sameVersionRows[0];
 				for (const row of sameVersionRows) {
+					const rowTime =
+						typeof row._creationTime !== "undefined"
+							? +row._creationTime
+							: typeof row.createdAt !== "undefined"
+								? +row.createdAt
+								: Number.POSITIVE_INFINITY;
+					const chosenTime =
+						typeof chosen._creationTime !== "undefined"
+							? +chosen._creationTime
+							: typeof chosen.createdAt !== "undefined"
+								? +chosen.createdAt
+								: Number.POSITIVE_INFINITY;
 					if (
-						row.createdAt < chosen.createdAt ||
-						(row.createdAt === chosen.createdAt &&
-							String(row._id) < String(chosen._id))
+						rowTime < chosenTime ||
+						(rowTime === chosenTime && String(row._id) < String(chosen._id))
 					) {
 						chosen = row;
 					}
@@ -285,9 +483,9 @@ async function createDocumentVersion(
 				);
 				return winnerId;
 			} catch (err) {
-				console.warn(
-					`Failed to insert/resolve document version for document ${documentId} (attempt ${attempt}):`,
-					err,
+				dbg(
+					`[yjsSync:createDocumentVersion] insert/resolve failed (attempt ${attempt})`,
+					{ documentId, err: String(err) },
 				);
 				// On transient failures, fall through to retry after jittered backoff
 			} finally {
@@ -306,7 +504,11 @@ async function createDocumentVersion(
 			}
 
 			// Jittered backoff before retrying to reduce contention.
-			const backoffMs = 50 + Math.floor(Math.random() * 100); // 50-150ms
+			// Use capped exponential backoff with jitter to reduce contention under load.
+			const backoffMs = Math.min(
+				1000,
+				(50 << attempt) + Math.floor(Math.random() * 100),
+			); // capped exp. backoff
 			await new Promise((r) => setTimeout(r, backoffMs));
 		}
 
@@ -410,7 +612,23 @@ export const updateYjsState = mutation({
 
 				// Merge the existing state with the new update
 				// This ensures incremental updates are combined correctly
+				const mergeStart = Date.now();
+				try {
+					dbg("[yjsSync] mergeUpdates start", {
+						documentId,
+						existingBytes: existingState.byteLength,
+						incomingBytes: incomingUpdate.byteLength,
+					});
+				} catch {}
 				mergedUpdate = Y.mergeUpdates([existingState, incomingUpdate]);
+				const mergeDuration = Date.now() - mergeStart;
+				try {
+					dbg("[yjsSync] mergeUpdates completed", {
+						documentId,
+						mergedBytes: mergedUpdate.byteLength,
+						durationMs: mergeDuration,
+					});
+				} catch {}
 
 				// If we have a state vector, we can use it for conflict detection
 				// For now, we'll use the provided state vector or generate a new one
@@ -441,7 +659,7 @@ export const updateYjsState = mutation({
 
 			// Create a document version periodically (every few updates)
 			// We'll create a version roughly every 30 seconds of activity
-			const lastVersionTime = document.yjsUpdatedAt || document.createdAt;
+			const lastVersionTime = document.yjsUpdatedAt || document._creationTime;
 			if (!lastVersionTime || now - lastVersionTime > 30000) {
 				await createDocumentVersion(
 					ctx,
@@ -522,7 +740,23 @@ export const applyYjsUpdate = mutation({
 				const incomingUpdate = new Uint8Array(update);
 
 				// Merge the existing state with the new update
+				const mergeStart = Date.now();
+				try {
+					dbg("[yjsSync] applyYjsUpdate merge start", {
+						documentId,
+						existingBytes: existingState.byteLength,
+						incomingBytes: incomingUpdate.byteLength,
+					});
+				} catch {}
 				mergedUpdate = Y.mergeUpdates([existingState, incomingUpdate]);
+				const mergeDuration = Date.now() - mergeStart;
+				try {
+					dbg("[yjsSync] applyYjsUpdate merge completed", {
+						documentId,
+						mergedBytes: mergedUpdate.byteLength,
+						durationMs: mergeDuration,
+					});
+				} catch {}
 			} else {
 				// No existing state - use the update directly
 				mergedUpdate = new Uint8Array(update);
@@ -541,15 +775,13 @@ export const applyYjsUpdate = mutation({
 			// Store the merged update and updated state vector (convert Uint8Array to ArrayBuffer)
 			await ctx.db.patch(documentId, {
 				yjsState: toArrayBuffer(mergedUpdate),
-				yjsStateVector: newStateVector
-					? toArrayBuffer(newStateVector)
-					: undefined,
+				yjsStateVector: toArrayBuffer(newStateVector),
 				yjsUpdatedAt: now,
 				updatedAt: now,
 			});
 
 			// Create a document version periodically
-			const lastVersionTime = document.yjsUpdatedAt || document.createdAt;
+			const lastVersionTime = document.yjsUpdatedAt || document._creationTime;
 			if (!lastVersionTime || now - lastVersionTime > 30000) {
 				await createDocumentVersion(
 					ctx,
@@ -605,8 +837,16 @@ export const applyBatchedYjsUpdates = mutation({
 			const uint8Updates = updates.map((update) => new Uint8Array(update));
 
 			// Merge all incoming updates first
+			const mergeStartAll = Date.now();
 			const mergedIncomingUpdate =
 				updates.length > 1 ? Y.mergeUpdates(uint8Updates) : uint8Updates[0];
+			try {
+				dbg("[yjsSync] batched merge incoming updates", {
+					documentId,
+					numIncoming: updates.length,
+					mergedIncomingBytes: mergedIncomingUpdate.byteLength,
+				});
+			} catch {}
 
 			let finalUpdate: Uint8Array;
 
@@ -614,6 +854,14 @@ export const applyBatchedYjsUpdates = mutation({
 				// Existing state exists - merge with the incoming updates
 				const existingState = new Uint8Array(document.yjsState);
 				finalUpdate = Y.mergeUpdates([existingState, mergedIncomingUpdate]);
+				const mergeDurationAll = Date.now() - mergeStartAll;
+				try {
+					dbg("[yjsSync] batched final merge completed", {
+						documentId,
+						finalBytes: finalUpdate.byteLength,
+						durationMs: mergeDurationAll,
+					});
+				} catch {}
 			} else {
 				// No existing state - use the merged incoming updates
 				finalUpdate = mergedIncomingUpdate;
@@ -646,9 +894,10 @@ export const applyBatchedYjsUpdates = mutation({
 
 			await ctx.db.patch(documentId, patchData);
 
-			// Create a document version for significant updates (every 10 updates or more)
-			// This helps with version history without creating too many versions
-			if (updates.length >= 5) {
+			// Create a document version for significant updates (when the batch size
+			// meets or exceeds DOCUMENT_VERSION_THRESHOLD). This helps with version
+			// history without creating too many versions.
+			if (updates.length >= DOCUMENT_VERSION_THRESHOLD) {
 				await createDocumentVersion(
 					ctx,
 					documentId,
