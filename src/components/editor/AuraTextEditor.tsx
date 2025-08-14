@@ -134,6 +134,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 
 	// Track autosave completion to update lastSaved on successful sync
 	const pendingAutosaveRef = useRef(false);
+	// Track whether local edits have occurred (used to distinguish remote/initial syncs)
+	const hasLocalEditsRef = useRef(false);
 
 	// Selection state for bottom status bar
 	const [selectionStatus, setSelectionStatus] = useState<SelectionStatus>({
@@ -187,6 +189,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const handleEditorChange = useCallback(
 		(value: Descendant[]) => {
 			setEditorValue(value);
+			// Mark that the user has performed a local edit. This helps us avoid
+			// treating remote/initial syncs as confirmations of a local save.
+			hasLocalEditsRef.current = true;
 			setIsModified(true);
 			onChange?.(value);
 		},
@@ -255,10 +260,17 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 				case "file.save":
 					if (onSave) {
 						onSave(editorValue);
-						// Wait for the collaboration layer to report 'synced' before
-						// clearing modified state and updating lastSaved to avoid
-						// showing "Saved" when the backing sync ultimately fails.
-						pendingAutosaveRef.current = true; // wait for 'synced' to finalize
+						// If there’s nothing to sync, finalize immediately; otherwise wait for 'synced'.
+						if (syncStatus === "synced") {
+							setLastSaved(new Date());
+							setIsModified(false);
+							pendingAutosaveRef.current = false;
+						} else {
+							// Wait for the collaboration layer to report 'synced' before
+							// clearing modified state and updating lastSaved to avoid
+							// showing "Saved" when the backing sync ultimately fails.
+							pendingAutosaveRef.current = true;
+						}
 					}
 					break;
 				case "file.new":
@@ -284,7 +296,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					console.log("Menu action:", action, data);
 			}
 		},
-		[editorValue, onSave, handleNewDocumentWithConfirmation],
+		[editorValue, onSave, handleNewDocumentWithConfirmation, syncStatus],
 	);
 
 	// Handle formatting changes from the editor
@@ -413,15 +425,27 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 		) => {
 			setSyncStatus(status);
 
-			// Detect autosave completion: when we move from syncing -> synced,
-			// update the lastSaved timestamp and clear the modified flag.
+			// Only finalize an autosave when we see a 'synced' state that corresponds
+			// to an explicit local save/edit. We use two refs:
+			// - pendingAutosaveRef is set by an explicit save action (file.save) or
+			//   when we intentionally wait for sync finalization.
+			// - hasLocalEditsRef is set when the user performs local edits.
+			//
+			// This avoids treating remote/initial sync completions as confirmations
+			// of a local save.
 			if (status === "syncing") {
-				pendingAutosaveRef.current = true;
+				// Do not assume syncing implies a local autosave; only keep the pending
+				// autosave flag if it was already set by an explicit save action.
+				// (No-op here.)
 			} else if (status === "synced") {
-				if (pendingAutosaveRef.current) {
+				if (pendingAutosaveRef.current && hasLocalEditsRef.current) {
+					// This was a local save / local edits that reached the server.
 					setLastSaved(new Date());
 					setIsModified(false);
+					// Clear local edits marker as we've persisted them
+					hasLocalEditsRef.current = false;
 				}
+				// Clear pending autosave regardless so we don't hold the flag forever.
 				pendingAutosaveRef.current = false;
 			} else if (
 				status === "error" ||

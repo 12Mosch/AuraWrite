@@ -96,8 +96,9 @@ class YjsDocumentManager {
 					});
 				}
 				docInfo.isSynced = true;
+				docInfo.persistenceAvailable = false;
 			}
-
+	
 			this.documents.set(documentId, docInfo);
 		}
 
@@ -159,12 +160,15 @@ class YjsDocumentManager {
 				})
 				.catch(async (error) => {
 					console.error("IndexedDB sync failed for shared document:", error);
-
+					const message =
+						error instanceof Error
+							? error.message
+							: typeof error === "string"
+							? error
+							: JSON.stringify(error);
+	
 					// Attempt cloud-based recovery for corrupted documents
-					if (
-						error.message?.includes("corrupt") ||
-						error.message?.includes("invalid")
-					) {
+					if (message.includes("corrupt") || message.includes("invalid")) {
 						debugLog(
 							"Attempting to recover corrupted shared document from cloud...",
 						);
@@ -203,9 +207,9 @@ class YjsDocumentManager {
 								"Document recovery failed. Starting with empty document.";
 						}
 					} else {
-						docInfo.persistenceError = `Failed to sync with local storage: ${error.message}`;
+						docInfo.persistenceError = `Failed to sync with local storage: ${message}`;
 					}
-
+	
 					docInfo.persistenceAvailable = false;
 					// Still allow editing without persistence
 					docInfo.isSynced = true;
@@ -447,10 +451,11 @@ export const useSharedYjsDocument = (
 
 	// Set up event listeners for debugging
 	useEffect(() => {
+		if (!isDebug) return;
 		const { yDoc } = docInfo;
 		const docIdString =
 			typeof documentId === "string" ? documentId : String(documentId);
-
+	
 		const handleUpdate = (update: Uint8Array, origin: unknown) => {
 			if (!isDebug) return;
 			debugLog("Shared Y.Doc update received:", {
@@ -461,7 +466,7 @@ export const useSharedYjsDocument = (
 				timestamp: new Date().toISOString(),
 			});
 		};
-
+	
 		const handleAfterTransaction = (transaction: Y.Transaction) => {
 			if (!isDebug) return;
 			if (transaction.changed.size > 0) {
@@ -474,14 +479,13 @@ export const useSharedYjsDocument = (
 				});
 			}
 		};
-
+	
 		// Add event listeners for debugging and monitoring
 		yDoc.on("update", handleUpdate);
 		yDoc.on("afterTransaction", handleAfterTransaction);
-
+	
 		// Cleanup function
 		return () => {
-			if (!isDebug) return;
 			debugLog(
 				`Cleaning up shared Y.Doc event listeners for document: ${docIdString}`,
 			);
