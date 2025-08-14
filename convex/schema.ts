@@ -8,6 +8,9 @@ const schema = defineSchema({
 	...authTables,
 
 	// Documents table for collaborative editing
+	// NOTE: removed a global `filePath` here to avoid persisting per-user filesystem paths
+	// on the document record (PII/leak risk). Per-user local paths are stored in the
+	// `documentLocalPaths` table below, keyed by { documentId, userId }.
 	documents: defineTable({
 		title: v.string(),
 		content: v.optional(v.string()), // Slate.js content as JSON string (legacy)
@@ -19,8 +22,7 @@ const schema = defineSchema({
 		createdAt: v.number(),
 		updatedAt: v.number(),
 		yjsUpdatedAt: v.optional(v.number()), // Last Y.Doc update timestamp
-		// Optional native filesystem path where the document was saved locally via "Save As"
-		filePath: v.optional(v.string()),
+		// filePath intentionally omitted to prevent leaking user filesystem/PII.
 		tags: v.optional(v.array(v.string())), // Document tags for organization
 		status: v.optional(
 			v.union(
@@ -66,6 +68,24 @@ const schema = defineSchema({
 	})
 		.index("by_document", ["documentId"])
 		.index("by_document_version", ["documentId", "version"]),
+
+	// Per-user local file paths for documents.
+	// This isolates filesystem/PII from the main `documents` table and is keyed by
+	// { documentId, userId }. Writes to this table should be restricted to the
+	// authenticated caller (owner or the writing userId) in mutations — see Convex
+	// server-side mutations for enforcement. Clients may also choose to keep file
+	// paths entirely client-only and not persist them.
+	documentLocalPaths: defineTable({
+		documentId: v.id("documents"),
+		userId: v.id("users"),
+		// Local filesystem path saved by this particular user (optional).
+		// Keep sensitive values out of default queries/responses where possible.
+		filePath: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_user_document", ["userId", "documentId"])
+		.index("by_document_user", ["documentId", "userId"]),
 
 	// Real-time collaboration cursors and selections
 	collaborationSessions: defineTable({

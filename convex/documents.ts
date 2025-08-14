@@ -271,14 +271,14 @@ export const createDocument = mutation({
 });
 
 // Mutation to update a document
+// Note: `filePath` is no longer a field on the global `documents` table (to avoid leaking per-user filesystem paths).
+// Per-user local paths should be stored in the `documentLocalPaths` table via dedicated mutations below.
 export const updateDocument = mutation({
 	args: {
 		documentId: v.id("documents"),
 		title: v.optional(v.string()),
 		content: v.optional(v.string()),
 		isPublic: v.optional(v.boolean()),
-		// Optional native file path persisted by Save As
-		filePath: v.optional(v.string()),
 	},
 	returns: v.id("documents"),
 	handler: async (ctx, { documentId, title, content, isPublic }) => {
@@ -315,6 +315,97 @@ export const updateDocument = mutation({
 
 		await ctx.db.patch(documentId, updates);
 		return documentId;
+	},
+});
+
+/**
+ * Mutation to set or update the calling user's local file path for a document.
+ *
+ * - Stores per-user paths in `documentLocalPaths` keyed by (userId, documentId).
+ * - Only the calling user may set their own path. Any user with edit access may set their own path.
+ * - Clients may instead choose to keep paths client-only and never call this mutation.
+ */
+export const setUserDocumentLocalPath = mutation({
+	args: {
+		documentId: v.id("documents"),
+		filePath: v.optional(v.string()),
+	},
+	returns: v.id("documentLocalPaths"),
+	handler: async (ctx, { documentId, filePath }) => {
+		const userId = await getCurrentUser(ctx);
+
+		// Ensure the user has access to the document (owner or collaborator or public read)
+		// We require at least edit access to associate a local path with a document.
+		await checkDocumentEditAccess(ctx, documentId, userId);
+
+		const now = Date.now();
+
+		// Normalize/validate filePath if provided
+		let normalized: string | undefined;
+		if (filePath !== undefined) {
+			const trimmed = filePath.trim();
+			if (trimmed.length === 0) {
+				throw new ConvexError("filePath cannot be empty when provided");
+			}
+			if (trimmed.length > 2048) {
+				throw new ConvexError("filePath exceeds maximum length");
+			}
+			normalized = trimmed;
+		}
+
+		// Look for existing mapping for this user/document
+		const existing = await ctx.db
+			.query("documentLocalPaths")
+			.withIndex("by_user_document", (q) =>
+				q.eq("userId", userId).eq("documentId", documentId),
+			)
+			.take(1);
+
+		if (existing.length === 0) {
+			// Insert new mapping
+			const id = await ctx.db.insert("documentLocalPaths", {
+				documentId,
+				userId,
+				filePath: normalized,
+				createdAt: now,
+				updatedAt: now,
+			});
+			return id;
+		} else {
+			// Patch existing mapping
+			await ctx.db.patch(existing[0]._id, {
+				filePath: normalized,
+				updatedAt: now,
+			});
+			return existing[0]._id;
+		}
+	},
+});
+
+/**
+ * Mutation to clear the calling user's stored local file path for a document.
+ * This deletes the per-user mapping if present.
+ */
+export const clearUserDocumentLocalPath = mutation({
+	args: {
+		documentId: v.id("documents"),
+	},
+	returns: v.union(v.id("documentLocalPaths"), v.null()),
+	handler: async (ctx, { documentId }) => {
+		const userId = await getCurrentUser(ctx);
+		await checkDocumentEditAccess(ctx, documentId, userId);
+
+		const existing = await ctx.db
+			.query("documentLocalPaths")
+			.withIndex("by_user_document", (q) =>
+				q.eq("userId", userId).eq("documentId", documentId),
+			)
+			.take(1);
+
+		if (existing.length === 0) return null;
+
+		await ctx.db.delete(existing[0]._id);
+		return existing[0]._id;
 	},
 });
 

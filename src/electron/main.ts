@@ -1,5 +1,5 @@
-import path = require("node:path");
-import fs = require("node:fs"); // filesystem utilities used by save-as handler
+import * as fs from "node:fs"; // filesystem utilities used by save-as handler
+import * as path from "node:path";
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 
@@ -196,12 +196,8 @@ const createMenuTemplate = () => {
 // Set up the application menu
 const setupMenu = () => {
 	const template = createMenuTemplate();
-	// Cast the template into Electron-expected types via unknown to avoid `any`.
 	const menu = Menu.buildFromTemplate(
-		template as unknown as (
-			| Electron.MenuItemConstructorOptions
-			| Electron.MenuItem
-		)[],
+		template as Electron.MenuItemConstructorOptions[],
 	);
 	Menu.setApplicationMenu(menu);
 };
@@ -307,21 +303,31 @@ ipcMain.handle(
 			}
 
 			// Determine default filename and filters
+			const isYjs = options.format === "yjs-v1";
+			const ext = isYjs ? "awdoc" : "json";
 			const defaultName =
 				options.defaultPath ||
 				(options.documentTitle
-					? `${String(options.documentTitle)}.awdoc`
-					: "Untitled.awdoc");
-			const isYjs = options.format === "yjs-v1";
+					? `${String(options.documentTitle)}.${ext}`
+					: `Untitled.${ext}`);
 			const filters = isYjs
 				? [{ name: "AuraWrite Document", extensions: ["awdoc"] }]
 				: [{ name: "JSON", extensions: ["json"] }];
+
+			// Build platform-appropriate properties for the save dialog.
+			const dialogProperties: Array<
+				"createDirectory" | "showOverwriteConfirmation"
+			> = ["showOverwriteConfirmation"];
+			// createDirectory is macOS-only in Electron; include it only on darwin.
+			if (process.platform === "darwin") {
+				dialogProperties.push("createDirectory");
+			}
 
 			const { canceled, filePath } = await dialog.showSaveDialog({
 				title: "Save As",
 				defaultPath: defaultName,
 				filters,
-				properties: ["createDirectory", "showOverwriteConfirmation"],
+				properties: dialogProperties,
 			});
 
 			if (canceled || !filePath) {
@@ -365,7 +371,38 @@ ipcMain.handle(
 			const json = JSON.stringify(envelope, null, 2);
 			const tmpPath = `${filePath}.tmp`;
 			await fs.promises.writeFile(tmpPath, json, "utf8");
-			await fs.promises.rename(tmpPath, filePath);
+
+			// Use an atomic replace; on Windows a direct rename can fail with EPERM/EEXIST
+			// if the destination already exists. Retry by unlinking the destination
+			// and attempting the rename again only for the specific Windows error cases.
+			try {
+				await fs.promises.rename(tmpPath, filePath);
+			} catch (err: unknown) {
+				// If on Windows and we received a race-related error, attempt to unlink
+				// the destination and retry the rename. Propagate any errors from unlink
+				// or the second rename to the caller.
+				const maybeErr =
+					err && typeof err === "object"
+						? (err as Record<string, unknown>)
+						: null;
+				const code =
+					maybeErr && "code" in maybeErr
+						? String((maybeErr as Record<string, unknown>).code)
+						: undefined;
+				if (
+					process.platform === "win32" &&
+					code &&
+					(code === "EPERM" || code === "EEXIST")
+				) {
+					// Attempt to remove the destination and retry the rename; allow any error to propagate.
+					await fs.promises.unlink(filePath);
+					await fs.promises.rename(tmpPath, filePath);
+				} else {
+					// Non-Windows or unexpected error: throw a new Error with context to avoid a useless rethrow.
+					throw new Error(`Atomic rename failed: ${String(err)}`);
+				}
+			}
+
 			const bytesWritten = Buffer.byteLength(json, "utf8");
 			return { success: true, filePath, bytesWritten };
 		} catch (err) {

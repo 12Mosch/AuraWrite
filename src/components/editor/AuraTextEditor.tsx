@@ -11,6 +11,7 @@ import {
 import type { Descendant, Editor } from "slate";
 import { Range } from "slate";
 import { HistoryEditor } from "slate-history";
+import { toast } from "sonner";
 import * as Y from "yjs";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -146,8 +147,11 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	// useSharedYjsDocument returns a stable yDoc instance shared across components.
 	const { yDoc } = useSharedYjsDocument({ documentId: String(documentId) });
 
-	// Convex mutation to update document metadata (used to persist saved file path)
-	const updateDocument = useMutation(api.documents.updateDocument);
+	// Convex mutation to update document metadata (used elsewhere)
+	// When persisting a per-user Save As path we use setUserDocumentLocalPath (per-user mapping).
+	const setUserDocumentLocalPath = useMutation(
+		api.documents.setUserDocumentLocalPath,
+	);
 
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
@@ -319,9 +323,12 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					(async () => {
 						try {
 							// Prefer the global ambient type from src/ui/types.d.ts
-							const api = window.electronAPI;
+							const electronApi = window.electronAPI;
 
-							if (api && typeof api.saveAsNative === "function") {
+							if (
+								electronApi &&
+								typeof electronApi.saveAsNative === "function"
+							) {
 								// Prefer Yjs-native snapshot when available.
 								let usedYjs = false;
 								try {
@@ -336,7 +343,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 														update.byteOffset,
 														update.byteOffset + update.byteLength,
 													);
-										const res = await api.saveAsNative({
+										const res = await electronApi.saveAsNative({
 											// Preserve the typed Id<"documents"> rather than coercing to string
 											documentId,
 											documentTitle,
@@ -346,18 +353,45 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 											yjsUpdate: arrayBuffer as ArrayBuffer,
 											yjsProtocolVersion: 1,
 										});
-										usedYjs = true;
+										// Only mark Yjs as used after a confirmed success response
 										if (res && "success" in res && res.success) {
+											usedYjs = true;
 											setLastSaved(new Date());
 											setIsModified(false);
-											console.log("Save As (Yjs) succeeded:", res.filePath);
+											console.log("Save As (Yjs) succeeded");
 											// Persist saved file path into document metadata
 											try {
-												await updateDocument({
-													// Cast to the Convex Id type to satisfy TS while keeping runtime value intact
-													documentId: documentId as unknown as Id<"documents">,
-													filePath: res.filePath,
-												});
+												// Persist per-user saved file path in documentLocalPaths
+												// (do not write to the global document record).
+												try {
+													// API types may lag generated bindings; cast to any to avoid
+													// a compile-time mismatch while keeping runtime behavior.
+													await setUserDocumentLocalPath({
+														documentId,
+														filePath: res.filePath,
+													} as unknown as {
+														documentId: Id<"documents">;
+														filePath?: string;
+													});
+												} catch (err) {
+													console.warn(
+														"Failed to persist per-user filePath:",
+														err,
+													);
+													// Provide user-facing feedback without exposing local path
+													toast.error(
+														"Saved locally, but cloud path update failed",
+														{
+															description:
+																err instanceof Error
+																	? err.message
+																	: String(
+																			err ??
+																				"Could not store your local file path for this document.",
+																		),
+														},
+													);
+												}
 											} catch (err) {
 												console.warn(
 													"Failed to persist filePath to document:",
@@ -370,14 +404,47 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 												"Save As (Yjs) failed or cancelled:",
 												res?.error ?? res,
 											);
+											const maybeError =
+												(res as unknown) && typeof res === "object"
+													? (res as unknown as Record<string, unknown>).error
+													: undefined;
+											const errCode =
+												maybeError &&
+												typeof maybeError === "object" &&
+												"code" in (maybeError as Record<string, unknown>)
+													? String((maybeError as Record<string, unknown>).code)
+													: undefined;
+											const errMessage =
+												maybeError &&
+												typeof maybeError === "object" &&
+												"message" in (maybeError as Record<string, unknown>)
+													? String(
+															(maybeError as Record<string, unknown>).message,
+														)
+													: "An error occurred while saving to your filesystem.";
+											if (errCode && errCode !== "CANCELLED") {
+												toast.error("Save As failed", {
+													description: errMessage,
+												});
+											}
 										}
 									}
 								} catch (err) {
+									// Ensure usedYjs remains false on exception so the slate fallback runs.
 									console.error("Yjs Save As failed:", err);
+									toast.error("Save As failed", {
+										description:
+											err instanceof Error
+												? err.message
+												: String(
+														err ??
+															"An unexpected error occurred while saving to your filesystem.",
+													),
+									});
 								}
 								// If Yjs path was not used or failed, fall back to Slate JSON.
 								if (!usedYjs) {
-									const res = await api.saveAsNative({
+									const res = await electronApi.saveAsNative({
 										documentId,
 										documentTitle,
 										defaultPath: `${documentTitle || "Untitled"}.json`,
@@ -387,15 +454,67 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									if (res && "success" in res && res.success) {
 										setLastSaved(new Date());
 										setIsModified(false);
-										console.log(
-											"Save As succeeded (slate fallback):",
-											res.filePath,
-										);
+										// Persist saved file path into document metadata (slate fallback)
+										try {
+											const filePathFromRes =
+												(res as unknown) && typeof res === "object"
+													? (res as unknown as Record<string, unknown>).filePath
+													: undefined;
+											await setUserDocumentLocalPath({
+												documentId,
+												filePath: filePathFromRes as string | undefined,
+											} as unknown as {
+												documentId: Id<"documents">;
+												filePath?: string;
+											});
+										} catch (err) {
+											console.warn(
+												"Failed to persist per-user filePath (slate fallback):",
+												err,
+											);
+											toast.error(
+												"Saved locally, but cloud path update failed",
+												{
+													description:
+														err instanceof Error
+															? err.message
+															: String(
+																	err ??
+																		"Could not store your local file path for this document.",
+																),
+												},
+											);
+										}
+										console.log("Save As succeeded (slate fallback)");
 									} else {
 										console.warn(
 											"Save As failed or cancelled:",
 											res?.error ?? res,
 										);
+										const maybeRes = res as unknown;
+										const maybeError =
+											maybeRes && typeof maybeRes === "object"
+												? (maybeRes as Record<string, unknown>).error
+												: undefined;
+										const errCode =
+											maybeError &&
+											typeof maybeError === "object" &&
+											"code" in (maybeError as Record<string, unknown>)
+												? String((maybeError as Record<string, unknown>).code)
+												: undefined;
+										const errMessage =
+											maybeError &&
+											typeof maybeError === "object" &&
+											"message" in (maybeError as Record<string, unknown>)
+												? String(
+														(maybeError as Record<string, unknown>).message,
+													)
+												: "An error occurred while saving to your filesystem.";
+										if (errCode && errCode !== "CANCELLED") {
+											toast.error("Save As failed", {
+												description: errMessage,
+											});
+										}
 									}
 								}
 							} else {
@@ -460,8 +579,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			documentTitle,
 			// include yDoc because Save As now uses the shared Y.Doc snapshot
 			yDoc,
-			// include updateDocument mutation so linter knows it's used inside the callback
-			updateDocument,
+			// include setUserDocumentLocalPath mutation so linter knows it's used inside the callback
+			setUserDocumentLocalPath,
 		],
 	);
 

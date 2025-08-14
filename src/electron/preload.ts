@@ -9,20 +9,8 @@ import type { IpcRendererEvent } from "electron";
  * between the main process and the renderer process.
  */
 
-// Define types for saveAsNative options and result
-type SaveAsOptions = {
-	documentId?: string;
-	documentTitle?: string;
-	defaultPath?: string;
-	format: "yjs-v1" | "slate-v1";
-	yjsUpdate?: ArrayBuffer; // required when format === 'yjs-v1'
-	yjsProtocolVersion?: number;
-	slateContent?: unknown; // required when format === 'slate-v1'
-};
-
-type SaveAsResult =
-	| { success: true; filePath: string; bytesWritten?: number }
-	| { success: false; error: { code: string; message: string } };
+// Reuse shared Save As types to avoid drift between preload and UI
+import type { SaveAsOptions, SaveAsResult } from "../shared/saveAs";
 
 // Define the API interface
 interface ElectronAPI {

@@ -7,32 +7,9 @@
  * Keep this in-sync with `src/electron/preload.ts`.
  */
 
-export {};
+import type { SaveAsOptions, SaveAsResult } from "../shared/saveAs";
 
 declare global {
-	interface SaveAsSuccess {
-		success: true;
-		filePath: string;
-		bytesWritten?: number;
-	}
-
-	interface SaveAsFailure {
-		success: false;
-		error: { code: string; message: string };
-	}
-
-	type SaveAsResult = SaveAsSuccess | SaveAsFailure;
-
-	interface SaveAsOptions {
-		documentId?: string;
-		documentTitle?: string;
-		defaultPath?: string;
-		format: "yjs-v1" | "slate-v1";
-		slateContent?: unknown;
-		yjsUpdate?: ArrayBuffer;
-		yjsProtocolVersion?: number;
-	}
-
 	interface ElectronAPI {
 		// Menu action subscription helpers (preload exposes these)
 		onMenuAction?: (callback: (action: string) => void) => void;
@@ -49,5 +26,6 @@ declare global {
 
 	interface Window {
 		electronAPI?: ElectronAPI;
+		isElectron?: boolean;
 	}
 }
