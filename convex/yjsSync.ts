@@ -6,14 +6,18 @@ import { checkDocumentAccess, getCurrentUser } from "./authHelpers";
 
 // Lightweight gated debug helper to avoid leaking user content in production
 const YJS_DEBUG =
-  (typeof process !== "undefined" && process.env && process.env.NODE_ENV !== "production") &&
-  (typeof process !== "undefined" && process.env && (process.env.YJS_DEBUG === "1" || process.env.DEBUG?.includes("yjs")));
+	typeof process !== "undefined" &&
+	process.env &&
+	process.env.NODE_ENV !== "production" &&
+	typeof process !== "undefined" &&
+	process.env &&
+	(process.env.YJS_DEBUG === "1" || process.env.DEBUG?.includes("yjs"));
 const dbg = (...args: unknown[]) => {
-  if (YJS_DEBUG) {
-    try {
-      console.debug(...args);
-    } catch {}
-  }
+	if (YJS_DEBUG) {
+		try {
+			console.debug(...args);
+		} catch {}
+	}
 };
 
 // Threshold for how many batched updates should trigger creating a document version.
@@ -102,9 +106,12 @@ export function deltaToSlateNodes(delta: DeltaOperation[]): SlateNode[] {
 	const __summarizeEmbedded = (obj: unknown) => {
 		const isObject = typeof obj === "object" && obj !== null;
 		const ctorName = isObject
-			? ((obj as { constructor?: { name?: string } })?.constructor?.name ?? "object")
+			? ((obj as { constructor?: { name?: string } })?.constructor?.name ??
+				"object")
 			: typeof obj;
-		const keys = isObject ? Object.keys(obj as Record<string, unknown>).slice(0, 8) : [];
+		const keys = isObject
+			? Object.keys(obj as Record<string, unknown>).slice(0, 8)
+			: [];
 		let preview: string | null = null;
 		try {
 			const s = String(obj);
@@ -161,30 +168,48 @@ export function deltaToSlateNodes(delta: DeltaOperation[]): SlateNode[] {
 			// - If none is available, insert a visible placeholder character to
 			//   avoid silently dropping content and to keep paragraph structure stable.
 			__dbg_objectInserts++;
-			try {
-				if (__dbg_embeddedSamples.length < 3) {
-					__dbg_embeddedSamples.push(__summarizeEmbedded(op.insert));
-				}
-			} catch {}
+			// Only perform expensive / potentially PII-prone sample extraction when debug is enabled
+			if (YJS_DEBUG) {
+				try {
+					if (__dbg_embeddedSamples.length < 3) {
+						__dbg_embeddedSamples.push(__summarizeEmbedded(op.insert));
+					}
+				} catch {}
+			}
 
 			let embeddedText = "";
 			try {
 				const maybeObj = op.insert;
+				// Prefer an explicit string 'text' property when present.
 				if (
-					typeof maybeObj === "object" &&
-					maybeObj !== null &&
-					"toString" in maybeObj &&
-					typeof (maybeObj as { toString: unknown }).toString === "function"
-				) {
-					// Prefer a short string preview if available
-					embeddedText = (maybeObj as { toString: () => string }).toString();
-				} else if (
 					typeof maybeObj === "object" &&
 					maybeObj !== null &&
 					"text" in maybeObj &&
 					typeof (maybeObj as { text: unknown }).text === "string"
 				) {
 					embeddedText = String((maybeObj as { text: string }).text);
+				} else if (
+					typeof maybeObj === "object" &&
+					maybeObj !== null &&
+					"toString" in maybeObj &&
+					typeof (maybeObj as { toString: unknown }).toString === "function"
+				) {
+					// Use toString() only if it returns a non-default, non-empty string.
+					try {
+						const s = (maybeObj as { toString: () => string }).toString();
+						// Filter out default "[object ...]" outputs which are unhelpful.
+						if (
+							typeof s === "string" &&
+							s.length > 0 &&
+							!/^\[object .*]$/.test(s)
+						) {
+							embeddedText = s;
+						} else {
+							embeddedText = "\uFFFC";
+						}
+					} catch {
+						embeddedText = "\uFFFC";
+					}
 				} else {
 					// No meaningful text available — use a unicode object replacement
 					// character to preserve document layout and make the embed visible.
@@ -290,7 +315,9 @@ async function createDocumentVersion(
 			});
 			const delta = sharedType.toDelta();
 			try {
-				const objectOps = delta.filter((op: DeltaOperation) => typeof op.insert === "object").length;
+				const objectOps = delta.filter(
+					(op: DeltaOperation) => typeof op.insert === "object",
+				).length;
 				const totalOps = delta.length;
 				dbg("[yjsSync:createDocumentVersion] delta stats", {
 					documentId,
@@ -306,12 +333,15 @@ async function createDocumentVersion(
 										const ins: unknown = op.insert;
 										const kind =
 											typeof ins === "object" && ins !== null
-												? ((ins as { constructor?: { name?: string } })?.constructor?.name ??
-													  "object")
+												? ((ins as { constructor?: { name?: string } })
+														?.constructor?.name ?? "object")
 												: typeof ins;
 										const keys =
 											typeof ins === "object" && ins !== null
-												? Object.keys(ins as Record<string, unknown>).slice(0, 6)
+												? Object.keys(ins as Record<string, unknown>).slice(
+														0,
+														6,
+													)
 												: [];
 										return { kind, keys };
 									})
@@ -333,7 +363,10 @@ async function createDocumentVersion(
 
 			slateContent = JSON.stringify(slateNodes);
 		} catch (deltaError) {
-			console.warn("Failed to extract rich content from Y.XmlText, falling back to plain text:", deltaError);
+			console.warn(
+				"Failed to extract rich content from Y.XmlText, falling back to plain text:",
+				deltaError,
+			);
 
 			// Fallback to plain text if delta conversion fails
 			const textContent = sharedType.toString();
@@ -405,14 +438,28 @@ async function createDocumentVersion(
 				// then smallest _id as a final tiebreaker so selection is deterministic.
 				let chosen = sameVersionRows[0];
 				for (const row of sameVersionRows) {
-					const rowTime = typeof row._creationTime !== "undefined" ? +row._creationTime : (typeof row.createdAt !== "undefined" ? +row.createdAt : Number.POSITIVE_INFINITY);
-					const chosenTime = typeof chosen._creationTime !== "undefined" ? +chosen._creationTime : (typeof chosen.createdAt !== "undefined" ? +chosen.createdAt : Number.POSITIVE_INFINITY);
-					if (rowTime < chosenTime || (rowTime === chosenTime && String(row._id) < String(chosen._id))) {
+					const rowTime =
+						typeof row._creationTime !== "undefined"
+							? +row._creationTime
+							: typeof row.createdAt !== "undefined"
+								? +row.createdAt
+								: Number.POSITIVE_INFINITY;
+					const chosenTime =
+						typeof chosen._creationTime !== "undefined"
+							? +chosen._creationTime
+							: typeof chosen.createdAt !== "undefined"
+								? +chosen.createdAt
+								: Number.POSITIVE_INFINITY;
+					if (
+						rowTime < chosenTime ||
+						(rowTime === chosenTime && String(row._id) < String(chosen._id))
+					) {
 						chosen = row;
 					}
 				}
 
-				const chosenId: Id<"documentVersions"> = chosen._id as Id<"documentVersions">;
+				const chosenId: Id<"documentVersions"> =
+					chosen._id as Id<"documentVersions">;
 				// Delete all other conflicting rows (do NOT delete the chosen winner).
 				for (const row of sameVersionRows) {
 					const idToMaybeDelete = row._id as Id<"documentVersions">;
@@ -431,10 +478,15 @@ async function createDocumentVersion(
 
 				// If our inserted row wasn't the chosen winner, set winnerId to chosen and return it.
 				winnerId = chosenId;
-				console.log(`Resolved document version ${nextVersion} for document ${documentId}, keeping id=${winnerId}`);
+				console.log(
+					`Resolved document version ${nextVersion} for document ${documentId}, keeping id=${winnerId}`,
+				);
 				return winnerId;
 			} catch (err) {
-				dbg(`[yjsSync:createDocumentVersion] insert/resolve failed (attempt ${attempt})`, { documentId, err: String(err) });
+				dbg(
+					`[yjsSync:createDocumentVersion] insert/resolve failed (attempt ${attempt})`,
+					{ documentId, err: String(err) },
+				);
 				// On transient failures, fall through to retry after jittered backoff
 			} finally {
 				// If we inserted a row but did not win and it's still present, avoid leaving stray rows:
@@ -453,11 +505,16 @@ async function createDocumentVersion(
 
 			// Jittered backoff before retrying to reduce contention.
 			// Use capped exponential backoff with jitter to reduce contention under load.
-			const backoffMs = Math.min(1000, (50 << attempt) + Math.floor(Math.random() * 100)); // capped exp. backoff
+			const backoffMs = Math.min(
+				1000,
+				(50 << attempt) + Math.floor(Math.random() * 100),
+			); // capped exp. backoff
 			await new Promise((r) => setTimeout(r, backoffMs));
 		}
 
-		console.error(`Failed to create unique document version for ${documentId} after ${MAX_RETRIES} attempts`);
+		console.error(
+			`Failed to create unique document version for ${documentId} after ${MAX_RETRIES} attempts`,
+		);
 		return null;
 	} catch (error) {
 		console.error("Failed to create document version:", error);
@@ -544,7 +601,9 @@ export const updateYjsState = mutation({
 
 		try {
 			let mergedUpdate: Uint8Array;
-			let newStateVector: Uint8Array | undefined = stateVector ? new Uint8Array(stateVector) : undefined;
+			let newStateVector: Uint8Array | undefined = stateVector
+				? new Uint8Array(stateVector)
+				: undefined;
 
 			if (document.yjsState) {
 				// Existing state exists - merge the updates properly
@@ -591,7 +650,9 @@ export const updateYjsState = mutation({
 			// Store the merged update (convert Uint8Array to ArrayBuffer for Convex)
 			await ctx.db.patch(documentId, {
 				yjsState: toArrayBuffer(mergedUpdate),
-				yjsStateVector: newStateVector ? toArrayBuffer(newStateVector) : undefined,
+				yjsStateVector: newStateVector
+					? toArrayBuffer(newStateVector)
+					: undefined,
 				yjsUpdatedAt: now,
 				updatedAt: now,
 			});
@@ -600,7 +661,12 @@ export const updateYjsState = mutation({
 			// We'll create a version roughly every 30 seconds of activity
 			const lastVersionTime = document.yjsUpdatedAt || document._creationTime;
 			if (!lastVersionTime || now - lastVersionTime > 30000) {
-				await createDocumentVersion(ctx, documentId, toArrayBuffer(mergedUpdate), userId);
+				await createDocumentVersion(
+					ctx,
+					documentId,
+					toArrayBuffer(mergedUpdate),
+					userId,
+				);
 			}
 
 			return {
@@ -717,7 +783,12 @@ export const applyYjsUpdate = mutation({
 			// Create a document version periodically
 			const lastVersionTime = document.yjsUpdatedAt || document._creationTime;
 			if (!lastVersionTime || now - lastVersionTime > 30000) {
-				await createDocumentVersion(ctx, documentId, toArrayBuffer(mergedUpdate), userId);
+				await createDocumentVersion(
+					ctx,
+					documentId,
+					toArrayBuffer(mergedUpdate),
+					userId,
+				);
 			}
 
 			return {
@@ -767,7 +838,8 @@ export const applyBatchedYjsUpdates = mutation({
 
 			// Merge all incoming updates first
 			const mergeStartAll = Date.now();
-			const mergedIncomingUpdate = updates.length > 1 ? Y.mergeUpdates(uint8Updates) : uint8Updates[0];
+			const mergedIncomingUpdate =
+				updates.length > 1 ? Y.mergeUpdates(uint8Updates) : uint8Updates[0];
 			try {
 				dbg("[yjsSync] batched merge incoming updates", {
 					documentId,
@@ -796,7 +868,9 @@ export const applyBatchedYjsUpdates = mutation({
 			}
 
 			// Generate new state vector if not provided
-			let newStateVector: Uint8Array | undefined = stateVector ? new Uint8Array(stateVector) : undefined;
+			let newStateVector: Uint8Array | undefined = stateVector
+				? new Uint8Array(stateVector)
+				: undefined;
 			if (!stateVector) {
 				const tempDoc = new Y.Doc();
 				try {
@@ -824,7 +898,12 @@ export const applyBatchedYjsUpdates = mutation({
 			// meets or exceeds DOCUMENT_VERSION_THRESHOLD). This helps with version
 			// history without creating too many versions.
 			if (updates.length >= DOCUMENT_VERSION_THRESHOLD) {
-				await createDocumentVersion(ctx, documentId, toArrayBuffer(finalUpdate), userId);
+				await createDocumentVersion(
+					ctx,
+					documentId,
+					toArrayBuffer(finalUpdate),
+					userId,
+				);
 			}
 
 			return {
