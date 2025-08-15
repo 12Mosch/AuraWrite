@@ -361,11 +361,16 @@ export const setUserDocumentLocalPath = mutation({
 
 		// If exactly one row exists, patch it and return its id
 		if (found.length === 1) {
-			await ctx.db.patch(found[0]._id, {
+			const row = found[0];
+			if (row.filePath === normalized) {
+				// No-op update (path unchanged) — return existing id
+				return row._id as Id<"documentLocalPaths">;
+			}
+			await ctx.db.patch(row._id, {
 				filePath: normalized,
 				updatedAt: now,
 			});
-			return found[0]._id as Id<"documentLocalPaths">;
+			return row._id as Id<"documentLocalPaths">;
 		}
 
 		// If none exist, attempt to insert and then re-query the index to confirm
@@ -388,6 +393,12 @@ export const setUserDocumentLocalPath = mutation({
 			// If only one row exists after insert, return it (might be the one we inserted or another)
 			if (afterInsert.length === 1) {
 				const row = afterInsert[0];
+				// If the surviving row already has the desired filePath, avoid an extra write
+				if (row.filePath === normalized) {
+					// Ensure compositeKey persists (no-op if already present) and return id
+					await ctx.db.patch(row._id, { compositeKey });
+					return row._id as Id<"documentLocalPaths">;
+				}
 				// Ensure the surviving row has the expected filePath and timestamp
 				await ctx.db.patch(row._id, {
 					// ensure compositeKey persists (no-op if already present)
@@ -517,12 +528,10 @@ export const deleteDocument = mutation({
 			await ctx.db.delete(session._id);
 		}
 
-		// Delete per-user local paths for this document
+		// Delete all per-user local paths for this document (clean up mappings for all users)
 		const localPaths = await ctx.db
 			.query("documentLocalPaths")
-			.withIndex("by_user_document", (q) =>
-				q.eq("userId", userId).eq("documentId", documentId),
-			)
+			.withIndex("by_document_user", (q) => q.eq("documentId", documentId))
 			.collect();
 		for (const lp of localPaths) {
 			await ctx.db.delete(lp._id);

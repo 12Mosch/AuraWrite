@@ -328,6 +328,10 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 						try {
 							// Prefer the global ambient type from src/ui/types.d.ts
 							const electronApi = window.electronAPI;
+							// Sanitize documentTitle for filesystem use (Windows/macOS forbidden chars).
+							const safeTitle = (documentTitle || "Untitled")
+								.replace(/[\\/:"*?<>|]+/g, "_")
+								.slice(0, 128);
 
 							if (
 								electronApi &&
@@ -340,22 +344,26 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									if (typeof yDoc !== "undefined" && yDoc) {
 										// Encode current Y.Doc state as a binary update
 										const update = Y.encodeStateAsUpdate(yDoc);
-										// Convert to ArrayBuffer for IPC (handle Uint8Array or ArrayBuffer)
-										const arrayBuffer =
-											update instanceof ArrayBuffer
-												? update
-												: update.buffer.slice(
-														update.byteOffset,
-														update.byteOffset + update.byteLength,
-													);
+										// Normalize to a Uint8Array (YjsBinary) for IPC; handle ArrayBuffer or Uint8Array inputs.
+										let yjsUpdate: Uint8Array;
+										if (update instanceof ArrayBuffer) {
+											yjsUpdate = new Uint8Array(update);
+										} else {
+											// update is a Uint8Array-like view; create a typed view referencing the same buffer
+											yjsUpdate = new Uint8Array(
+												update.buffer,
+												update.byteOffset,
+												update.byteLength,
+											);
+										}
 										const res = await electronApi.saveAsNative({
 											// Preserve the typed Id<"documents"> rather than coercing to string
 											documentId,
 											documentTitle,
-											defaultPath: `${documentTitle || "Untitled"}.awdoc`,
+											defaultPath: `${safeTitle}.awdoc`,
 											format: "yjs-v1",
-											// Ensure a plain ArrayBuffer is passed; arrayBuffer was constructed above to be a true ArrayBuffer.
-											yjsUpdate: arrayBuffer as ArrayBuffer,
+											// Pass a Uint8Array (YjsBinary) for Yjs updates
+											yjsUpdate,
 											yjsProtocolVersion: 1,
 										});
 										// Only mark Yjs as succeeded after a confirmed success response
@@ -382,9 +390,10 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 														await clearUserDocumentLocalPath({ documentId });
 													}
 												} catch (err) {
+													// Avoid logging full local paths; log the error code/message only.
 													console.warn(
 														"Failed to persist per-user filePath:",
-														err,
+														err instanceof Error ? err.message : String(err),
 													);
 													// Provide user-facing feedback without exposing local path
 													toast.error(
@@ -403,15 +412,12 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 											} catch (err) {
 												console.warn(
 													"Failed to persist filePath to document:",
-													err,
+													err instanceof Error ? err.message : String(err),
 												);
 											}
 											// Successful Yjs save; skip slate fallback.
 										} else {
-											console.warn(
-												"Save As (Yjs) failed or cancelled:",
-												res?.error ?? res,
-											);
+											// Do not log potentially sensitive paths; extract safe error info.
 											const maybeError =
 												(res as unknown) && typeof res === "object"
 													? (res as unknown as Record<string, unknown>).error
@@ -432,6 +438,10 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 													: "An error occurred while saving to your filesystem.";
 											yjsCancelled = errCode === "CANCELLED";
 											if (!yjsCancelled) {
+												console.warn(
+													"Save As (Yjs) failed:",
+													errCode ?? "UNKNOWN",
+												);
 												toast.error("Save As failed", {
 													description: errMessage,
 												});
@@ -440,7 +450,10 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									}
 								} catch (err) {
 									// Ensure yjsSucceeded remains false on exception so the slate fallback runs.
-									console.error("Yjs Save As failed:", err);
+									console.error(
+										"Yjs Save As failed:",
+										err instanceof Error ? err.message : String(err),
+									);
 									toast.error("Save As failed", {
 										description:
 											err instanceof Error
@@ -456,7 +469,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									const res = await electronApi.saveAsNative({
 										documentId,
 										documentTitle,
-										defaultPath: `${documentTitle || "Untitled"}.json`,
+										defaultPath: `${safeTitle}.json`,
 										format: "slate-v1",
 										slateContent: editorValue,
 									});
@@ -482,9 +495,10 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 												await clearUserDocumentLocalPath({ documentId });
 											}
 										} catch (err) {
+											// Avoid logging full local paths; log only error messages.
 											console.warn(
 												"Failed to persist per-user filePath (slate fallback):",
-												err,
+												err instanceof Error ? err.message : String(err),
 											);
 											toast.error(
 												"Saved locally, but cloud path update failed",
@@ -501,10 +515,6 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 										}
 										console.log("Save As succeeded (slate fallback)");
 									} else {
-										console.warn(
-											"Save As failed or cancelled:",
-											res?.error ?? res,
-										);
 										const maybeRes = res as unknown;
 										const maybeError =
 											maybeRes && typeof maybeRes === "object"
@@ -525,6 +535,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 													)
 												: "An error occurred while saving to your filesystem.";
 										if (errCode && errCode !== "CANCELLED") {
+											console.warn("Save As (slate) failed:", errCode);
 											toast.error("Save As failed", {
 												description: errMessage,
 											});
@@ -545,16 +556,28 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 								const url = URL.createObjectURL(blob);
 								const a = document.createElement("a");
 								a.href = url;
-								a.download = `${documentTitle || "Untitled"}.json`;
+								a.download = `${safeTitle}.json`;
 								document.body.appendChild(a);
 								a.click();
 								a.remove();
 								URL.revokeObjectURL(url);
 								setLastSaved(new Date());
 								setIsModified(false);
+								// Ensure any previously stored native path is cleared in the cloud
+								try {
+									await clearUserDocumentLocalPath({ documentId });
+								} catch (err) {
+									console.warn(
+										"Failed to clear per-user filePath after browser Save As:",
+										err instanceof Error ? err.message : String(err),
+									);
+								}
 							}
 						} catch (err) {
-							console.error("Save As failed:", err);
+							console.error(
+								"Save As failed:",
+								err instanceof Error ? err.message : String(err),
+							);
 						} finally {
 							isSavingRef.current = false;
 						}
