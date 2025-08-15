@@ -13,6 +13,8 @@ import { Range } from "slate";
 import { HistoryEditor } from "slate-history";
 import { toast } from "sonner";
 import * as Y from "yjs";
+import { sanitizeFilename } from "@/shared/filenames";
+import type { SaveAsResult } from "@/shared/saveAs";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSharedYjsDocument } from "../../hooks/useSharedYjsDocument";
@@ -338,30 +340,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 							// Prefer the global ambient type from src/ui/types.d.ts
 							const electronApi = window.electronAPI;
 							// Sanitize documentTitle for filesystem use (Windows/macOS forbidden chars).
-							// Also avoid Windows reserved device names and trim trailing dots/spaces.
-							const sanitizeFileName = (name: string) => {
-								const reserved = [
-									"CON",
-									"PRN",
-									"AUX",
-									"NUL",
-									"CLOCK$",
-									"CONIN$",
-									"CONOUT$",
-									...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
-									...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`),
-								];
-								let s = name.replace(/[\\/:"*?<>|]+/g, "_").slice(0, 128);
-								// Trim trailing dots/spaces (Windows doesn't allow them)
-								s = s.replace(/[.\s]+$/g, "");
-								// If the basename (case-insensitive) matches a reserved name, prefix with '_'
-								const base = s.split(".")[0];
-								if (reserved.includes(base.toUpperCase())) {
-									s = `_${s}`;
-								}
-								return s || "Untitled";
-							};
-							const safeTitle = sanitizeFileName(documentTitle || "Untitled");
+							// Centralized, cross-platform filename sanitization using 'filenamify'
+							const safeTitle = sanitizeFilename(documentTitle || "Untitled");
 
 							// Helper to extract a trimmed filePath string from opaque IPC responses.
 							const extractFilePath = (res: unknown): string | undefined => {
@@ -391,7 +371,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 											update instanceof Uint8Array
 												? update
 												: new Uint8Array(update);
-										const res = await electronApi.saveAsNative({
+										const res: SaveAsResult = await electronApi.saveAsNative({
 											// Preserve the typed Id<"documents"> rather than coercing to string
 											documentId,
 											documentTitle,
@@ -567,7 +547,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									format: "slate-v1",
 									title: documentTitle || null,
 									updatedAt: Date.now(),
-									content: editorValue,
+									content: latestEditorValueRef.current,
 								};
 								const blob = new Blob([JSON.stringify(envelope, null, 2)], {
 									type: "application/json",
@@ -627,7 +607,6 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			}
 		},
 		[
-			editorValue,
 			onSave,
 			handleNewDocumentWithConfirmation,
 			syncStatus,
