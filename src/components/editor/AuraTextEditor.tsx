@@ -130,6 +130,14 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const [editorValue, setEditorValue] = useState<Descendant[]>(
 		initialValue || [{ type: "paragraph", children: [{ text: "" }] }],
 	);
+	// Keep a ref to the latest editor value to avoid stale closures during async save-as fallbacks
+	const latestEditorValueRef = useRef<Descendant[]>(
+		initialValue || [{ type: "paragraph", children: [{ text: "" }] }],
+	);
+	// Keep it in sync with editorValue
+	useEffect(() => {
+		latestEditorValueRef.current = editorValue;
+	}, [editorValue]);
 	const [isModified, setIsModified] = useState(false);
 	const [lastSaved, setLastSaved] = useState<Date>(new Date());
 	const [syncStatus, setSyncStatus] = useState<
@@ -329,9 +337,27 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 							// Prefer the global ambient type from src/ui/types.d.ts
 							const electronApi = window.electronAPI;
 							// Sanitize documentTitle for filesystem use (Windows/macOS forbidden chars).
-							const safeTitle = (documentTitle || "Untitled")
-								.replace(/[\\/:"*?<>|]+/g, "_")
-								.slice(0, 128);
+							// Also avoid Windows reserved device names and trim trailing dots/spaces.
+							const sanitizeFileName = (name: string) => {
+								const reserved = [
+									"CON",
+									"PRN",
+									"AUX",
+									"NUL",
+									...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
+									...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`),
+								];
+								let s = name.replace(/[\\/:"*?<>|]+/g, "_").slice(0, 128);
+								// Trim trailing dots/spaces (Windows doesn't allow them)
+								s = s.replace(/[.\s]+$/g, "");
+								// If the basename (case-insensitive) matches a reserved name, prefix with '_'
+								const base = s.split(".")[0];
+								if (reserved.includes(base.toUpperCase())) {
+									s = `_${s}`;
+								}
+								return s || "Untitled";
+							};
+							const safeTitle = sanitizeFileName(documentTitle || "Untitled");
 
 							if (
 								electronApi &&
@@ -372,47 +398,43 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 											setLastSaved(new Date());
 											setIsModified(false);
 											console.log("Save As (Yjs) succeeded");
-											// Persist saved file path into document metadata
+											// Persist per-user saved file path in documentLocalPaths (not the global document)
 											try {
-												// Persist per-user saved file path in documentLocalPaths
-												// (do not write to the global document record).
-												try {
-													// API types may lag generated bindings; cast to any to avoid
-													// a compile-time mismatch while keeping runtime behavior.
-													if (res && typeof res === "object" && res.filePath) {
-														await setUserDocumentLocalPath({
-															documentId,
-															filePath: res.filePath,
-														});
-													} else {
-														// If the native save didn't return a path, ensure any previous
-														// mapping is cleared.
-														await clearUserDocumentLocalPath({ documentId });
+												// Normalize result shape without using `any`
+												let filePath: string | undefined;
+												if (res && typeof res === "object") {
+													// Convert to unknown first to avoid unsafe structural cast errors
+													const r = res as unknown as Record<string, unknown>;
+													const raw = r.filePath;
+													if (typeof raw === "string") {
+														filePath = raw.trim();
 													}
-												} catch (err) {
-													// Avoid logging full local paths; log the error code/message only.
-													console.warn(
-														"Failed to persist per-user filePath:",
-														err instanceof Error ? err.message : String(err),
-													);
-													// Provide user-facing feedback without exposing local path
-													toast.error(
-														"Saved locally, but cloud path update failed",
-														{
-															description:
-																err instanceof Error
-																	? err.message
-																	: String(
-																			err ??
-																				"Could not store your local file path for this document.",
-																		),
-														},
-													);
+												}
+												if (filePath) {
+													await setUserDocumentLocalPath({
+														documentId,
+														filePath,
+													});
+												} else {
+													// If the native save didn't return a path, ensure any previous mapping is cleared.
+													await clearUserDocumentLocalPath({ documentId });
 												}
 											} catch (err) {
 												console.warn(
-													"Failed to persist filePath to document:",
+													"Failed to persist per-user filePath:",
 													err instanceof Error ? err.message : String(err),
+												);
+												toast.error(
+													"Saved locally, but cloud path update failed",
+													{
+														description:
+															err instanceof Error
+																? err.message
+																: String(
+																		err ??
+																			"Could not store your local file path for this document.",
+																	),
+													},
 												);
 											}
 											// Successful Yjs save; skip slate fallback.
@@ -471,7 +493,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 										documentTitle,
 										defaultPath: `${safeTitle}.json`,
 										format: "slate-v1",
-										slateContent: editorValue,
+										slateContent: latestEditorValueRef.current,
 									});
 									if (res && "success" in res && res.success) {
 										setLastSaved(new Date());
@@ -534,8 +556,11 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 														(maybeError as Record<string, unknown>).message,
 													)
 												: "An error occurred while saving to your filesystem.";
-										if (errCode && errCode !== "CANCELLED") {
-											console.warn("Save As (slate) failed:", errCode);
+										if (errCode !== "CANCELLED") {
+											console.warn(
+												"Save As (slate) failed:",
+												errCode ?? "UNKNOWN",
+											);
 											toast.error("Save As failed", {
 												description: errMessage,
 											});
