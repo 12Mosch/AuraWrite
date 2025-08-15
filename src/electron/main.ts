@@ -1,5 +1,13 @@
-const path = require("node:path");
-const { app, BrowserWindow, ipcMain, shell, Menu } = require("electron");
+import * as fs from "node:fs"; // filesystem utilities used by save-as handler
+import * as path from "node:path";
+
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+
+import type { SaveAsOptions } from "../shared/saveAs";
+
+// Module-local in-flight guard to prevent concurrent Save As dialogs.
+// Prefer a simple module-local boolean over augmenting the Electron App global.
+let saveAsInProgress = false;
 
 // Helper function to send menu actions
 const sendMenuAction = (action: string) => {
@@ -173,7 +181,9 @@ const createMenuTemplate = () => {
 // Set up the application menu
 const setupMenu = () => {
 	const template = createMenuTemplate();
-	const menu = Menu.buildFromTemplate(template);
+	const menu = Menu.buildFromTemplate(
+		template as Electron.MenuItemConstructorOptions[],
+	);
 	Menu.setApplicationMenu(menu);
 };
 
@@ -251,6 +261,149 @@ ipcMain.handle("open-external", async (_event: unknown, url: string) => {
 		};
 	}
 });
+
+// IPC handler to save a document to user's filesystem via Save As dialog.
+// Expects options describing the payload and format. Performs an atomic write.
+ipcMain.handle(
+	"save-as-native",
+	async (_event: unknown, options: SaveAsOptions) => {
+		// Prevent multiple concurrent Save As dialogs across rapid invocations.
+		if (saveAsInProgress === true) {
+			return {
+				success: false,
+				error: { code: "BUSY", message: "Save As dialog already open" },
+			};
+		}
+		saveAsInProgress = true;
+		try {
+			// Basic validation
+			if (!options || typeof options !== "object" || !options.format) {
+				return {
+					success: false,
+					error: {
+						code: "INVALID_PAYLOAD",
+						message: "Missing or invalid options.format",
+					},
+				};
+			}
+
+			// Determine default filename and filters
+			const isYjs = options.format === "yjs-v1";
+			const ext = isYjs ? "awdoc" : "json";
+			const defaultName =
+				options.defaultPath ||
+				(options.documentTitle
+					? `${String(options.documentTitle)}.${ext}`
+					: `Untitled.${ext}`);
+			const filters = isYjs
+				? [{ name: "AuraWrite Document", extensions: ["awdoc"] }]
+				: [{ name: "JSON", extensions: ["json"] }];
+
+			// Build platform-appropriate properties for the save dialog.
+			const dialogProperties: Array<
+				"createDirectory" | "showOverwriteConfirmation"
+			> = ["showOverwriteConfirmation"];
+			// createDirectory is macOS-only in Electron; include it only on darwin.
+			if (process.platform === "darwin") {
+				dialogProperties.push("createDirectory");
+			}
+
+			const { canceled, filePath } = await dialog.showSaveDialog({
+				title: "Save As",
+				defaultPath: defaultName,
+				filters,
+				properties: dialogProperties,
+			});
+
+			if (canceled || !filePath) {
+				return {
+					success: false,
+					error: { code: "CANCELLED", message: "User cancelled" },
+				};
+			}
+
+			// Build JSON envelope
+			let envelope: unknown = null;
+			if (isYjs) {
+				if (!options.yjsUpdate) {
+					return {
+						success: false,
+						error: {
+							code: "INVALID_PAYLOAD",
+							message: "Missing yjsUpdate for yjs-v1 format",
+						},
+					};
+				}
+				// options.yjsUpdate is an ArrayBuffer per SaveAsOptions
+				const updateBuf = Buffer.from(new Uint8Array(options.yjsUpdate));
+				envelope = {
+					format: "aura-v1",
+					yjsProtocolVersion: options.yjsProtocolVersion || 1,
+					title: options.documentTitle || null,
+					updatedAt: Date.now(),
+					yjsUpdateBase64: updateBuf.toString("base64"),
+				};
+			} else {
+				// slate-v1
+				envelope = {
+					format: "slate-v1",
+					title: options.documentTitle || null,
+					updatedAt: Date.now(),
+					content: options.slateContent ?? null,
+				};
+			}
+
+			const json = JSON.stringify(envelope, null, 2);
+			const tmpPath = `${filePath}.tmp`;
+			await fs.promises.writeFile(tmpPath, json, "utf8");
+
+			// Use an atomic replace; on Windows a direct rename can fail with EPERM/EEXIST
+			// if the destination already exists. Retry by unlinking the destination
+			// and attempting the rename again only for the specific Windows error cases.
+			try {
+				await fs.promises.rename(tmpPath, filePath);
+			} catch (err: unknown) {
+				// If on Windows and we received a race-related error, attempt to unlink
+				// the destination and retry the rename. Propagate any errors from unlink
+				// or the second rename to the caller.
+				const maybeErr =
+					err && typeof err === "object"
+						? (err as Record<string, unknown>)
+						: null;
+				const code =
+					maybeErr && "code" in maybeErr
+						? String((maybeErr as Record<string, unknown>).code)
+						: undefined;
+				if (
+					process.platform === "win32" &&
+					code &&
+					(code === "EPERM" || code === "EEXIST")
+				) {
+					// Attempt to remove the destination and retry the rename; allow any error to propagate.
+					await fs.promises.unlink(filePath);
+					await fs.promises.rename(tmpPath, filePath);
+				} else {
+					// Non-Windows or unexpected error: throw a new Error with context to avoid a useless rethrow.
+					throw new Error(`Atomic rename failed: ${String(err)}`);
+				}
+			}
+
+			const bytesWritten = Buffer.byteLength(json, "utf8");
+			return { success: true, filePath, bytesWritten };
+		} catch (err) {
+			console.error("Failed to save-as-native:", err);
+			return {
+				success: false,
+				error: {
+					code: "WRITE_FAILED",
+					message: err instanceof Error ? err.message : String(err),
+				},
+			};
+		} finally {
+			saveAsInProgress = false;
+		}
+	},
+);
 
 app.whenReady().then(() => {
 	setupMenu();

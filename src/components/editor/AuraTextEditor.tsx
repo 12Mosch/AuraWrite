@@ -1,3 +1,4 @@
+import { useMutation } from "convex/react";
 import type React from "react";
 import {
 	useCallback,
@@ -10,7 +11,13 @@ import {
 import type { Descendant, Editor } from "slate";
 import { Range } from "slate";
 import { HistoryEditor } from "slate-history";
+import { toast } from "sonner";
+import * as Y from "yjs";
+import { sanitizeFilename } from "@/shared/filenames";
+import type { SaveAsResult } from "@/shared/saveAs";
+import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { useSharedYjsDocument } from "../../hooks/useSharedYjsDocument";
 import {
 	type getActiveFormats,
 	getCurrentLink,
@@ -125,6 +132,14 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const [editorValue, setEditorValue] = useState<Descendant[]>(
 		initialValue || [{ type: "paragraph", children: [{ text: "" }] }],
 	);
+	// Keep a ref to the latest editor value to avoid stale closures during async save-as fallbacks
+	const latestEditorValueRef = useRef<Descendant[]>(
+		initialValue || [{ type: "paragraph", children: [{ text: "" }] }],
+	);
+	// Keep it in sync with editorValue
+	useEffect(() => {
+		latestEditorValueRef.current = editorValue;
+	}, [editorValue]);
 	const [isModified, setIsModified] = useState(false);
 	const [lastSaved, setLastSaved] = useState<Date>(new Date());
 	const [syncStatus, setSyncStatus] = useState<
@@ -135,6 +150,22 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const [showNewDocumentDialog, setShowNewDocumentDialog] = useState(false);
 	const [showExitDialog, setShowExitDialog] = useState(false);
 	const [showLinkDialog, setShowLinkDialog] = useState(false);
+	// Guard to avoid re-entrant Save As dialogs (menu action might fire twice)
+	const isSavingRef = useRef(false);
+
+	// Access shared Y.Doc for Yjs-native save support
+	// useSharedYjsDocument returns a stable yDoc instance shared across components.
+	const { yDoc } = useSharedYjsDocument({ documentId });
+
+	// Convex mutations to update/clear per-user local file paths
+	// - setUserDocumentLocalPath stores a validated, non-empty path per-user
+	// - clearUserDocumentLocalPath removes the per-user mapping (used for deletions)
+	const setUserDocumentLocalPath = useMutation(
+		api.documents.setUserDocumentLocalPath,
+	);
+	const clearUserDocumentLocalPath = useMutation(
+		api.documents.clearUserDocumentLocalPath,
+	);
 
 	// Editor instance ref for undo/redo operations
 	const editorRef = useRef<Editor | null>(null);
@@ -271,12 +302,13 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	}, [isModified, handleExitToDashboard]);
 
 	// Handle menu actions
+	// Use latestEditorValueRef inside this callback to avoid recreating it on every keystroke.
 	const handleMenuAction = useCallback(
 		(action: string, data?: unknown) => {
 			switch (action) {
 				case "file.save":
 					if (onSave) {
-						onSave(editorValue);
+						onSave(latestEditorValueRef.current);
 						// If there’s nothing to sync, finalize immediately; otherwise wait for 'synced'.
 						if (syncStatus === "synced") {
 							setLastSaved(new Date());
@@ -292,6 +324,239 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 						}
 					}
 					break;
+
+				case "file.saveAs": {
+					// Prevent multiple dialogs if the action fires repeatedly in quick succession.
+					if (isSavingRef.current) {
+						console.debug(
+							"Save As already in progress, ignoring duplicate action",
+						);
+						break;
+					}
+					isSavingRef.current = true;
+					// Asynchronous save-as flow to avoid blocking the menu handler.
+					(async () => {
+						try {
+							// Prefer the global ambient type from src/ui/types.d.ts
+							const electronApi = window.electronAPI;
+							// Sanitize documentTitle for filesystem use (Windows/macOS forbidden chars).
+							// Centralized, cross-platform filename sanitization using 'filenamify'
+							const safeTitle = sanitizeFilename(documentTitle || "Untitled");
+
+							// Helper to extract a trimmed filePath string from opaque IPC responses.
+							const extractFilePath = (res: unknown): string | undefined => {
+								if (res && typeof res === "object") {
+									const raw = (res as Record<string, unknown>).filePath;
+									if (typeof raw === "string") {
+										const trimmed = raw.trim();
+										return trimmed.length > 0 ? trimmed : undefined;
+									}
+								}
+								return undefined;
+							};
+
+							// Helper to persist per-user local path from a SaveAsResult
+							const persistLocalPathFromResult = async (res: SaveAsResult) => {
+								try {
+									const filePath = extractFilePath(res);
+									if (filePath) {
+										await setUserDocumentLocalPath({ documentId, filePath });
+									} else {
+										await clearUserDocumentLocalPath({ documentId });
+									}
+								} catch (err) {
+									console.warn(
+										"Failed to persist per-user filePath:",
+										err instanceof Error ? err.message : String(err),
+									);
+									toast.error("Saved locally, but cloud path update failed", {
+										description:
+											err instanceof Error ? err.message : String(err ?? ""),
+									});
+								}
+							};
+
+							if (
+								electronApi &&
+								typeof electronApi.saveAsNative === "function"
+							) {
+								// Prefer Yjs-native snapshot when available.
+								let yjsSucceeded = false;
+								let yjsCancelled = false;
+								try {
+									if (typeof yDoc !== "undefined" && yDoc) {
+										// Encode current Y.Doc state as a binary update
+										const update = Y.encodeStateAsUpdate(yDoc);
+										// Normalize to an ArrayBuffer for the IPC contract (preload requires ArrayBuffer for yjs-v1)
+										// Yjs may return ArrayBuffer, Uint8Array, or other ArrayBufferLike (including SharedArrayBuffer).
+										let yjsArrayBuffer: ArrayBuffer;
+										if (update instanceof ArrayBuffer) {
+											yjsArrayBuffer = update;
+										} else {
+											// For Uint8Array, SharedArrayBuffer-backed views, or other ArrayBufferLike,
+											// create a compact ArrayBuffer copy to guarantee a plain ArrayBuffer instance.
+											const u8 =
+												update instanceof Uint8Array
+													? update
+													: new Uint8Array(update as ArrayBufferLike);
+											// Copy to ensure we don't carry a SharedArrayBuffer or an oversized buffer with offsets.
+											yjsArrayBuffer = u8.slice().buffer;
+										}
+										const res: SaveAsResult = await electronApi.saveAsNative({
+											// Preserve the typed Id<"documents"> rather than coercing to string
+											documentId,
+											documentTitle,
+											defaultPath: `${safeTitle}.awdoc`,
+											format: "yjs-v1",
+											// Pass an ArrayBuffer per the preload contract
+											yjsUpdate: yjsArrayBuffer,
+											yjsProtocolVersion: 1,
+										});
+										// Only mark Yjs as succeeded after a confirmed success response
+										if (res && "success" in res && res.success) {
+											yjsSucceeded = true;
+											setLastSaved(new Date());
+											setIsModified(false);
+											console.log("Save As (Yjs) succeeded");
+											// Persist per-user saved file path in documentLocalPaths (not the global document)
+											await persistLocalPathFromResult(res);
+											// Successful Yjs save; skip slate fallback.
+										} else {
+											// Do not log potentially sensitive paths; extract safe error info.
+											const maybeError =
+												(res as unknown) && typeof res === "object"
+													? (res as unknown as Record<string, unknown>).error
+													: undefined;
+											const errCode =
+												maybeError &&
+												typeof maybeError === "object" &&
+												"code" in (maybeError as Record<string, unknown>)
+													? String((maybeError as Record<string, unknown>).code)
+													: undefined;
+											const errMessage =
+												maybeError &&
+												typeof maybeError === "object" &&
+												"message" in (maybeError as Record<string, unknown>)
+													? String(
+															(maybeError as Record<string, unknown>).message,
+														)
+													: "An error occurred while saving to your filesystem.";
+											yjsCancelled = errCode === "CANCELLED";
+											if (!yjsCancelled) {
+												console.warn(
+													"Save As (Yjs) failed:",
+													errCode ?? "UNKNOWN",
+												);
+												toast.error("Save As failed", {
+													description: errMessage,
+												});
+											}
+										}
+									}
+								} catch (err) {
+									// Ensure yjsSucceeded remains false on exception so the slate fallback runs.
+									console.error(
+										"Yjs Save As failed:",
+										err instanceof Error ? err.message : String(err),
+									);
+									toast.error("Save As failed", {
+										description:
+											err instanceof Error
+												? err.message
+												: String(
+														err ??
+															"An unexpected error occurred while saving to your filesystem.",
+													),
+									});
+								}
+								// If Yjs path wasn’t used/succeeded and wasn’t cancelled, fall back to Slate JSON.
+								if (!yjsSucceeded && !yjsCancelled) {
+									const res = await electronApi.saveAsNative({
+										documentId,
+										documentTitle,
+										defaultPath: `${safeTitle}.json`,
+										format: "slate-v1",
+										slateContent: latestEditorValueRef.current,
+									});
+									if (res && "success" in res && res.success) {
+										setLastSaved(new Date());
+										setIsModified(false);
+										// Persist saved file path into document metadata (slate fallback)
+										await persistLocalPathFromResult(res);
+										console.log("Save As succeeded (slate fallback)");
+									} else {
+										const maybeRes = res as unknown;
+										const maybeError =
+											maybeRes && typeof maybeRes === "object"
+												? (maybeRes as Record<string, unknown>).error
+												: undefined;
+										const errCode =
+											maybeError &&
+											typeof maybeError === "object" &&
+											"code" in (maybeError as Record<string, unknown>)
+												? String((maybeError as Record<string, unknown>).code)
+												: undefined;
+										const errMessage =
+											maybeError &&
+											typeof maybeError === "object" &&
+											"message" in (maybeError as Record<string, unknown>)
+												? String(
+														(maybeError as Record<string, unknown>).message,
+													)
+												: "An error occurred while saving to your filesystem.";
+										if (errCode !== "CANCELLED") {
+											console.warn(
+												"Save As (slate) failed:",
+												errCode ?? "UNKNOWN",
+											);
+											toast.error("Save As failed", {
+												description: errMessage,
+											});
+										}
+									}
+								}
+							} else {
+								// Browser fallback: download JSON
+								const envelope = {
+									format: "slate-v1",
+									title: documentTitle || null,
+									updatedAt: Date.now(),
+									content: latestEditorValueRef.current,
+								};
+								const blob = new Blob([JSON.stringify(envelope, null, 2)], {
+									type: "application/json",
+								});
+								const url = URL.createObjectURL(blob);
+								const a = document.createElement("a");
+								a.href = url;
+								a.download = `${safeTitle}.json`;
+								document.body.appendChild(a);
+								a.click();
+								a.remove();
+								URL.revokeObjectURL(url);
+								setLastSaved(new Date());
+								setIsModified(false);
+								// Ensure any previously stored native path is cleared in the cloud
+								try {
+									await clearUserDocumentLocalPath({ documentId });
+								} catch (err) {
+									console.warn(
+										"Failed to clear per-user filePath after browser Save As:",
+										err instanceof Error ? err.message : String(err),
+									);
+								}
+							}
+						} catch (err) {
+							console.error(
+								"Save As failed:",
+								err instanceof Error ? err.message : String(err),
+							);
+						} finally {
+							isSavingRef.current = false;
+						}
+					})();
+					break;
+				}
 				case "file.new":
 					handleNewDocumentWithConfirmation();
 					break;
@@ -315,7 +580,18 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					console.log("Menu action:", action, data);
 			}
 		},
-		[editorValue, onSave, handleNewDocumentWithConfirmation, syncStatus],
+		[
+			onSave,
+			handleNewDocumentWithConfirmation,
+			syncStatus,
+			documentId,
+			documentTitle,
+			// include yDoc because Save As now uses the shared Y.Doc snapshot
+			yDoc,
+			// include setUserDocumentLocalPath and clearUserDocumentLocalPath mutations so linter knows they're used inside the callback
+			setUserDocumentLocalPath,
+			clearUserDocumentLocalPath,
+		],
 	);
 
 	// Handle formatting changes from the editor

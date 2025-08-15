@@ -271,6 +271,8 @@ export const createDocument = mutation({
 });
 
 // Mutation to update a document
+// Note: `filePath` is no longer a field on the global `documents` table (to avoid leaking per-user filesystem paths).
+// Per-user local paths should be stored in the `documentLocalPaths` table via dedicated mutations below.
 export const updateDocument = mutation({
 	args: {
 		documentId: v.id("documents"),
@@ -316,6 +318,188 @@ export const updateDocument = mutation({
 	},
 });
 
+/**
+ * Mutation to set or update the calling user's local file path for a document.
+ *
+ * - Stores per-user paths in `documentLocalPaths` keyed by (userId, documentId).
+ * - Only the calling user may set their own path. Any user with edit access may set their own path.
+ * - Clients may instead choose to keep paths client-only and never call this mutation.
+ */
+export const setUserDocumentLocalPath = mutation({
+	args: {
+		documentId: v.id("documents"),
+		filePath: v.string(),
+	},
+	returns: v.id("documentLocalPaths"),
+	handler: async (ctx, { documentId, filePath }) => {
+		const userId = await getCurrentUser(ctx);
+
+		// Ensure the user has access to the document (owner or collaborator or public read)
+		// We require at least edit access to associate a local path with a document.
+		await checkDocumentEditAccess(ctx, documentId, userId);
+
+		const now = Date.now();
+
+		// Normalize/validate filePath
+		const trimmed = filePath.trim();
+		if (trimmed.length === 0) {
+			throw new ConvexError("filePath cannot be empty");
+		}
+		if (trimmed.length > 2048) {
+			throw new ConvexError("filePath exceeds maximum length");
+		}
+		const normalized: string = trimmed;
+
+		// Compute deterministic composite key for (userId, documentId) so concurrent writes collide.
+		const compositeKey = `${String(userId)}|${String(documentId)}`;
+
+		// Look for existing mapping for this user/document using the synthetic composite key index
+		const found = await ctx.db
+			.query("documentLocalPaths")
+			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+			.collect();
+
+		// If exactly one row exists, patch it and return its id
+		if (found.length === 1) {
+			const row = found[0];
+			if (row.filePath === normalized) {
+				// No-op update (path unchanged) — return existing id
+				return row._id as Id<"documentLocalPaths">;
+			}
+			await ctx.db.patch(row._id, {
+				filePath: normalized,
+				updatedAt: now,
+			});
+			return row._id as Id<"documentLocalPaths">;
+		}
+
+		// If none exist, attempt to insert and then re-query the index to confirm
+		if (found.length === 0) {
+			const insertedId = await ctx.db.insert("documentLocalPaths", {
+				documentId,
+				userId,
+				compositeKey,
+				filePath: normalized,
+				createdAt: now,
+				updatedAt: now,
+			});
+
+			// Re-query with the composite index to detect races
+			const afterInsert = await ctx.db
+				.query("documentLocalPaths")
+				.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+				.collect();
+
+			// If only one row exists after insert, return it (might be the one we inserted or another)
+			if (afterInsert.length === 1) {
+				const row = afterInsert[0];
+				// If the surviving row already has the desired filePath, avoid an extra write
+				if (row.filePath === normalized) {
+					// Ensure compositeKey persists (no-op if already present) and return id
+					await ctx.db.patch(row._id, { compositeKey });
+					return row._id as Id<"documentLocalPaths">;
+				}
+				// Ensure the surviving row has the expected filePath and timestamp
+				await ctx.db.patch(row._id, {
+					// ensure compositeKey persists (no-op if already present)
+					compositeKey,
+					filePath: normalized,
+					updatedAt: now,
+				});
+				return row._id as Id<"documentLocalPaths">;
+			}
+
+			// If multiple rows exist (race), pick one deterministically to keep and delete the rest
+			if (afterInsert.length > 1) {
+				// Prefer keeping a row that matches the insertedId if present; otherwise keep the first
+				const survivor =
+					afterInsert.find((r) => r._id === insertedId) || afterInsert[0];
+				// Patch the survivor to ensure correct values
+				await ctx.db.patch(survivor._id, {
+					compositeKey,
+					filePath: normalized,
+					updatedAt: now,
+				});
+				// Delete extras
+				for (const r of afterInsert) {
+					if (r._id !== survivor._id) {
+						await ctx.db.delete(r._id);
+					}
+				}
+				return survivor._id as Id<"documentLocalPaths">;
+			}
+
+			// Fallback: if we couldn't observe any rows after insert, throw to avoid returning undefined
+			if (insertedId) {
+				// As a conservative fallback, return the insertedId after patching it to ensure consistency
+				await ctx.db.patch(insertedId, {
+					compositeKey,
+					filePath: normalized,
+					updatedAt: now,
+				});
+				return insertedId as Id<"documentLocalPaths">;
+			}
+			throw new ConvexError(
+				"Failed to create or reconcile documentLocalPaths entry",
+			);
+		}
+
+		// If multiple rows were found initially (rare), resolve by keeping one and deleting the extras
+		if (found.length > 1) {
+			// Keep the first as survivor and patch it
+			const survivor = found[0];
+			await ctx.db.patch(survivor._id, {
+				compositeKey,
+				filePath: normalized,
+				updatedAt: now,
+			});
+			// Delete the others
+			for (const r of found.slice(1)) {
+				await ctx.db.delete(r._id);
+			}
+			return survivor._id as Id<"documentLocalPaths">;
+		}
+
+		// Shouldn't reach here; ensure we never return undefined
+		throw new ConvexError(
+			"Failed to locate or create documentLocalPaths entry",
+		);
+	},
+});
+
+/**
+ * Mutation to clear the calling user's stored local file path for a document.
+ * This deletes the per-user mapping if present.
+ */
+export const clearUserDocumentLocalPath = mutation({
+	args: {
+		documentId: v.id("documents"),
+	},
+	returns: v.union(v.id("documentLocalPaths"), v.null()),
+	handler: async (ctx, { documentId }) => {
+		const userId = await getCurrentUser(ctx);
+		await checkDocumentEditAccess(ctx, documentId, userId);
+
+		const compositeKey = `${String(userId)}|${String(documentId)}`;
+
+		// Fetch all mappings for this (userId, documentId) composite key so we can
+		// remove duplicates if they exist.
+		const existing = await ctx.db
+			.query("documentLocalPaths")
+			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+			.collect();
+
+		if (existing.length === 0) return null;
+
+		// Delete all matching rows to clean up any duplicates; return one of the
+		// deleted ids as a reference for the caller.
+		for (const row of existing) {
+			await ctx.db.delete(row._id);
+		}
+		return existing[0]._id;
+	},
+});
+
 // Mutation to delete a document
 export const deleteDocument = mutation({
 	args: { documentId: v.id("documents") },
@@ -342,6 +526,15 @@ export const deleteDocument = mutation({
 
 		for (const session of sessions) {
 			await ctx.db.delete(session._id);
+		}
+
+		// Delete all per-user local paths for this document (clean up mappings for all users)
+		const localPaths = await ctx.db
+			.query("documentLocalPaths")
+			.withIndex("by_document_user", (q) => q.eq("documentId", documentId))
+			.collect();
+		for (const lp of localPaths) {
+			await ctx.db.delete(lp._id);
 		}
 
 		// Finally delete the document

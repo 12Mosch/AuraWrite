@@ -9,8 +9,8 @@
 		"dev:electron": "npm run transpile:electron && cross-env NODE_ENV=development electron .",
 		"dev": "npm-run-all --parallel dev:react dev:electron convex",
 		"build": "tsc -b && vite build",
-		"lint": "tsc -noEmit && npx @biomejs/biome check --write",
-		"transpile:electron": "tsc --project src/electron/tsconfig.json && node -e \"const fs = require('fs'); fs.renameSync('dist-electron/main.js', 'dist-electron/main.cjs'); fs.renameSync('dist-electron/preload.js', 'dist-electron/preload.cjs');\"",
+		"lint": "tsc --noEmit && npx @biomejs/biome check --write",
+		"transpile:electron": "tsc --project src/electron/tsconfig.json && node -e \"const fs = require('fs'); const paths=[['dist-electron/main.js','dist-electron/main.cjs'],['dist-electron/preload.js','dist-electron/preload.cjs']]; for(const [src,dest] of paths){ if(!fs.existsSync(src)){ console.warn(`${src} not found, skipping rename`); continue; } try{ fs.renameSync(src,dest); }catch(e){ console.error('Rename failed for',src, e); process.exit(1); } }\"",
 		"preview": "vite preview",
 		"convex": "npx convex dev"
 	},
@@ -39,6 +39,7 @@
 		"clsx": "^2.1.1",
 		"convex": "^1.25.4",
 		"date-fns": "^4.1.0",
+		"filenamify": "^6.0.0",
 		"lucide-react": "^0.539.0",
 		"next-themes": "^0.4.6",
 		"react": "^19.1.1",

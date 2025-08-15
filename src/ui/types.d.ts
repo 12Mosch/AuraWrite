@@ -1,55 +1,29 @@
-/// <reference types="vite/client" />
+/**
+ * Ambient types for renderer globals exposed by the preload script.
+ *
+ * This file provides a single global augmentation for `window.electronAPI`
+ * so renderer files can reference the API without inline `any` casts.
+ *
+ * Keep this in-sync with `src/electron/preload.ts`.
+ */
 
-// CSS Module declarations for regular CSS imports (side-effect imports)
-declare module "*.css" {
-	const content: string;
-	export default content;
-}
-
-declare module "*.scss" {
-	const content: string;
-	export default content;
-}
-
-declare module "*.sass" {
-	const content: string;
-	export default content;
-}
-
-declare module "*.less" {
-	const content: string;
-	export default content;
-}
-
-// CSS Module declarations for CSS modules (when using ?module suffix)
-declare module "*.module.css" {
-	const classes: Record<string, string>;
-	export default classes;
-}
-
-declare module "*.module.scss" {
-	const classes: Record<string, string>;
-	export default classes;
-}
-
-declare module "*.module.sass" {
-	const classes: Record<string, string>;
-	export default classes;
-}
-
-declare module "*.module.less" {
-	const classes: Record<string, string>;
-	export default classes;
-}
-
-// Electron API declarations
-interface ElectronAPI {
-	openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
-	onMenuAction: (callback: (action: string) => void) => void;
-	removeMenuActionListener: (callback: (action: string) => void) => void;
-}
+import type { SaveAsOptions, SaveAsResult } from "../shared/saveAs";
 
 declare global {
+	interface ElectronAPI {
+		// Menu action subscription helpers (preload exposes these)
+		onMenuAction?: (callback: (action: string) => void) => void;
+		removeMenuActionListener?: (callback: (action: string) => void) => void;
+
+		// Save As bridge
+		saveAsNative?: (opts: SaveAsOptions) => Promise<SaveAsResult>;
+
+		// Other small utilities the preload may expose in future:
+		openExternal?: (
+			url: string,
+		) => Promise<{ success: boolean; error?: string }>;
+	}
+
 	interface Window {
 		electronAPI?: ElectronAPI;
 		isElectron?: boolean;

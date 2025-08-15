@@ -65,6 +65,31 @@ const schema = defineSchema({
 		.index("by_document", ["documentId"])
 		.index("by_document_version", ["documentId", "version"]),
 
+	// Per-user local file paths for documents.
+	// This isolates filesystem/PII from the main `documents` table and is keyed by
+	// { documentId, userId }. Writes to this table should be restricted to the
+	// authenticated caller (owner or the writing userId) in mutations — see Convex
+	// server-side mutations for enforcement. Clients may also choose to keep file
+	// paths entirely client-only and not persist them.
+	documentLocalPaths: defineTable({
+		documentId: v.id("documents"),
+		userId: v.id("users"),
+		// Synthetic composite key to enforce a single row per (userId, documentId).
+		// Convex compound indexes are not unique, so we store a deterministic
+		// compositeKey string (e.g. "<userId>|<documentId>") and index it to allow
+		// lookups and deterministic upsert semantics.
+		compositeKey: v.string(),
+		// Local filesystem path saved by this particular user (optional).
+		// Keep sensitive values out of default queries/responses where possible.
+		filePath: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_user_document", ["userId", "documentId"])
+		.index("by_document_user", ["documentId", "userId"])
+		// Enforce a single-row-per-pair behavior by indexing the synthetic composite key.
+		.index("by_compositeKey", ["compositeKey"]),
+
 	// Real-time collaboration cursors and selections
 	collaborationSessions: defineTable({
 		documentId: v.id("documents"),
