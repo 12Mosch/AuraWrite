@@ -147,10 +147,14 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	// useSharedYjsDocument returns a stable yDoc instance shared across components.
 	const { yDoc } = useSharedYjsDocument({ documentId });
 
-	// Convex mutation to update document metadata (used elsewhere)
-	// When persisting a per-user Save As path we use setUserDocumentLocalPath (per-user mapping).
+	// Convex mutations to update/clear per-user local file paths
+	// - setUserDocumentLocalPath stores a validated, non-empty path per-user
+	// - clearUserDocumentLocalPath removes the per-user mapping (used for deletions)
 	const setUserDocumentLocalPath = useMutation(
 		api.documents.setUserDocumentLocalPath,
+	);
+	const clearUserDocumentLocalPath = useMutation(
+		api.documents.clearUserDocumentLocalPath,
 	);
 
 	// Editor instance ref for undo/redo operations
@@ -367,10 +371,16 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 												try {
 													// API types may lag generated bindings; cast to any to avoid
 													// a compile-time mismatch while keeping runtime behavior.
-													await setUserDocumentLocalPath({
-														documentId,
-														filePath: res.filePath,
-													});
+													if (res && typeof res === "object" && res.filePath) {
+														await setUserDocumentLocalPath({
+															documentId,
+															filePath: res.filePath,
+														});
+													} else {
+														// If the native save didn't return a path, ensure any previous
+														// mapping is cleared.
+														await clearUserDocumentLocalPath({ documentId });
+													}
 												} catch (err) {
 													console.warn(
 														"Failed to persist per-user filePath:",
@@ -459,10 +469,18 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 												(res as unknown) && typeof res === "object"
 													? (res as unknown as Record<string, unknown>).filePath
 													: undefined;
-											await setUserDocumentLocalPath({
-												documentId,
-												filePath: filePathFromRes as string | undefined,
-											});
+											if (
+												typeof filePathFromRes === "string" &&
+												filePathFromRes.trim().length > 0
+											) {
+												await setUserDocumentLocalPath({
+													documentId,
+													filePath: filePathFromRes.trim(),
+												});
+											} else {
+												// No valid path returned from the fallback save; ensure any previous mapping is cleared.
+												await clearUserDocumentLocalPath({ documentId });
+											}
 										} catch (err) {
 											console.warn(
 												"Failed to persist per-user filePath (slate fallback):",
@@ -575,8 +593,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 			documentTitle,
 			// include yDoc because Save As now uses the shared Y.Doc snapshot
 			yDoc,
-			// include setUserDocumentLocalPath mutation so linter knows it's used inside the callback
+			// include setUserDocumentLocalPath and clearUserDocumentLocalPath mutations so linter knows they're used inside the callback
 			setUserDocumentLocalPath,
+			clearUserDocumentLocalPath,
 		],
 	);
 

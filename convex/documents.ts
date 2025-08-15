@@ -328,7 +328,7 @@ export const updateDocument = mutation({
 export const setUserDocumentLocalPath = mutation({
 	args: {
 		documentId: v.id("documents"),
-		filePath: v.optional(v.string()),
+		filePath: v.string(),
 	},
 	returns: v.id("documentLocalPaths"),
 	handler: async (ctx, { documentId, filePath }) => {
@@ -340,18 +340,15 @@ export const setUserDocumentLocalPath = mutation({
 
 		const now = Date.now();
 
-		// Normalize/validate filePath if provided
-		let normalized: string | undefined;
-		if (filePath !== undefined) {
-			const trimmed = filePath.trim();
-			if (trimmed.length === 0) {
-				throw new ConvexError("filePath cannot be empty when provided");
-			}
-			if (trimmed.length > 2048) {
-				throw new ConvexError("filePath exceeds maximum length");
-			}
-			normalized = trimmed;
+		// Normalize/validate filePath
+		const trimmed = filePath.trim();
+		if (trimmed.length === 0) {
+			throw new ConvexError("filePath cannot be empty");
 		}
+		if (trimmed.length > 2048) {
+			throw new ConvexError("filePath exceeds maximum length");
+		}
+		const normalized: string = trimmed;
 
 		// Compute deterministic composite key for (userId, documentId) so concurrent writes collide.
 		const compositeKey = `${String(userId)}|${String(documentId)}`;
@@ -474,14 +471,20 @@ export const clearUserDocumentLocalPath = mutation({
 
 		const compositeKey = `${String(userId)}|${String(documentId)}`;
 
+		// Fetch all mappings for this (userId, documentId) composite key so we can
+		// remove duplicates if they exist.
 		const existing = await ctx.db
 			.query("documentLocalPaths")
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
-			.take(1);
+			.collect();
 
 		if (existing.length === 0) return null;
 
-		await ctx.db.delete(existing[0]._id);
+		// Delete all matching rows to clean up any duplicates; return one of the
+		// deleted ids as a reference for the caller.
+		for (const row of existing) {
+			await ctx.db.delete(row._id);
+		}
 		return existing[0]._id;
 	},
 });
@@ -512,6 +515,17 @@ export const deleteDocument = mutation({
 
 		for (const session of sessions) {
 			await ctx.db.delete(session._id);
+		}
+
+		// Delete per-user local paths for this document
+		const localPaths = await ctx.db
+			.query("documentLocalPaths")
+			.withIndex("by_user_document", (q) =>
+				q.eq("userId", userId).eq("documentId", documentId),
+			)
+			.collect();
+		for (const lp of localPaths) {
+			await ctx.db.delete(lp._id);
 		}
 
 		// Finally delete the document

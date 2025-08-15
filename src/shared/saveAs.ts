@@ -1,10 +1,23 @@
+export type YjsBinary = Uint8Array | ArrayBuffer;
+
 export type SaveAsErrorCode =
 	| "CANCELLED"
 	| "WRITE_FAILED"
 	| "INVALID_OPTIONS"
 	| "DIALOG_FAILED"
-	| "SERIALIZE_FAILED";
+	| "SERIALIZE_FAILED"
+	| "UNKNOWN";
 
+export interface SaveAsError {
+	code: SaveAsErrorCode;
+	message: string;
+}
+
+/**
+ * Returned on successful save.
+ * - filePath: absolute filesystem path to the saved file.
+ * - bytesWritten: size in bytes of the final persisted file contents.
+ */
 export interface SaveAsSuccess {
 	success: true;
 	filePath: string;
@@ -13,11 +26,25 @@ export interface SaveAsSuccess {
 
 export interface SaveAsFailure {
 	success: false;
-	error: { code: SaveAsErrorCode; message: string };
+	error: SaveAsError;
 }
 
 export type SaveAsResult = SaveAsSuccess | SaveAsFailure;
 
+export function isSaveAsSuccess(result: SaveAsResult): result is SaveAsSuccess {
+	return result.success;
+}
+
+export function isSaveAsFailure(result: SaveAsResult): result is SaveAsFailure {
+	return !result.success;
+}
+
+/**
+ * Common, optional metadata carried with save requests:
+ * - documentId: internal ID of the document in our DB.
+ * - documentTitle: human-friendly title, may be used for dialog titles or default filenames.
+ * - defaultPath: absolute path hint for the Save As dialog; not persisted automatically.
+ */
 export interface SaveAsBase {
 	documentId?: string;
 	documentTitle?: string;
@@ -31,7 +58,7 @@ export interface SaveAsBase {
  */
 export interface SaveAsYjsOptions extends SaveAsBase {
 	format: "yjs-v1";
-	yjsUpdate: Uint8Array | ArrayBuffer;
+	yjsUpdate: YjsBinary;
 	yjsProtocolVersion?: number;
 }
 

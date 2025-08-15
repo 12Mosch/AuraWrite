@@ -8,9 +8,6 @@ const schema = defineSchema({
 	...authTables,
 
 	// Documents table for collaborative editing
-	// NOTE: removed a global `filePath` here to avoid persisting per-user filesystem paths
-	// on the document record (PII/leak risk). Per-user local paths are stored in the
-	// `documentLocalPaths` table below, keyed by { documentId, userId }.
 	documents: defineTable({
 		title: v.string(),
 		content: v.optional(v.string()), // Slate.js content as JSON string (legacy)
@@ -22,7 +19,6 @@ const schema = defineSchema({
 		createdAt: v.number(),
 		updatedAt: v.number(),
 		yjsUpdatedAt: v.optional(v.number()), // Last Y.Doc update timestamp
-		// filePath intentionally omitted to prevent leaking user filesystem/PII.
 		tags: v.optional(v.array(v.string())), // Document tags for organization
 		status: v.optional(
 			v.union(
