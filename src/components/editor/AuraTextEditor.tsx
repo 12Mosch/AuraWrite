@@ -300,12 +300,13 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	}, [isModified, handleExitToDashboard]);
 
 	// Handle menu actions
+	// Use latestEditorValueRef inside this callback to avoid recreating it on every keystroke.
 	const handleMenuAction = useCallback(
 		(action: string, data?: unknown) => {
 			switch (action) {
 				case "file.save":
 					if (onSave) {
-						onSave(editorValue);
+						onSave(latestEditorValueRef.current);
 						// If there’s nothing to sync, finalize immediately; otherwise wait for 'synced'.
 						if (syncStatus === "synced") {
 							setLastSaved(new Date());
@@ -344,6 +345,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									"PRN",
 									"AUX",
 									"NUL",
+									"CLOCK$",
+									"CONIN$",
+									"CONOUT$",
 									...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
 									...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`),
 								];
@@ -359,6 +363,18 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 							};
 							const safeTitle = sanitizeFileName(documentTitle || "Untitled");
 
+							// Helper to extract a trimmed filePath string from opaque IPC responses.
+							const extractFilePath = (res: unknown): string | undefined => {
+								if (res && typeof res === "object") {
+									const raw = (res as Record<string, unknown>).filePath;
+									if (typeof raw === "string") {
+										const trimmed = raw.trim();
+										return trimmed.length > 0 ? trimmed : undefined;
+									}
+								}
+								return undefined;
+							};
+
 							if (
 								electronApi &&
 								typeof electronApi.saveAsNative === "function"
@@ -370,18 +386,11 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									if (typeof yDoc !== "undefined" && yDoc) {
 										// Encode current Y.Doc state as a binary update
 										const update = Y.encodeStateAsUpdate(yDoc);
-										// Normalize to a Uint8Array (YjsBinary) for IPC; handle ArrayBuffer or Uint8Array inputs.
-										let yjsUpdate: Uint8Array;
-										if (update instanceof ArrayBuffer) {
-											yjsUpdate = new Uint8Array(update);
-										} else {
-											// update is a Uint8Array-like view; create a typed view referencing the same buffer
-											yjsUpdate = new Uint8Array(
-												update.buffer,
-												update.byteOffset,
-												update.byteLength,
-											);
-										}
+										// Normalize to a Uint8Array (YjsBinary) for IPC
+										const yjsUpdate: Uint8Array =
+											update instanceof Uint8Array
+												? update
+												: new Uint8Array(update);
 										const res = await electronApi.saveAsNative({
 											// Preserve the typed Id<"documents"> rather than coercing to string
 											documentId,
@@ -400,16 +409,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 											console.log("Save As (Yjs) succeeded");
 											// Persist per-user saved file path in documentLocalPaths (not the global document)
 											try {
-												// Normalize result shape without using `any`
-												let filePath: string | undefined;
-												if (res && typeof res === "object") {
-													// Convert to unknown first to avoid unsafe structural cast errors
-													const r = res as unknown as Record<string, unknown>;
-													const raw = r.filePath;
-													if (typeof raw === "string") {
-														filePath = raw.trim();
-													}
-												}
+												const filePath = extractFilePath(res);
 												if (filePath) {
 													await setUserDocumentLocalPath({
 														documentId,
@@ -500,17 +500,11 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 										setIsModified(false);
 										// Persist saved file path into document metadata (slate fallback)
 										try {
-											const filePathFromRes =
-												(res as unknown) && typeof res === "object"
-													? (res as unknown as Record<string, unknown>).filePath
-													: undefined;
-											if (
-												typeof filePathFromRes === "string" &&
-												filePathFromRes.trim().length > 0
-											) {
+											const filePathFromRes = extractFilePath(res);
+											if (filePathFromRes) {
 												await setUserDocumentLocalPath({
 													documentId,
-													filePath: filePathFromRes.trim(),
+													filePath: filePathFromRes,
 												});
 											} else {
 												// No valid path returned from the fallback save; ensure any previous mapping is cleared.
