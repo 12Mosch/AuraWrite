@@ -355,6 +355,27 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 								return undefined;
 							};
 
+							// Helper to persist per-user local path from a SaveAsResult
+							const persistLocalPathFromResult = async (res: SaveAsResult) => {
+								try {
+									const filePath = extractFilePath(res);
+									if (filePath) {
+										await setUserDocumentLocalPath({ documentId, filePath });
+									} else {
+										await clearUserDocumentLocalPath({ documentId });
+									}
+								} catch (err) {
+									console.warn(
+										"Failed to persist per-user filePath:",
+										err instanceof Error ? err.message : String(err),
+									);
+									toast.error("Saved locally, but cloud path update failed", {
+										description:
+											err instanceof Error ? err.message : String(err ?? ""),
+									});
+								}
+							};
+
 							if (
 								electronApi &&
 								typeof electronApi.saveAsNative === "function"
@@ -366,19 +387,29 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									if (typeof yDoc !== "undefined" && yDoc) {
 										// Encode current Y.Doc state as a binary update
 										const update = Y.encodeStateAsUpdate(yDoc);
-										// Normalize to a Uint8Array (YjsBinary) for IPC
-										const yjsUpdate: Uint8Array =
-											update instanceof Uint8Array
-												? update
-												: new Uint8Array(update);
+										// Normalize to an ArrayBuffer for the IPC contract (preload requires ArrayBuffer for yjs-v1)
+										// Yjs may return ArrayBuffer, Uint8Array, or other ArrayBufferLike (including SharedArrayBuffer).
+										let yjsArrayBuffer: ArrayBuffer;
+										if (update instanceof ArrayBuffer) {
+											yjsArrayBuffer = update;
+										} else {
+											// For Uint8Array, SharedArrayBuffer-backed views, or other ArrayBufferLike,
+											// create a compact ArrayBuffer copy to guarantee a plain ArrayBuffer instance.
+											const u8 =
+												update instanceof Uint8Array
+													? update
+													: new Uint8Array(update as ArrayBufferLike);
+											// Copy to ensure we don't carry a SharedArrayBuffer or an oversized buffer with offsets.
+											yjsArrayBuffer = u8.slice().buffer;
+										}
 										const res: SaveAsResult = await electronApi.saveAsNative({
 											// Preserve the typed Id<"documents"> rather than coercing to string
 											documentId,
 											documentTitle,
 											defaultPath: `${safeTitle}.awdoc`,
 											format: "yjs-v1",
-											// Pass a Uint8Array (YjsBinary) for Yjs updates
-											yjsUpdate,
+											// Pass an ArrayBuffer per the preload contract
+											yjsUpdate: yjsArrayBuffer,
 											yjsProtocolVersion: 1,
 										});
 										// Only mark Yjs as succeeded after a confirmed success response
@@ -388,35 +419,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 											setIsModified(false);
 											console.log("Save As (Yjs) succeeded");
 											// Persist per-user saved file path in documentLocalPaths (not the global document)
-											try {
-												const filePath = extractFilePath(res);
-												if (filePath) {
-													await setUserDocumentLocalPath({
-														documentId,
-														filePath,
-													});
-												} else {
-													// If the native save didn't return a path, ensure any previous mapping is cleared.
-													await clearUserDocumentLocalPath({ documentId });
-												}
-											} catch (err) {
-												console.warn(
-													"Failed to persist per-user filePath:",
-													err instanceof Error ? err.message : String(err),
-												);
-												toast.error(
-													"Saved locally, but cloud path update failed",
-													{
-														description:
-															err instanceof Error
-																? err.message
-																: String(
-																		err ??
-																			"Could not store your local file path for this document.",
-																	),
-													},
-												);
-											}
+											await persistLocalPathFromResult(res);
 											// Successful Yjs save; skip slate fallback.
 										} else {
 											// Do not log potentially sensitive paths; extract safe error info.
@@ -479,36 +482,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 										setLastSaved(new Date());
 										setIsModified(false);
 										// Persist saved file path into document metadata (slate fallback)
-										try {
-											const filePathFromRes = extractFilePath(res);
-											if (filePathFromRes) {
-												await setUserDocumentLocalPath({
-													documentId,
-													filePath: filePathFromRes,
-												});
-											} else {
-												// No valid path returned from the fallback save; ensure any previous mapping is cleared.
-												await clearUserDocumentLocalPath({ documentId });
-											}
-										} catch (err) {
-											// Avoid logging full local paths; log only error messages.
-											console.warn(
-												"Failed to persist per-user filePath (slate fallback):",
-												err instanceof Error ? err.message : String(err),
-											);
-											toast.error(
-												"Saved locally, but cloud path update failed",
-												{
-													description:
-														err instanceof Error
-															? err.message
-															: String(
-																	err ??
-																		"Could not store your local file path for this document.",
-																),
-												},
-											);
-										}
+										await persistLocalPathFromResult(res);
 										console.log("Save As succeeded (slate fallback)");
 									} else {
 										const maybeRes = res as unknown;

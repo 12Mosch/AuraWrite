@@ -13,14 +13,15 @@ import filenamify from "filenamify";
 export function sanitizeFilename(
 	name: string,
 	options?: { maxLength?: number; replacement?: string },
-) {
+): string {
 	const maxLength = options?.maxLength ?? 128;
 	const replacement = options?.replacement ?? "_";
 
 	const base = typeof name === "string" && name.length > 0 ? name : "Untitled";
 	const sanitized = filenamify(base, { replacement, maxLength });
-	const trimmed = sanitized.replace(/[.\s]+$/g, "");
-	return trimmed || "Untitled";
+	const trimmedEnd = sanitized.replace(/[.\s]+$/g, "");
+	const finalName = trimmedEnd.replace(/^\s+/g, "");
+	return finalName || "Untitled";
 }
 
 export default sanitizeFilename;
