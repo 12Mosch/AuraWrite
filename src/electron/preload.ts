@@ -44,13 +44,13 @@ interface ElectronAPI {
 	 *  - documentTitle?: string - optional title for dialog default filename
 	 *  - defaultPath?: string - optional default path hint
 	 *
-	 * Returns a SaveAsResult-like object describing success and filePath
+	 * Returns a SaveAsResult describing success and filePath
 	 */
 	exportToPdf: (opts: ExportToPdfOptions) => Promise<SaveAsResult>;
 
 	/**
 	 * showItemInFolder - reveal a file in the OS file manager.
-	 * Accepts a filePath string and returns { success: boolean; error?: string }
+	 * Returns a discriminated union: { success: true } | { success: false; error: string }
 	 */
 	showItemInFolder: (
 		filePath: string,
@@ -87,12 +87,23 @@ const electronAPI: ElectronAPI = {
 		ipcRenderer.invoke("save-as-native", options),
 
 	// exportToPdf bridge - forwards printable HTML to main for PDF generation
-	exportToPdf: (opts: ExportToPdfOptions) =>
-		ipcRenderer.invoke("export-to-pdf", opts),
+	exportToPdf: (opts: ExportToPdfOptions) => {
+		if (!opts || typeof opts.html !== "string" || opts.html.trim() === "") {
+			return Promise.resolve({
+				success: false,
+				error: { code: "INVALID_PAYLOAD", message: "html is required" },
+			} as SaveAsResult);
+		}
+		return ipcRenderer.invoke("export-to-pdf", opts);
+	},
 
 	// showItemInFolder - forwards to main process
-	showItemInFolder: (filePath: string) =>
-		ipcRenderer.invoke("show-item-in-folder", filePath),
+	showItemInFolder: (filePath: string) => {
+		if (typeof filePath !== "string" || filePath.trim() === "") {
+			return Promise.resolve({ success: false, error: "filePath is required" });
+		}
+		return ipcRenderer.invoke("show-item-in-folder", filePath);
+	},
 };
 
 // Expose the API to the renderer process
