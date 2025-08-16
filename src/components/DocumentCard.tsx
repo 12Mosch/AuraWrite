@@ -119,7 +119,11 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 			target.closest("[data-dropdown-trigger]") ||
 			target.closest("button") ||
 			target.closest("input") ||
-			target.closest("[role='menuitem']")
+			target.closest("[role='menuitem']") ||
+			target.closest("a[href]") ||
+			target.closest("textarea") ||
+			target.closest("[contenteditable='true']") ||
+			target.closest("[role='button']")
 		) {
 			return;
 		}
@@ -188,7 +192,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 							status={document.status}
 							onEdit={onOpen}
 							className={cn(
-								"opacity-0 group-hover:opacity-100 transition-opacity",
+								"opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 transition-opacity",
 								isHovered && "opacity-100",
 							)}
 						/>

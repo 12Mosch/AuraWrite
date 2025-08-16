@@ -166,6 +166,7 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 					// (Input already focusable; this comment is just informative)
 					disabled={isLoading}
 					className={cn("h-7 text-sm w-full truncate", inputClassName)}
+					maxLength={maxLength}
 					placeholder="Enter document title..."
 				/>
 				<div className="flex items-center gap-1 flex-shrink-0">
@@ -203,7 +204,7 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 			<button
 				type="button"
 				className={cn(
-					"min-w-0 text-left bg-transparent p-0 border-0 truncate inline",
+					"min-w-0 text-left bg-transparent p-0 border-0 truncate inline-flex flex-1",
 					!disabled && "cursor-pointer hover:text-primary",
 					disabled && "cursor-default",
 				)}
@@ -218,7 +219,7 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 			{!disabled && (
 				<button
 					type="button"
-					className="h-4 w-4 p-0 ml-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground border-0 bg-transparent"
+					className="h-4 w-4 p-0 ml-0 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity inline-flex items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground border-0 bg-transparent"
 					onClick={(e) => {
 						e.stopPropagation();
 						handleStartEdit();
