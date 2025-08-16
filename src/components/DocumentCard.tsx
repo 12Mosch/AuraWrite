@@ -132,8 +132,8 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 			{...attributes}
 			{...listeners}
 		>
-			<CardHeader className="pb-3">
-				<div className="flex items-start justify-between gap-2">
+			<CardHeader className="pb-3 min-w-0">
+				<div className="flex items-start justify-between gap-2 overflow-hidden">
 					<div className="flex items-start gap-3 flex-1 min-w-0">
 						{/* Document Icon */}
 						<div className="flex-shrink-0 mt-0.5">
@@ -142,7 +142,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 
 						{/* Title and Metadata */}
 						<div className="flex-1 min-w-0">
-							<div className="font-medium text-sm leading-tight">
+							<div className="font-medium text-sm leading-tight max-w-full">
 								<InlineEditableTitle
 									documentId={document._id}
 									title={document.title}
@@ -162,7 +162,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 					</div>
 
 					{/* Actions */}
-					<div className="flex items-center gap-1">
+					<div className="flex items-center gap-1 flex-shrink-0">
 						{/* Favorite Star */}
 						{document.isFavorite && (
 							<Star className="h-4 w-4 text-yellow-500 fill-current" />

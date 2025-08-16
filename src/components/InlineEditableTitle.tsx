@@ -165,7 +165,7 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 					// Enable relatedTarget onBlur by making input focusable in a roving tab context
 					// (Input already focusable; this comment is just informative)
 					disabled={isLoading}
-					className={cn("h-7 text-sm", inputClassName)}
+					className={cn("h-7 text-sm w-full truncate", inputClassName)}
 					placeholder="Enter document title..."
 				/>
 				<div className="flex items-center gap-1 flex-shrink-0">
