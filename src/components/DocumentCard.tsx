@@ -102,17 +102,33 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 		: undefined;
 
 	const handleCardClick = (e: React.MouseEvent) => {
-		// Don't trigger if clicking on dropdown or other interactive elements
+		// Guard: if a dropdown menu is open/suppressing clicks, do not open the document.
+		// This prevents "ghost clicks" after selecting a menu item.
 		if (
-			(e.target as HTMLElement).closest("[data-dropdown-trigger]") ||
-			(e.target as HTMLElement).closest("button")
+			typeof window !== "undefined" &&
+			window.document?.body?.getAttribute("data-dropdown-open") === "true"
+		) {
+			e.preventDefault();
+			e.stopPropagation();
+			return;
+		}
+
+		// Don't trigger if clicking on dropdown trigger or other interactive elements
+		const target = e.target as HTMLElement;
+		if (
+			target.closest("[data-dropdown-trigger]") ||
+			target.closest("button") ||
+			target.closest("input") ||
+			target.closest("[role='menuitem']") ||
+			target.closest("a[href]") ||
+			target.closest("textarea") ||
+			target.closest("[contenteditable='true']") ||
+			target.closest("[role='button']")
 		) {
 			return;
 		}
 
-		if (onOpen) {
-			onOpen();
-		}
+		onOpen?.();
 	};
 
 	return (
@@ -132,8 +148,8 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 			{...attributes}
 			{...listeners}
 		>
-			<CardHeader className="pb-3">
-				<div className="flex items-start justify-between gap-2">
+			<CardHeader className="pb-3 min-w-0">
+				<div className="flex items-start justify-between gap-2 overflow-hidden">
 					<div className="flex items-start gap-3 flex-1 min-w-0">
 						{/* Document Icon */}
 						<div className="flex-shrink-0 mt-0.5">
@@ -142,7 +158,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 
 						{/* Title and Metadata */}
 						<div className="flex-1 min-w-0">
-							<div className="font-medium text-sm leading-tight">
+							<div className="font-medium text-sm leading-tight max-w-full">
 								<InlineEditableTitle
 									documentId={document._id}
 									title={document.title}
@@ -162,7 +178,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 					</div>
 
 					{/* Actions */}
-					<div className="flex items-center gap-1">
+					<div className="flex items-center gap-1 flex-shrink-0">
 						{/* Favorite Star */}
 						{document.isFavorite && (
 							<Star className="h-4 w-4 text-yellow-500 fill-current" />
@@ -176,7 +192,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 							status={document.status}
 							onEdit={onOpen}
 							className={cn(
-								"opacity-0 group-hover:opacity-100 transition-opacity",
+								"opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 transition-opacity",
 								isHovered && "opacity-100",
 							)}
 						/>
