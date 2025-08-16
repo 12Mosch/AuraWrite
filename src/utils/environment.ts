@@ -18,11 +18,7 @@ interface ElectronModule {
 // Type for window with Electron properties
 interface ElectronWindow extends Window {
 	isElectron?: boolean;
-	electronAPI?: {
-		openExternal: (
-			url: string,
-		) => Promise<{ success: boolean; error?: string }>;
-	};
+	electronAPI?: ElectronAPI;
 	require?: (module: string) => unknown;
 	process?: {
 		versions?: {

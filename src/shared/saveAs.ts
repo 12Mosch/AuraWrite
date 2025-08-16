@@ -6,6 +6,8 @@ export type SaveAsErrorCode =
 	| "INVALID_OPTIONS"
 	| "DIALOG_FAILED"
 	| "SERIALIZE_FAILED"
+	| "BUSY"
+	| "INVALID_PAYLOAD"
 	| "UNKNOWN";
 
 export interface SaveAsError {
@@ -69,6 +71,17 @@ export interface SaveAsSlateOptions extends SaveAsBase {
 	format: "slate-v1";
 	slateContent: unknown;
 }
+
+/**
+ * Options for exporting printable HTML to PDF via the main process.
+ * Expect a complete, printable HTML document (doctype/head/body).
+ * Kept in shared types so both preload and renderer reference a single shape.
+ */
+export type ExportToPdfOptions = Readonly<
+	SaveAsBase & {
+		html: string;
+	}
+>;
 
 /**
  * Discriminated union of save options.

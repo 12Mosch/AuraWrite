@@ -8,9 +8,9 @@
 		"dev:react": "vite",
 		"dev:electron": "npm run transpile:electron && cross-env NODE_ENV=development electron .",
 		"dev": "npm-run-all --parallel dev:react dev:electron convex",
-		"build": "tsc -b && vite build",
+		"build": "npm run transpile:electron && tsc -b && vite build",
 		"lint": "tsc --noEmit && npx @biomejs/biome check --write",
-		"transpile:electron": "tsc --project src/electron/tsconfig.json && node -e \"const fs = require('fs'); const paths=[['dist-electron/main.js','dist-electron/main.cjs'],['dist-electron/preload.js','dist-electron/preload.cjs']]; for(const [src,dest] of paths){ if(!fs.existsSync(src)){ console.warn(`${src} not found, skipping rename`); continue; } try{ fs.renameSync(src,dest); }catch(e){ console.error('Rename failed for',src, e); process.exit(1); } }\"",
+		"transpile:electron": "npx tsc --project src/electron/tsconfig.json && node -e \"const fs=require('fs'); const path=require('path'); const pairs=[['dist-electron/electron/main.js','dist-electron/main.cjs'],['dist-electron/electron/preload.js','dist-electron/preload.cjs']]; for(const [src,dest] of pairs){ if(!fs.existsSync(src)){ console.warn(src + ' not found, skipping rename'); continue; } try{ fs.mkdirSync(path.dirname(dest), { recursive: true }); if(fs.existsSync(dest)){ fs.rmSync(dest); } fs.renameSync(src,dest); } catch(e){ console.error('Rename failed for', src, e); process.exit(1); } }\"",
 		"preview": "vite preview",
 		"convex": "npx convex dev"
 	},

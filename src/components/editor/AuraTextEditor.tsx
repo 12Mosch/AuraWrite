@@ -14,10 +14,11 @@ import { HistoryEditor } from "slate-history";
 import { toast } from "sonner";
 import * as Y from "yjs";
 import { sanitizeFilename } from "@/shared/filenames";
-import type { SaveAsResult } from "@/shared/saveAs";
+import type { ExportToPdfOptions, SaveAsResult } from "@/shared/saveAs";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { useSharedYjsDocument } from "../../hooks/useSharedYjsDocument";
+import { isElectron } from "../../utils/environment";
 import {
 	type getActiveFormats,
 	getCurrentLink,
@@ -150,6 +151,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	const [showNewDocumentDialog, setShowNewDocumentDialog] = useState(false);
 	const [showExitDialog, setShowExitDialog] = useState(false);
 	const [showLinkDialog, setShowLinkDialog] = useState(false);
+	// Guard to avoid concurrent exports (desktop PDF); mirrors Save As pattern.
+	const isExportingRef = useRef(false);
 	// Guard to avoid re-entrant Save As dialogs (menu action might fire twice)
 	const isSavingRef = useRef(false);
 
@@ -338,7 +341,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 					(async () => {
 						try {
 							// Prefer the global ambient type from src/ui/types.d.ts
-							const electronApi = window.electronAPI;
+							const electronApi =
+								typeof window !== "undefined" ? window.electronAPI : undefined;
 							// Sanitize documentTitle for filesystem use (Windows/macOS forbidden chars).
 							// Centralized, cross-platform filename sanitization using 'filenamify'
 							const safeTitle = sanitizeFilename(documentTitle || "Untitled");
@@ -553,6 +557,425 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 							);
 						} finally {
 							isSavingRef.current = false;
+						}
+					})();
+					break;
+				}
+				case "file.export": {
+					// Prevent concurrent exports (mirror Save As guard)
+					if (isExportingRef.current) {
+						console.debug(
+							"Export already in progress, ignoring duplicate action",
+						);
+						break;
+					}
+					isExportingRef.current = true;
+
+					// Desktop-only PDF export via Electron printToPDF
+					if (!isElectron()) {
+						toast.error("Export is only available in the desktop app.");
+						isExportingRef.current = false;
+						break;
+					}
+					const electronApi =
+						typeof window !== "undefined" ? window.electronAPI : undefined;
+					// If Electron is present but the preload API isn't exposed, surface a clearer message.
+					if (!electronApi || typeof electronApi.exportToPdf !== "function") {
+						toast.error("Export is currently unavailable.");
+						isExportingRef.current = false;
+						break;
+					}
+					(async () => {
+						let toastId: string | number | undefined;
+						try {
+							toastId = toast.loading("Exporting to PDF...");
+							// Build printable HTML from latest editor value (Slate nodes)
+							const nodes = latestEditorValueRef.current || [];
+							// Simple Slate -> HTML serializer (covers common nodes/marks)
+							// Small helper to escape text to avoid HTML injection in exported HTML
+							// Local serializer types to avoid explicit `any` and improve lints.
+							// These are intentionally minimal and mirror the shapes used by the serializer.
+							type SlateTextNode = {
+								text?: string;
+								bold?: boolean;
+								italic?: boolean;
+								underline?: boolean;
+								code?: boolean;
+								strikethrough?: boolean;
+							} & Record<string, unknown>;
+							type SlateNodeLike =
+								| SlateTextNode
+								| {
+										type?: string;
+										children?: SlateNodeLike[];
+										// common optional properties used by serializer
+										url?: string;
+										src?: string;
+										alt?: string;
+										caption?: string;
+										// allow other props
+										[key: string]: unknown;
+								  };
+							const escapeHtml = (s: string) => {
+								return String(s)
+									.replace(/&/g, "&amp;")
+									.replace(/</g, "&lt;")
+									.replace(/>/g, "&gt;")
+									.replace(/"/g, "&quot;");
+							};
+							// Allow-list a few common safe URL schemes for exported assets.
+							const isSafeUrl = (u: string): boolean => {
+								try {
+									// Support absolute and relative URLs. For relative, treat as safe.
+									if (
+										/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:)?\/\//.test(u) === false &&
+										!u.startsWith("data:") &&
+										!u.startsWith("file:")
+									) {
+										return true; // relative paths like "./img.png"
+									}
+									const parsed = new URL(u);
+									return ["http:", "https:", "data:", "file:"].includes(
+										parsed.protocol,
+									);
+								} catch {
+									return false;
+								}
+							};
+
+							const serializeMarks = (textNode: SlateTextNode) => {
+								let text = escapeHtml(textNode.text ?? "");
+								// Apply marks in a consistent order
+								if (textNode.code) text = `<code>${text}</code>`;
+								if (textNode.bold) text = `<strong>${text}</strong>`;
+								if (textNode.italic) text = `<em>${text}</em>`;
+								if (textNode.underline) text = `<u>${text}</u>`;
+								if (textNode.strikethrough) text = `<s>${text}</s>`;
+								return text;
+							};
+
+							// Serialize inline array (children) preserving marks and nested inline nodes
+							const serializeInlineChildren = (
+								children: SlateNodeLike[] = [],
+							) =>
+								children
+									.map((child) => {
+										if (child == null) return "";
+										if ((child as SlateNodeLike).type)
+											return serializeNode(child as SlateNodeLike);
+										return serializeMarks(child as SlateTextNode);
+									})
+									.join("");
+
+							const serializeNode = (node: SlateNodeLike): string => {
+								if (!node || typeof node !== "object") return "";
+
+								// Headings
+								if (node.type === "heading-one") {
+									const children = serializeInlineChildren(
+										node.children as SlateNodeLike[],
+									);
+									return `<h1>${children}</h1>`;
+								}
+								if (node.type === "heading-two") {
+									const children = serializeInlineChildren(
+										node.children as SlateNodeLike[],
+									);
+									return `<h2>${children}</h2>`;
+								}
+
+								// Lists
+								if (node.type === "bulleted-list") {
+									const items = (
+										Array.isArray(node.children) ? node.children : []
+									)
+										.map((li: SlateNodeLike) => {
+											const liChildren = Array.isArray(
+												(li as SlateNodeLike).children,
+											)
+												? ((li as SlateNodeLike).children as SlateNodeLike[])
+												: [];
+											return `<li>${serializeInlineChildren(liChildren)}</li>`;
+										})
+										.join("");
+									return `<ul>${items}</ul>`;
+								}
+								if (node.type === "numbered-list") {
+									const items = (
+										Array.isArray(node.children) ? node.children : []
+									)
+										.map((li: SlateNodeLike) => {
+											const liChildren = Array.isArray(
+												(li as SlateNodeLike).children,
+											)
+												? ((li as SlateNodeLike).children as SlateNodeLike[])
+												: [];
+											return `<li>${serializeInlineChildren(liChildren)}</li>`;
+										})
+										.join("");
+									return `<ol>${items}</ol>`;
+								}
+
+								// Blockquote
+								if (node.type === "block-quote" || node.type === "blockquote") {
+									const children = Array.isArray(node.children)
+										? serializeInlineChildren(node.children)
+										: "";
+									return `<blockquote>${children}</blockquote>`;
+								}
+
+								// Image node -> render figure/img/figcaption
+								if (node.type === "image") {
+									// Defensive accessors
+									const url =
+										node.url && typeof node.url === "string"
+											? node.url
+											: typeof node.src === "string"
+												? node.src
+												: "";
+									const alt =
+										node.alt && typeof node.alt === "string"
+											? escapeHtml(node.alt)
+											: "";
+									// caption may be a property or a child node with type 'caption'
+									let captionText = "";
+									if (node.caption && typeof node.caption === "string") {
+										captionText = escapeHtml(node.caption);
+									} else if (Array.isArray(node.children)) {
+										// look for a caption child node or caption property in children
+										const captionChild = (
+											node.children as SlateNodeLike[]
+										).find(
+											(c: SlateNodeLike | undefined) =>
+												c && (c as SlateNodeLike).type === "caption",
+										);
+										if (
+											captionChild &&
+											Array.isArray((captionChild as SlateNodeLike).children)
+										) {
+											captionText = serializeInlineChildren(
+												(captionChild as SlateNodeLike)
+													.children as SlateNodeLike[],
+											);
+										} else {
+											// fallback: join inline text children
+											captionText = serializeInlineChildren(
+												node.children as SlateNodeLike[],
+											);
+										}
+									}
+									const safeSrc = isSafeUrl(url) ? url : "";
+									const imgHtml = `<img src="${escapeHtml(safeSrc)}" alt="${alt}" />`;
+									if (captionText && captionText.trim().length > 0) {
+										return `<figure>${imgHtml}<figcaption>${captionText}</figcaption></figure>`;
+									}
+									return `<figure>${imgHtml}</figure>`;
+								}
+
+								// Table node: simple table -> table > tr > td
+								if (node.type === "table") {
+									if (!Array.isArray(node.children)) return "<table></table>";
+									const rows = (node.children as SlateNodeLike[])
+										.map((row: SlateNodeLike) => {
+											if (
+												!row ||
+												typeof row !== "object" ||
+												!Array.isArray(row.children)
+											)
+												return "<tr></tr>";
+											const cells = (row.children as SlateNodeLike[])
+												.map((cell: SlateNodeLike) => {
+													// cell.children may be blocks or inlines; preserve inline marks inside
+													if (Array.isArray(cell.children)) {
+														// Render cell content without wrapping <p> to keep compact
+														const cellInner = (cell.children as SlateNodeLike[])
+															.map((child: SlateNodeLike) => {
+																if ((child as SlateNodeLike).type)
+																	return serializeNode(child as SlateNodeLike);
+																return serializeMarks(child as SlateTextNode);
+															})
+															.join("");
+														return `<td>${cellInner}</td>`;
+													}
+													return "<td></td>";
+												})
+												.join("");
+											return `<tr>${cells}</tr>`;
+										})
+										.join("");
+									// Support optional caption property or child node
+									let tableCaption = "";
+									if (node.caption && typeof node.caption === "string") {
+										tableCaption = escapeHtml(node.caption);
+									} else if (Array.isArray(node.children)) {
+										// sometimes caption is a separate child with type 'caption' not included in rows
+										const captionChild = (
+											node.children as SlateNodeLike[]
+										).find(
+											(c: SlateNodeLike | undefined) =>
+												c && c.type === "caption",
+										);
+										if (
+											captionChild &&
+											Array.isArray((captionChild as SlateNodeLike).children)
+										) {
+											tableCaption = serializeInlineChildren(
+												(captionChild as SlateNodeLike)
+													.children as SlateNodeLike[],
+											);
+										}
+									}
+									if (tableCaption) {
+										return `<figure><table>${rows}</table><figcaption>${tableCaption}</figcaption></figure>`;
+									}
+									return `<table>${rows}</table>`;
+								}
+
+								// Paragraphs and generic blocks
+								if (Array.isArray(node.children)) {
+									// Some custom node types should be wrapped but annotated for styling
+									const childrenHtml = (node.children as SlateNodeLike[])
+										.map((child: SlateNodeLike | SlateTextNode | null) => {
+											if (child == null) return "";
+											if ((child as SlateNodeLike).type)
+												return serializeNode(child as SlateNodeLike);
+											return serializeMarks(child as SlateTextNode);
+										})
+										.join("");
+
+									// If node is a known block type like 'paragraph'
+									if (!node.type || node.type === "paragraph") {
+										return `<p>${childrenHtml}</p>`;
+									}
+
+									// Safe fallback for custom block node types: preserve children and add data-node-type
+									const safeType =
+										typeof node.type === "string"
+											? escapeHtml(node.type)
+											: "unknown";
+									return `<div data-node-type="${safeType}">${childrenHtml}</div>`;
+								}
+
+								// Text node fallback
+								if ("text" in node) {
+									return serializeMarks(node);
+								}
+
+								return "";
+							};
+							const bodyHtml = nodes.map(serializeNode).join("\n");
+							const html = `<!doctype html>
+	<html>
+	<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1">
+	<title>${escapeHtml(documentTitle ?? "Document")}</title>
+	<style>
+	body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; color: #111827; margin: 40px; line-height: 1.5; }
+	h1 { font-size: 28px; margin: 0 0 12px 0; }
+	h2 { font-size: 22px; margin: 0 0 10px 0; }
+	p { margin: 0 0 10px 0; font-size: 14px; }
+	blockquote { margin: 0 0 10px 0; padding-left: 12px; border-left: 4px solid #e5e7eb; color: #374151; }
+	ul, ol { margin: 0 0 10px 20px; }
+	code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Helvetica Neue", monospace; }
+	figure { margin: 0 0 12px 0; }
+	figure img { max-width: 100%; height: auto; }
+	figcaption { font-size: 12px; color: #6b7280; margin-top: 6px; }
+	table { border-collapse: collapse; margin: 0 0 10px 0; width: auto; }
+	td, th { border: 1px solid #e5e7eb; padding: 6px 8px; vertical-align: top; }
+	</style>
+	</head>
+	<body>
+	<div class="document-content">
+	${bodyHtml}
+	</div>
+	</body>
+	</html>`;
+							const safeTitle = sanitizeFilename(documentTitle || "Untitled");
+							// Guard the electron API call to avoid calling undefined in browser builds
+							const api = electronApi as NonNullable<typeof electronApi>;
+							// Narrow the export function to a properly typed alias
+							const exportToPdf = api.exportToPdf as (
+								opts: ExportToPdfOptions,
+							) => Promise<SaveAsResult>;
+							const res: SaveAsResult = await exportToPdf({
+								html,
+								documentTitle,
+								defaultPath: `${safeTitle}.pdf`,
+							});
+							if (res && "success" in res && res.success) {
+								// Show toast with optional "Show in folder" action that opens the exported file location
+								// Keep a lightweight guard for the preload API being present
+								const filePath =
+									res.filePath && typeof res.filePath === "string"
+										? res.filePath
+										: undefined;
+								toast.success("Exported PDF successfully", {
+									action: filePath
+										? {
+												label: "Show in folder",
+												onClick: async () => {
+													try {
+														// Only call if the preload exposes the API
+														if (
+															typeof window !== "undefined" &&
+															typeof window.electronAPI === "object" &&
+															typeof window.electronAPI.showItemInFolder ===
+																"function"
+														) {
+															const result =
+																await window.electronAPI.showItemInFolder(
+																	filePath,
+																);
+															// If the preload returns an object with success boolean surface failure
+															if (
+																result &&
+																typeof result === "object" &&
+																"success" in (result as Record<string, unknown>)
+																	? !(result as { success?: boolean }).success
+																	: false
+															) {
+																toast.error("Failed to reveal file in folder");
+															}
+														}
+													} catch (err) {
+														console.warn("Failed to show item in folder:", err);
+														toast.error("Failed to reveal file in folder");
+													}
+												},
+											}
+										: undefined,
+								});
+							} else {
+								const maybeError =
+									res && typeof res === "object"
+										? (res as unknown as Record<string, unknown>).error
+										: undefined;
+								const errMessage =
+									maybeError &&
+									typeof maybeError === "object" &&
+									"message" in maybeError
+										? String((maybeError as Record<string, unknown>).message)
+										: "Failed to export PDF";
+								toast.error("Export failed", { description: errMessage });
+							}
+						} catch (err) {
+							console.error("Export failed:", err);
+							toast.error("Export failed", {
+								description: err instanceof Error ? err.message : String(err),
+							});
+						} finally {
+							// Always clear loading state and allow future exports.
+							try {
+								if (typeof toastId !== "undefined") {
+									try {
+										toast.dismiss(toastId);
+									} catch {}
+								}
+							} catch {
+								/* ignore toast dismissal errors */
+							}
+							isExportingRef.current = false;
 						}
 					})();
 					break;
