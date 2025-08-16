@@ -71,6 +71,16 @@ export interface SaveAsSlateOptions extends SaveAsBase {
 }
 
 /**
+ * Options for exporting printable HTML to PDF via the main process.
+ * Kept in the shared types so both preload and renderer reference a single shape.
+ */
+export type ExportToPdfOptions = Readonly<{
+	html: string;
+	documentTitle?: string;
+	defaultPath?: string;
+}>;
+
+/**
  * Discriminated union of save options.
  */
 export type SaveAsOptions = SaveAsYjsOptions | SaveAsSlateOptions;

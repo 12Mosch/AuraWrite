@@ -3,7 +3,7 @@ import * as path from "node:path";
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 
-import type { SaveAsOptions } from "../shared/saveAs";
+import type { ExportToPdfOptions, SaveAsOptions } from "../shared/saveAs";
 
 // Module-local in-flight guard to prevent concurrent Save As dialogs.
 // Prefer a simple module-local boolean over augmenting the Electron App global.
@@ -406,6 +406,213 @@ ipcMain.handle(
 );
 
 app.whenReady().then(() => {
+	// Export to PDF IPC handler
+	ipcMain.handle(
+		"export-to-pdf",
+		async (_event: unknown, opts: ExportToPdfOptions) => {
+			// Prevent concurrent export dialogs
+			if (saveAsInProgress === true) {
+				return {
+					success: false,
+					error: { code: "BUSY", message: "Export dialog already open" },
+				};
+			}
+			saveAsInProgress = true;
+			try {
+				if (
+					!opts ||
+					typeof opts !== "object" ||
+					!opts.html ||
+					typeof opts.html !== "string"
+				) {
+					return {
+						success: false,
+						error: {
+							code: "INVALID_PAYLOAD",
+							message: "Missing html string in options",
+						},
+					};
+				}
+
+				const defaultName =
+					opts.defaultPath ||
+					(opts.documentTitle
+						? `${String(opts.documentTitle)}.pdf`
+						: "Untitled.pdf");
+				const { canceled, filePath } = await dialog.showSaveDialog({
+					title: "Export as PDF",
+					defaultPath: defaultName,
+					filters: [{ name: "PDF", extensions: ["pdf"] }],
+					properties:
+						process.platform === "darwin"
+							? ["showOverwriteConfirmation", "createDirectory"]
+							: ["showOverwriteConfirmation"],
+				});
+
+				if (canceled || !filePath) {
+					return {
+						success: false,
+						error: { code: "CANCELLED", message: "User cancelled" },
+					};
+				}
+
+				// Create a hidden BrowserWindow to render the printable HTML
+				let exportWin: BrowserWindow | null = null;
+				let loadTimeout: NodeJS.Timeout | null = null;
+				try {
+					exportWin = new BrowserWindow({
+						show: false,
+						webPreferences: {
+							offscreen: false,
+							contextIsolation: true,
+							nodeIntegration: false,
+						},
+					});
+
+					// Ensure content finished loading, with a timeout that won't leak exportWin.
+					// Attach the did-finish-load listener before calling loadURL so we never miss
+					// the event if the load completes synchronously.
+					const waitForDidFinishLoad = () =>
+						new Promise<void>((resolve, reject) => {
+							loadTimeout = setTimeout(() => {
+								reject(
+									new Error("Timed out waiting for export content to load"),
+								);
+							}, 10000);
+							const onFinish = () => {
+								if (loadTimeout) {
+									clearTimeout(loadTimeout);
+									loadTimeout = null;
+								}
+								resolve();
+							};
+							if (exportWin?.webContents) {
+								exportWin.webContents.once("did-finish-load", onFinish);
+							} else {
+								if (loadTimeout) {
+									clearTimeout(loadTimeout);
+									loadTimeout = null;
+								}
+								reject(new Error("Export window not available"));
+							}
+						});
+
+					// Start waiting for the load to finish, then initiate the load URL.
+					const didFinishPromise = waitForDidFinishLoad();
+					await exportWin.loadURL(
+						`data:text/html;charset=utf-8,${encodeURIComponent(opts.html)}`,
+					);
+					// Await the did-finish-load (or timeout) after starting the load.
+					await didFinishPromise;
+
+					// Print to PDF with background graphics
+					const pdfOptions = { printBackground: true, marginsType: 0 };
+					const pdfBuffer = await exportWin.webContents.printToPDF(pdfOptions);
+
+					// Write atomically
+					const tmpPath = `${filePath}.tmp`;
+					await fs.promises.writeFile(tmpPath, pdfBuffer);
+					try {
+						await fs.promises.rename(tmpPath, filePath);
+					} catch (err: unknown) {
+						// Attempt Windows-specific retry semantics
+						const maybeErr =
+							err && typeof err === "object"
+								? (err as Record<string, unknown>)
+								: null;
+						const code =
+							maybeErr && "code" in maybeErr
+								? String((maybeErr as Record<string, unknown>).code)
+								: undefined;
+						if (
+							process.platform === "win32" &&
+							code &&
+							(code === "EPERM" || code === "EEXIST")
+						) {
+							await fs.promises.unlink(filePath);
+							await fs.promises.rename(tmpPath, filePath);
+						} else {
+							throw err;
+						}
+					}
+
+					const bytesWritten = Buffer.byteLength(pdfBuffer);
+					return { success: true, filePath, bytesWritten };
+				} finally {
+					// Always clear the timeout and ensure the export window is closed/destroyed
+					if (loadTimeout) {
+						clearTimeout(loadTimeout);
+						loadTimeout = null;
+					}
+					if (exportWin) {
+						try {
+							// Close may throw in rare cases; ensure we also destroy to avoid leaks.
+							if (!exportWin.isDestroyed()) {
+								exportWin.close();
+							}
+						} catch {
+							/* swallow close errors */
+						} finally {
+							try {
+								if (!exportWin.isDestroyed()) {
+									exportWin.destroy();
+								}
+							} catch {
+								/* swallow destroy errors */
+							}
+							exportWin = null;
+						}
+					}
+				}
+			} catch (err) {
+				console.error("Failed to export-to-pdf:", err);
+				return {
+					success: false,
+					error: {
+						code: "WRITE_FAILED",
+						message: err instanceof Error ? err.message : String(err),
+					},
+				};
+			} finally {
+				saveAsInProgress = false;
+			}
+		},
+	);
+
+	// IPC handler to reveal a file in the system file manager
+	ipcMain.handle(
+		"show-item-in-folder",
+		async (_event: unknown, filePath: unknown) => {
+			try {
+				// Basic validation
+				if (!filePath || typeof filePath !== "string") {
+					return { success: false, error: "Invalid filePath" };
+				}
+				const trimmed = filePath.trim();
+				if (!trimmed) {
+					return { success: false, error: "Empty filePath" };
+				}
+
+				// Attempt to reveal the item in the OS file manager
+				try {
+					shell.showItemInFolder(trimmed);
+					return { success: true };
+				} catch (err) {
+					console.error("shell.showItemInFolder failed:", err);
+					return {
+						success: false,
+						error: err instanceof Error ? err.message : String(err),
+					};
+				}
+			} catch (err) {
+				console.error("show-item-in-folder handler error:", err);
+				return {
+					success: false,
+					error: err instanceof Error ? err.message : "Unknown error",
+				};
+			}
+		},
+	);
 	setupMenu();
 	createWindow();
 

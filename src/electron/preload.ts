@@ -10,11 +10,17 @@ import type { IpcRendererEvent } from "electron";
  */
 
 // Reuse shared Save As types to avoid drift between preload and UI
-import type { SaveAsOptions, SaveAsResult } from "../shared/saveAs";
+import type {
+	ExportToPdfOptions,
+	SaveAsOptions,
+	SaveAsResult,
+} from "../shared/saveAs";
 
 // Define the API interface
 interface ElectronAPI {
-	openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+	openExternal: (
+		url: string,
+	) => Promise<{ success: true } | { success: false; error: string }>;
 	onMenuAction: (callback: (action: string) => void) => void;
 	removeMenuActionListener: (callback: (action: string) => void) => void;
 	/**
@@ -29,6 +35,32 @@ interface ElectronAPI {
 	 * outcome. The renderer can inspect error.code to handle CANCELLED vs WRITE_FAILED.
 	 */
 	saveAsNative: (options: SaveAsOptions) => Promise<SaveAsResult>;
+
+	/**
+	 * exportToPdf - export provided printable HTML to PDF using the main process.
+	 *
+	 * Options:
+	 *  - html: string (required) - printable HTML document (full HTML document expected)
+	 *  - documentTitle?: string - optional title for dialog default filename
+	 *  - defaultPath?: string - optional default path hint
+	 *
+	 * Returns a SaveAsResult-like object describing success and filePath
+	 */
+	exportToPdf: (
+		opts: Readonly<{
+			html: string;
+			documentTitle?: string;
+			defaultPath?: SaveAsOptions["defaultPath"];
+		}>,
+	) => Promise<SaveAsResult>;
+
+	/**
+	 * showItemInFolder - reveal a file in the OS file manager.
+	 * Accepts a filePath string and returns { success: boolean; error?: string }
+	 */
+	showItemInFolder: (
+		filePath: string,
+	) => Promise<{ success: true } | { success: false; error: string }>;
 }
 
 // Store wrapper functions to enable proper cleanup
@@ -59,6 +91,14 @@ const electronAPI: ElectronAPI = {
 	// saveAsNative bridge - forwards options to main via ipcRenderer.invoke
 	saveAsNative: (options: SaveAsOptions) =>
 		ipcRenderer.invoke("save-as-native", options),
+
+	// exportToPdf bridge - forwards printable HTML to main for PDF generation
+	exportToPdf: (opts: ExportToPdfOptions) =>
+		ipcRenderer.invoke("export-to-pdf", opts),
+
+	// showItemInFolder - forwards to main process
+	showItemInFolder: (filePath: string) =>
+		ipcRenderer.invoke("show-item-in-folder", filePath),
 };
 
 // Expose the API to the renderer process

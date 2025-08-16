@@ -258,6 +258,18 @@ export const EditorMenuBar: React.FC<EditorMenuBarProps> = ({
 
 			{/* Actions */}
 			<div className="flex items-center gap-2">
+				{/* Export button (desktop) */}
+				<Button
+					variant="ghost"
+					size="icon"
+					type="button"
+					onClick={() => handleAction("file.export")}
+					title="Export"
+					aria-label="Export"
+					className="h-8 w-8"
+				>
+					<Download className="h-4 w-4" />
+				</Button>
 				<Button
 					variant="ghost"
 					size="icon"
