@@ -46,13 +46,7 @@ interface ElectronAPI {
 	 *
 	 * Returns a SaveAsResult-like object describing success and filePath
 	 */
-	exportToPdf: (
-		opts: Readonly<{
-			html: string;
-			documentTitle?: string;
-			defaultPath?: SaveAsOptions["defaultPath"];
-		}>,
-	) => Promise<SaveAsResult>;
+	exportToPdf: (opts: ExportToPdfOptions) => Promise<SaveAsResult>;
 
 	/**
 	 * showItemInFolder - reveal a file in the OS file manager.

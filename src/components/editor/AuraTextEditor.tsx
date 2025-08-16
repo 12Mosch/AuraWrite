@@ -601,6 +601,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 								italic?: boolean;
 								underline?: boolean;
 								code?: boolean;
+								strikethrough?: boolean;
 							} & Record<string, unknown>;
 							type SlateNodeLike =
 								| SlateTextNode
@@ -622,6 +623,25 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									.replace(/>/g, "&gt;")
 									.replace(/"/g, "&quot;");
 							};
+							// Allow-list a few common safe URL schemes for exported assets.
+							const isSafeUrl = (u: string): boolean => {
+								try {
+									// Support absolute and relative URLs. For relative, treat as safe.
+									if (
+										/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:)?\/\//.test(u) === false &&
+										!u.startsWith("data:") &&
+										!u.startsWith("file:")
+									) {
+										return true; // relative paths like "./img.png"
+									}
+									const parsed = new URL(u);
+									return ["http:", "https:", "data:", "file:"].includes(
+										parsed.protocol,
+									);
+								} catch {
+									return false;
+								}
+							};
 
 							const serializeMarks = (textNode: SlateTextNode) => {
 								let text = escapeHtml(textNode.text ?? "");
@@ -630,6 +650,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 								if (textNode.bold) text = `<strong>${text}</strong>`;
 								if (textNode.italic) text = `<em>${text}</em>`;
 								if (textNode.underline) text = `<u>${text}</u>`;
+								if (textNode.strikethrough) text = `<s>${text}</s>`;
 								return text;
 							};
 
@@ -743,7 +764,8 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 											);
 										}
 									}
-									const imgHtml = `<img src="${escapeHtml(url)}" alt="${alt}" />`;
+									const safeSrc = isSafeUrl(url) ? url : "";
+									const imgHtml = `<img src="${escapeHtml(safeSrc)}" alt="${alt}" />`;
 									if (captionText && captionText.trim().length > 0) {
 										return `<figure>${imgHtml}<figcaption>${captionText}</figcaption></figure>`;
 									}
@@ -847,7 +869,7 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 	<head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width,initial-scale=1">
-	<title>${documentTitle ? String(documentTitle) : "Document"}</title>
+	<title>${escapeHtml(documentTitle ?? "Document")}</title>
 	<style>
 	body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; color: #111827; margin: 40px; line-height: 1.5; }
 	h1 { font-size: 28px; margin: 0 0 12px 0; }
@@ -888,7 +910,6 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									res.filePath && typeof res.filePath === "string"
 										? res.filePath
 										: undefined;
-								toast.dismiss(toastId);
 								toast.success("Exported PDF successfully", {
 									action: filePath
 										? {
@@ -902,12 +923,24 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 															typeof window.electronAPI.showItemInFolder ===
 																"function"
 														) {
-															await window.electronAPI.showItemInFolder(
-																filePath,
-															);
+															const result =
+																await window.electronAPI.showItemInFolder(
+																	filePath,
+																);
+															// If the preload returns an object with success boolean surface failure
+															if (
+																result &&
+																typeof result === "object" &&
+																"success" in (result as Record<string, unknown>)
+																	? !(result as { success?: boolean }).success
+																	: false
+															) {
+																toast.error("Failed to reveal file in folder");
+															}
 														}
 													} catch (err) {
 														console.warn("Failed to show item in folder:", err);
+														toast.error("Failed to reveal file in folder");
 													}
 												},
 											}
@@ -924,12 +957,10 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 									"message" in maybeError
 										? String((maybeError as Record<string, unknown>).message)
 										: "Failed to export PDF";
-								toast.dismiss(toastId);
 								toast.error("Export failed", { description: errMessage });
 							}
 						} catch (err) {
 							console.error("Export failed:", err);
-							toast.dismiss(toastId);
 							toast.error("Export failed", {
 								description: err instanceof Error ? err.message : String(err),
 							});
@@ -937,7 +968,9 @@ export const AuraTextEditor: React.FC<AuraTextEditorProps> = ({
 							// Always clear loading state and allow future exports.
 							try {
 								if (typeof toastId !== "undefined") {
-									toast.dismiss(toastId);
+									try {
+										toast.dismiss(toastId);
+									} catch {}
 								}
 							} catch {
 								/* ignore toast dismissal errors */

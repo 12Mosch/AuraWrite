@@ -6,6 +6,8 @@ export type SaveAsErrorCode =
 	| "INVALID_OPTIONS"
 	| "DIALOG_FAILED"
 	| "SERIALIZE_FAILED"
+	| "BUSY"
+	| "INVALID_PAYLOAD"
 	| "UNKNOWN";
 
 export interface SaveAsError {

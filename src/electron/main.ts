@@ -388,6 +388,13 @@ ipcMain.handle(
 				}
 			}
 
+			// Best-effort: ensure no leftover temp file remains
+			try {
+				await fs.promises.unlink(tmpPath);
+			} catch {
+				/* ignore */
+			}
+
 			const bytesWritten = Buffer.byteLength(json, "utf8");
 			return { success: true, filePath, bytesWritten };
 		} catch (err) {
@@ -466,6 +473,7 @@ app.whenReady().then(() => {
 							offscreen: false,
 							contextIsolation: true,
 							nodeIntegration: false,
+							sandbox: true,
 						},
 					});
 
@@ -474,25 +482,40 @@ app.whenReady().then(() => {
 					// the event if the load completes synchronously.
 					const waitForDidFinishLoad = () =>
 						new Promise<void>((resolve, reject) => {
+							const cleanup = () => {
+								if (loadTimeout) {
+									clearTimeout(loadTimeout);
+									loadTimeout = null;
+								}
+								if (exportWin?.webContents) {
+									exportWin.webContents.removeListener("did-fail-load", onFail);
+									exportWin.webContents.removeListener(
+										"did-finish-load",
+										onFinish,
+									);
+								}
+							};
+							const onFinish = () => {
+								cleanup();
+								resolve();
+							};
+							const onFail = (_e: unknown, code: number, desc: string) => {
+								cleanup();
+								reject(
+									new Error(`Failed to load export content (${code}): ${desc}`),
+								);
+							};
 							loadTimeout = setTimeout(() => {
+								cleanup();
 								reject(
 									new Error("Timed out waiting for export content to load"),
 								);
 							}, 10000);
-							const onFinish = () => {
-								if (loadTimeout) {
-									clearTimeout(loadTimeout);
-									loadTimeout = null;
-								}
-								resolve();
-							};
 							if (exportWin?.webContents) {
 								exportWin.webContents.once("did-finish-load", onFinish);
+								exportWin.webContents.once("did-fail-load", onFail);
 							} else {
-								if (loadTimeout) {
-									clearTimeout(loadTimeout);
-									loadTimeout = null;
-								}
+								cleanup();
 								reject(new Error("Export window not available"));
 							}
 						});
@@ -536,7 +559,7 @@ app.whenReady().then(() => {
 						}
 					}
 
-					const bytesWritten = Buffer.byteLength(pdfBuffer);
+					const bytesWritten = pdfBuffer.length;
 					return { success: true, filePath, bytesWritten };
 				} finally {
 					// Always clear the timeout and ensure the export window is closed/destroyed

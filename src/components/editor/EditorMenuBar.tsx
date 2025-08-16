@@ -121,10 +121,12 @@ export const EditorMenuBar: React.FC<EditorMenuBarProps> = ({
 									<MenubarShortcut>Ctrl+Shift+S</MenubarShortcut>
 								</MenubarItem>
 								<MenubarSeparator />
-								<MenubarItem onClick={() => handleAction("file.export")}>
-									<Download className="mr-2 h-4 w-4" />
-									Export
-								</MenubarItem>
+								{isElectron() && (
+									<MenubarItem onClick={() => handleAction("file.export")}>
+										<Download className="mr-2 h-4 w-4" />
+										Export to PDF
+									</MenubarItem>
+								)}
 							</MenubarContent>
 						</MenubarMenu>
 
@@ -259,17 +261,19 @@ export const EditorMenuBar: React.FC<EditorMenuBarProps> = ({
 			{/* Actions */}
 			<div className="flex items-center gap-2">
 				{/* Export button (desktop) */}
-				<Button
-					variant="ghost"
-					size="icon"
-					type="button"
-					onClick={() => handleAction("file.export")}
-					title="Export"
-					aria-label="Export"
-					className="h-8 w-8"
-				>
-					<Download className="h-4 w-4" />
-				</Button>
+				{isElectron() && (
+					<Button
+						variant="ghost"
+						size="icon"
+						type="button"
+						onClick={() => handleAction("file.export")}
+						title="Export to PDF"
+						aria-label="Export to PDF"
+						className="h-8 w-8"
+					>
+						<Download className="h-4 w-4" />
+					</Button>
+				)}
 				<Button
 					variant="ghost"
 					size="icon"
