@@ -11,7 +11,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import type React from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -71,6 +71,31 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 	const archiveDocument = useMutation(api.documents.archiveDocuments);
 	const deleteDocument = useMutation(api.documents.deleteDocument);
 
+	// While menu is open, mark on body so card clicks can ignore
+	useEffect(() => {
+		if (isOpen) {
+			document.body.setAttribute("data-dropdown-open", "true");
+		} else {
+			document.body.removeAttribute("data-dropdown-open");
+		}
+		return () => {
+			document.body.removeAttribute("data-dropdown-open");
+		};
+	}, [isOpen]);
+
+	// Helper to handle Radix onSelect and avoid ghost clicks on underlying card
+	const menuSelect = useCallback(
+		(action: () => void | Promise<void>) => (e: Event) => {
+			e.preventDefault?.();
+			(e as unknown as { stopPropagation?: () => void }).stopPropagation?.();
+			Promise.resolve(action()).finally(() => {
+				// close after action to avoid retargeted click on the card
+				setTimeout(() => setIsOpen(false), 0);
+			});
+		},
+		[],
+	);
+
 	// Handle duplicate
 	const handleDuplicate = useCallback(async () => {
 		try {
@@ -81,7 +106,6 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 			toast.success("Document duplicated", {
 				description: `"${documentTitle}" has been duplicated successfully.`,
 			});
-			setIsOpen(false);
 		} catch (error) {
 			console.error("Failed to duplicate document:", error);
 			toast.error("Failed to duplicate document", {
@@ -94,7 +118,6 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 	const handleToggleFavorite = useCallback(async () => {
 		try {
 			await toggleFavorite({ documentId });
-			// Provide user feedback consistent with other actions
 			if (isFavorite) {
 				toast.success("Removed from favorites", {
 					description: `"${documentTitle}" has been removed from your favorites.`,
@@ -104,7 +127,6 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 					description: `"${documentTitle}" has been added to your favorites.`,
 				});
 			}
-			setIsOpen(false);
 		} catch (error) {
 			console.error("Failed to toggle favorite:", error);
 			toast.error("Failed to update favorites", {
@@ -118,7 +140,6 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 		async (newStatus: "draft" | "published" | "archived") => {
 			try {
 				await updateStatus({ documentId, status: newStatus });
-				// Provide user feedback similar to favorite toggle
 				const label =
 					newStatus === "draft"
 						? "Draft"
@@ -128,7 +149,6 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 				toast.success("Status updated", {
 					description: `"${documentTitle}" status changed to ${label}.`,
 				});
-				setIsOpen(false);
 			} catch (error) {
 				console.error("Failed to update status:", error);
 				toast.error("Failed to update status", {
@@ -146,7 +166,6 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 			toast.success("Document archived", {
 				description: `"${documentTitle}" has been moved to archive. You can restore it later.`,
 			});
-			setIsOpen(false);
 		} catch (error) {
 			console.error("Failed to archive document:", error);
 			toast.error("Failed to archive document", {
@@ -178,13 +197,11 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 	// Handle edit
 	const handleEdit = useCallback(() => {
 		onEdit?.();
-		setIsOpen(false);
 	}, [onEdit]);
 
 	// Handle share
 	const handleShare = useCallback(() => {
 		onShare?.();
-		setIsOpen(false);
 	}, [onShare]);
 
 	// Fetch folder tree once at top-level to satisfy Hooks rules
@@ -228,7 +245,14 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 	}, [folderTree]);
 
 	const defaultTrigger = (
-		<Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+		<Button
+			variant="ghost"
+			size="sm"
+			className="h-8 w-8 p-0"
+			data-dropdown-trigger
+			onClick={(e) => e.stopPropagation()}
+			onPointerDown={(e) => e.stopPropagation()}
+		>
 			<MoreHorizontal className="h-4 w-4" />
 			<span className="sr-only">Open menu</span>
 		</Button>
@@ -240,15 +264,19 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 				<DropdownMenuTrigger asChild className={className}>
 					{trigger || defaultTrigger}
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-48">
+				<DropdownMenuContent
+					align="end"
+					className="w-48"
+					onCloseAutoFocus={(e) => e.preventDefault()}
+				>
 					{/* Edit */}
-					<DropdownMenuItem onClick={handleEdit}>
+					<DropdownMenuItem onSelect={menuSelect(handleEdit)}>
 						<Pencil className="h-4 w-4 mr-2" />
 						Edit
 					</DropdownMenuItem>
 
 					{/* Share */}
-					<DropdownMenuItem onClick={handleShare}>
+					<DropdownMenuItem onSelect={menuSelect(handleShare)}>
 						<Share2 className="h-4 w-4 mr-2" />
 						Share
 					</DropdownMenuItem>
@@ -256,13 +284,13 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 					<DropdownMenuSeparator />
 
 					{/* Duplicate */}
-					<DropdownMenuItem onClick={handleDuplicate}>
+					<DropdownMenuItem onSelect={menuSelect(handleDuplicate)}>
 						<Copy className="h-4 w-4 mr-2" />
 						Duplicate
 					</DropdownMenuItem>
 
 					{/* Favorite */}
-					<DropdownMenuItem onClick={handleToggleFavorite}>
+					<DropdownMenuItem onSelect={menuSelect(handleToggleFavorite)}>
 						{isFavorite ? (
 							<>
 								<Heart className="h-4 w-4 mr-2 fill-current text-red-500" />
@@ -283,7 +311,9 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 							Move to folder
 						</DropdownMenuSubTrigger>
 						<DropdownMenuSubContent>
-							<DropdownMenuItem onClick={() => onMove?.(undefined)}>
+							<DropdownMenuItem
+								onSelect={menuSelect(() => onMove?.(undefined))}
+							>
 								<FolderOpen className="h-4 w-4 mr-2" />
 								Root folder
 							</DropdownMenuItem>
@@ -315,7 +345,7 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 								flattenedFolders.map((f) => (
 									<DropdownMenuItem
 										key={f.id as unknown as string}
-										onSelect={() => onMove?.(f.id)}
+										onSelect={menuSelect(() => onMove?.(f.id))}
 									>
 										<FolderOpen
 											className="h-4 w-4 mr-2"
@@ -350,21 +380,21 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 						</DropdownMenuSubTrigger>
 						<DropdownMenuSubContent>
 							<DropdownMenuItem
-								onClick={() => handleStatusChange("draft")}
+								onSelect={menuSelect(() => handleStatusChange("draft"))}
 								disabled={status === "draft"}
 							>
 								<div className="h-2 w-2 rounded-full bg-yellow-500 mr-2" />
 								Draft
 							</DropdownMenuItem>
 							<DropdownMenuItem
-								onClick={() => handleStatusChange("published")}
+								onSelect={menuSelect(() => handleStatusChange("published"))}
 								disabled={status === "published"}
 							>
 								<div className="h-2 w-2 rounded-full bg-green-500 mr-2" />
 								Published
 							</DropdownMenuItem>
 							<DropdownMenuItem
-								onClick={() => handleStatusChange("archived")}
+								onSelect={menuSelect(() => handleStatusChange("archived"))}
 								disabled={status === "archived"}
 							>
 								<div className="h-2 w-2 rounded-full bg-gray-500 mr-2" />
@@ -377,7 +407,7 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 
 					{/* Archive */}
 					{status !== "archived" && (
-						<DropdownMenuItem onClick={handleArchive}>
+						<DropdownMenuItem onSelect={menuSelect(handleArchive)}>
 							<Archive className="h-4 w-4 mr-2" />
 							Archive
 						</DropdownMenuItem>
@@ -385,7 +415,7 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 
 					{/* Delete */}
 					<DropdownMenuItem
-						onClick={() => setConfirmDeleteOpen(true)}
+						onSelect={menuSelect(() => setConfirmDeleteOpen(true))}
 						className="text-red-600"
 					>
 						<Trash2 className="h-4 w-4 mr-2" />

@@ -102,17 +102,29 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
 		: undefined;
 
 	const handleCardClick = (e: React.MouseEvent) => {
-		// Don't trigger if clicking on dropdown or other interactive elements
+		// Guard: if a dropdown menu is open/suppressing clicks, do not open the document.
+		// This prevents "ghost clicks" after selecting a menu item.
 		if (
-			(e.target as HTMLElement).closest("[data-dropdown-trigger]") ||
-			(e.target as HTMLElement).closest("button")
+			typeof window !== "undefined" &&
+			window.document?.body?.getAttribute("data-dropdown-open") === "true"
+		) {
+			e.preventDefault();
+			e.stopPropagation();
+			return;
+		}
+
+		// Don't trigger if clicking on dropdown trigger or other interactive elements
+		const target = e.target as HTMLElement;
+		if (
+			target.closest("[data-dropdown-trigger]") ||
+			target.closest("button") ||
+			target.closest("input") ||
+			target.closest("[role='menuitem']")
 		) {
 			return;
 		}
 
-		if (onOpen) {
-			onOpen();
-		}
+		onOpen?.();
 	};
 
 	return (
