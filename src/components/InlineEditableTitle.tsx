@@ -199,11 +199,11 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 	}
 
 	return (
-		<div className={cn("group flex items-center gap-1 min-w-0", className)}>
+		<div className={cn("group inline-flex items-center min-w-0", className)}>
 			<button
 				type="button"
 				className={cn(
-					"flex-1 min-w-0 text-left bg-transparent p-0 border-0 truncate",
+					"min-w-0 text-left bg-transparent p-0 border-0 truncate inline",
 					!disabled && "cursor-pointer hover:text-primary",
 					disabled && "cursor-default",
 				)}
@@ -218,7 +218,7 @@ export const InlineEditableTitle: React.FC<InlineEditableTitleProps> = ({
 			{!disabled && (
 				<button
 					type="button"
-					className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 inline-flex items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground border-0 bg-transparent"
+					className="h-4 w-4 p-0 ml-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded-sm hover:bg-accent hover:text-accent-foreground border-0 bg-transparent"
 					onClick={(e) => {
 						e.stopPropagation();
 						handleStartEdit();
