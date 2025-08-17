@@ -210,6 +210,41 @@ const schema = defineSchema({
 		.index("by_user_searched", ["userId", "searchedAt"])
 		.index("by_searchedAt", ["searchedAt"])
 		.index("by_query", ["query"]),
+
+	// Sharing: collaborator roles per document
+	documentCollaborators: defineTable({
+		documentId: v.id("documents"),
+		userId: v.id("users"),
+		role: v.union(
+			v.literal("viewer"),
+			v.literal("commenter"),
+			v.literal("editor"),
+		),
+		addedBy: v.id("users"),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_document", ["documentId"])
+		.index("by_user_document", ["userId", "documentId"]),
+
+	// Sharing: link-based access tokens for documents
+	// NOTE: For production, prefer storing only a hash of `token` and never the raw token.
+	// This MVP stores the raw token string for simplicity. Rotate frequently.
+	shareTokens: defineTable({
+		documentId: v.id("documents"),
+		token: v.string(), // consider hashing in a follow-up
+		role: v.union(
+			v.literal("viewer"),
+			v.literal("commenter"),
+			v.literal("editor"),
+		),
+		createdBy: v.id("users"),
+		createdAt: v.number(),
+		expiresAt: v.optional(v.union(v.number(), v.null())),
+	})
+		.index("by_document", ["documentId"])
+		.index("by_document_role", ["documentId", "role"])
+		.index("by_createdBy", ["createdBy"]),
 });
 
 export default schema;

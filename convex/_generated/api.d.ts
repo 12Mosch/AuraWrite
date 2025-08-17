@@ -21,6 +21,7 @@ import type * as documents from "../documents.js";
 import type * as folders from "../folders.js";
 import type * as http from "../http.js";
 import type * as savedSearches from "../savedSearches.js";
+import type * as sharing from "../sharing.js";
 import type * as subscriptions from "../subscriptions.js";
 import type * as templates from "../templates.js";
 import type * as users from "../users.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   folders: typeof folders;
   http: typeof http;
   savedSearches: typeof savedSearches;
+  sharing: typeof sharing;
   subscriptions: typeof subscriptions;
   templates: typeof templates;
   users: typeof users;

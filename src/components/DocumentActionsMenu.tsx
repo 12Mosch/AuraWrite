@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { ShareDialog } from "./ShareDialog";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -42,6 +43,8 @@ export interface DocumentActionsMenuProps {
 	documentTitle: string;
 	isFavorite?: boolean;
 	status?: "draft" | "published" | "archived";
+	ownerId?: string;
+	collaborators?: Array<{ userId: string; name: string; role?: string }>;
 	onEdit?: () => void;
 	onShare?: () => void;
 	onMove?: (folderId?: Id<"folders">) => void;
@@ -54,6 +57,8 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 	documentTitle,
 	isFavorite = false,
 	status = "draft",
+	ownerId,
+	collaborators,
 	onEdit,
 	onShare,
 	onMove,
@@ -63,6 +68,7 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 	const [isOpen, setIsOpen] = useState(false);
 	const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 	const [deleting, setDeleting] = useState(false);
+	const [shareOpen, setShareOpen] = useState(false);
 
 	// Mutations
 	const duplicateDocument = useMutation(api.documents.duplicateDocument);
@@ -201,7 +207,9 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 
 	// Handle share
 	const handleShare = useCallback(() => {
+		// Call optional external handler then open our Share dialog
 		onShare?.();
+		setShareOpen(true);
 	}, [onShare]);
 
 	// Fetch folder tree once at top-level to satisfy Hooks rules
@@ -423,6 +431,15 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
+
+			<ShareDialog
+				open={shareOpen}
+				onOpenChange={setShareOpen}
+				documentId={documentId as unknown as string}
+				title={documentTitle}
+				ownerId={ownerId}
+				collaborators={collaborators}
+			/>
 
 			<AlertDialog
 				open={confirmDeleteOpen}
