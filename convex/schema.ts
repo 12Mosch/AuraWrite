@@ -250,7 +250,10 @@ const schema = defineSchema({
 		),
 		createdBy: v.id("users"),
 		createdAt: v.number(),
-		expiresAt: v.optional(v.union(v.number(), v.null())),
+		expiresAt: v.optional(v.number()),
+		// Soft-revocation metadata (optional) to support auditability instead of hard deletes.
+		revokedAt: v.optional(v.number()),
+		revokedBy: v.optional(v.id("users")),
 	})
 		.index("by_document", ["documentId"])
 		.index("by_document_role", ["documentId", "role"])

@@ -34,11 +34,11 @@ async function requireOwnerOrEditor(
 	let isEditor = false;
 	if (!isOwner) {
 		const compositeKey = `${String(documentId)}|${String(callerId)}`;
-		const row = await ctx.db
+		const rows = await ctx.db
 			.query("documentCollaborators")
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
-			.first();
-		isEditor = row?.role === "editor";
+			.collect();
+		isEditor = rows.some((r) => r.role === "editor");
 	}
 
 	if (!isOwner && !isEditor) {
@@ -74,12 +74,14 @@ async function getUserRole(
 	if (userId === ownerId) return "owner";
 
 	const compositeKey = `${String(documentId)}|${String(userId)}`;
-	const row = await ctx.db
+	const rows = await ctx.db
 		.query("documentCollaborators")
 		.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
-		.first();
-	if (!row) return undefined;
-	return row.role;
+		.collect();
+	if (rows.length === 0) return undefined;
+	if (rows.some((r) => r.role === "editor")) return "editor";
+	if (rows.some((r) => r.role === "commenter")) return "commenter";
+	return "viewer";
 }
 
 /**
@@ -114,7 +116,7 @@ export const getDocumentSharing = query({
 				role: RoleValidator,
 				createdBy: v.id("users"),
 				createdAt: v.number(),
-				expiresAt: v.optional(v.union(v.number(), v.null())),
+				expiresAt: v.optional(v.number()),
 			}),
 		),
 		// callerRole is useful to drive UI permissions client-side
@@ -150,6 +152,7 @@ export const getDocumentSharing = query({
 		}
 
 		// Map 'owner' to undefined for outward-facing callerRole (RoleValidator doesn't include 'owner')
+		const isManager = callerRole === "owner" || callerRole === "editor";
 		const callerRoleForReturn: "viewer" | "commenter" | "editor" | undefined =
 			callerRole === "owner"
 				? undefined
@@ -174,43 +177,42 @@ export const getDocumentSharing = query({
 			title: doc.title,
 			ownerId: doc.ownerId,
 			isPublic: doc.isPublic,
-			collaborators: collaborators.map((c) => ({
-				userId: c.userId,
-				role: c.role,
-				addedBy: c.addedBy,
-				createdAt: c.createdAt,
-				updatedAt: c.updatedAt,
-			})),
+			collaborators: isManager
+				? collaborators.map((c) => ({
+						userId: c.userId,
+						role: c.role,
+						addedBy: c.addedBy,
+						createdAt: c.createdAt,
+						updatedAt: c.updatedAt,
+					}))
+				: [],
 			// Do not return raw or hashed tokens by default. Only owners and editors
 			// (managers) receive token metadata to reduce information leakage.
 			// Map callerRole === "owner" to manager as well.
-			tokens:
-				callerRole === "owner" || callerRole === "editor"
-					? tokens
-							// Exclude expired tokens. expiresAt may be null/undefined or a number.
-							.filter(
-								(t) =>
-									!(
-										typeof t.expiresAt === "number" && t.expiresAt < Date.now()
-									),
-							)
-							// Exclude tokens marked revoked (backwards-compatible check in case
-							// token documents include a revoked flag). Use a typed cast instead of
-							// `any` to satisfy the linter.
-							.filter((t) => {
-								const tt = t as Doc<"shareTokens"> & { revoked?: boolean };
-								return !(tt.revoked === true);
-							})
-							// Sort newest first by createdAt.
-							.sort((a, b) => b.createdAt - a.createdAt)
-							.map((t) => ({
-								_id: t._id,
-								role: t.role,
-								createdBy: t.createdBy,
-								createdAt: t.createdAt,
-								expiresAt: t.expiresAt,
-							}))
-					: [],
+			tokens: isManager
+				? tokens
+						// Exclude expired tokens. expiresAt may be null/undefined or a number.
+						.filter(
+							(t) =>
+								!(typeof t.expiresAt === "number" && t.expiresAt < Date.now()),
+						)
+						// Exclude tokens marked revoked (backwards-compatible check in case
+						// token documents include a revoked flag). Use a typed cast instead of
+						// `any` to satisfy the linter.
+						.filter((t) => {
+							const tt = t as Doc<"shareTokens"> & { revoked?: boolean };
+							return !(tt.revoked === true);
+						})
+						// Sort newest first by createdAt.
+						.sort((a, b) => b.createdAt - a.createdAt)
+						.map((t) => ({
+							_id: t._id,
+							role: t.role,
+							createdBy: t.createdBy,
+							createdAt: t.createdAt,
+							expiresAt: t.expiresAt,
+						}))
+				: [],
 			callerRole: callerRoleForReturn,
 		};
 	},
@@ -466,7 +468,8 @@ export const revokeShareToken = mutation({
 		if (token.documentId !== documentId) {
 			throw new ConvexError("Token does not belong to document");
 		}
-		await ctx.db.delete(tokenId);
+		// Soft-revoke for auditability: mark revokedAt and revokedBy rather than hard-delete.
+		await ctx.db.patch(tokenId, { revokedAt: Date.now(), revokedBy: callerId });
 		return null;
 	},
 });

@@ -16,7 +16,7 @@ export const createShareToken = mutation({
 			v.literal("commenter"),
 			v.literal("editor"),
 		),
-		expiresAt: v.optional(v.union(v.number(), v.null())),
+		expiresAt: v.optional(v.number()),
 	},
 	returns: v.object({
 		tokenId: v.id("shareTokens"),
@@ -78,7 +78,8 @@ export const createShareToken = mutation({
 			role,
 			createdBy: callerId,
 			createdAt: now,
-			expiresAt: expiresAt === undefined ? null : expiresAt,
+			// Schema expects expiresAt as optional number (undefined when absent).
+			expiresAt: expiresAt === undefined ? undefined : expiresAt,
 		});
 
 		// Return plaintext token only to the caller (not stored in DB)

@@ -345,9 +345,13 @@ export function ShareDialog({
 				createShareToken?: unknown;
 				sharing?: { createShareToken?: unknown };
 			};
-			const runtimeTyped = api as unknown as { sharing?: { createShareToken?: unknown } };
+			const runtimeTyped = api as unknown as {
+				sharing?: { createShareToken?: unknown };
+			};
 			const createShareTokenRef =
-				genTyped.createShareToken ?? genTyped.sharing?.createShareToken ?? runtimeTyped.sharing?.createShareToken;
+				genTyped.createShareToken ??
+				genTyped.sharing?.createShareToken ??
+				runtimeTyped.sharing?.createShareToken;
 			if (!createShareTokenRef) {
 				throw new Error("createShareToken mutation not available");
 			}
