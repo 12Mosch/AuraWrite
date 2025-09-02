@@ -43,8 +43,6 @@ export interface DocumentActionsMenuProps {
 	documentTitle: string;
 	isFavorite?: boolean;
 	status?: "draft" | "published" | "archived";
-	ownerId?: string;
-	collaborators?: Array<{ userId: string; name: string; role?: string }>;
 	onEdit?: () => void;
 	onShare?: () => void;
 	onMove?: (folderId?: Id<"folders">) => void;
@@ -57,8 +55,6 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 	documentTitle,
 	isFavorite = false,
 	status = "draft",
-	ownerId,
-	collaborators,
 	onEdit,
 	onShare,
 	onMove,
@@ -207,9 +203,10 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 
 	// Handle share
 	const handleShare = useCallback(() => {
-		// Call optional external handler then open our Share dialog
-		onShare?.();
-		setShareOpen(true);
+		// Call optional external handler then open our Share dialog.
+		// If onShare performs navigation or async preloads, await it to avoid
+		// dialog flicker by opening the dialog only after it settles.
+		Promise.resolve(onShare?.()).finally(() => setShareOpen(true));
 	}, [onShare]);
 
 	// Fetch folder tree once at top-level to satisfy Hooks rules
@@ -435,10 +432,7 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 			<ShareDialog
 				open={shareOpen}
 				onOpenChange={setShareOpen}
-				documentId={documentId as unknown as string}
-				title={documentTitle}
-				ownerId={ownerId}
-				collaborators={collaborators}
+				documentId={String(documentId)}
 			/>
 
 			<AlertDialog

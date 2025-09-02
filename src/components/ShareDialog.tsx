@@ -35,17 +35,57 @@ import {
 
 type SharingApi = {
 	sharing?: {
-		getDocumentSharing?: (...args: unknown[]) => unknown;
-		addCollaborator?: (...args: unknown[]) => unknown;
-		removeCollaborator?: (...args: unknown[]) => unknown;
-		updateCollaboratorRole?: (...args: unknown[]) => unknown;
-		setPublic?: (...args: unknown[]) => unknown;
-		createShareToken?: (...args: unknown[]) => unknown;
-		revokeShareToken?: (...args: unknown[]) => unknown;
+		getDocumentSharing?: (args: { documentId: Id<"documents"> }) => unknown;
+		addCollaborator?: (args: {
+			documentId: Id<"documents">;
+			userId: Id<"users">;
+			role: CollaboratorRole;
+		}) => unknown;
+		removeCollaborator?: (args: {
+			documentId: Id<"documents">;
+			userId: Id<"users">;
+		}) => unknown;
+		updateCollaboratorRole?: (args: {
+			documentId: Id<"documents">;
+			userId: Id<"users">;
+			role: CollaboratorRole;
+		}) => unknown;
+		setPublic?: (args: {
+			documentId: Id<"documents">;
+			isPublic: boolean;
+		}) => unknown;
+		createShareToken?: (args: {
+			documentId: Id<"documents">;
+			role: CollaboratorRole;
+		}) => unknown;
+		revokeShareToken?: (args: {
+			documentId: Id<"documents">;
+			tokenId: Id<"shareTokens">;
+		}) => unknown;
 	};
 };
 
 export type CollaboratorRole = "viewer" | "commenter" | "editor";
+
+/**
+ * Local UI extension of the sharing payload that includes optional
+ * user metadata (name/email) when the server provides it.
+ * We keep fields optional to remain compatible with current server shape.
+ */
+interface SharingWithMeta {
+	ownerId: Id<"users">;
+	ownerName?: string | null;
+	ownerEmail?: string | null;
+	collaborators?: Array<{
+		userId: Id<"users">;
+		role: CollaboratorRole;
+		createdAt: number;
+		name?: string | null;
+		email?: string | null;
+	}>;
+	// other fields are allowed but not typed here
+	[key: string]: unknown;
+}
 
 export interface ShareDialogProps {
 	open: boolean;
@@ -89,12 +129,9 @@ export function ShareDialog({
 	const { isOnline } = useNetworkStatus();
 
 	// Live query of document sharing state
-	// Type-safe fallback to allow compilation before Convex codegen picks up convex/sharing.ts
-	const apiAny = api as unknown as SharingApi;
-	// Prefer generated API when available; fall back to typed optional fallback
-	const sharingApi = ((
-		generatedApi as unknown as { sharing?: typeof generatedApi.sharing }
-	)?.sharing ?? apiAny.sharing) as typeof generatedApi.sharing;
+	// Use generated API if available, otherwise fall back to runtime API
+	const sharingApi = (generatedApi.sharing ??
+		(api as unknown as SharingApi).sharing) as typeof generatedApi.sharing;
 
 	const sharing = useQuery(sharingApi.getDocumentSharing, {
 		documentId: documentId as Id<"documents">,
@@ -208,7 +245,7 @@ export function ShareDialog({
 				description: `${user.name || user.email} added as ${inviteRole}.`,
 			});
 		} catch (e: unknown) {
-			const msg = getErrorMessage(e) || "Failed to add collaborator";
+			const msg = getErrorMessage(e);
 			toast.error("Add collaborator failed", { description: msg });
 		} finally {
 			setBusy(false);
@@ -229,7 +266,7 @@ export function ShareDialog({
 			});
 			toast.success("Collaborator removed");
 		} catch (e: unknown) {
-			const msg = getErrorMessage(e) || "Failed to remove collaborator";
+			const msg = getErrorMessage(e);
 			toast.error("Remove failed", { description: msg });
 		} finally {
 			setBusy(false);
@@ -252,7 +289,7 @@ export function ShareDialog({
 			});
 			toast.success("Role updated", { description: `Role set to ${role}.` });
 		} catch (e: unknown) {
-			const msg = getErrorMessage(e) || "Failed to update role";
+			const msg = getErrorMessage(e);
 			toast.error("Update role failed", { description: msg });
 		} finally {
 			setBusy(false);
@@ -286,7 +323,7 @@ export function ShareDialog({
 					: "Public access disabled.",
 			});
 		} catch (e: unknown) {
-			const msg = getErrorMessage(e) || "Failed to update visibility";
+			const msg = getErrorMessage(e);
 			toast.error("Update failed", { description: msg });
 		} finally {
 			setBusy(false);
@@ -302,17 +339,17 @@ export function ShareDialog({
 		}
 		setBusy(true);
 		try {
-			// Prefer generated API ref when available; fall back to api.sharing.
-			// Locate the generated FunctionReference for the node-only createShareToken mutation.
-			// The codegen may export this at the top-level (e.g. `generatedApi.createShareToken`)
-			// or under a module name; avoid indexing into a specific typed module to prevent TS errors.
-			const genApiAny = generatedApi as unknown as Record<string, unknown>;
-			const genSharingAny =
-				(generatedApi as unknown as { sharing?: Record<string, unknown> }).sharing ??
-				undefined;
-			const fnRefUnknown = (genApiAny.createShareToken ??
-				genSharingAny?.createShareToken ??
-				(api as unknown as SharingApi).sharing?.createShareToken) as unknown;
+			const getCreateShareTokenRef = () => {
+				const genApiAny = generatedApi as unknown as Record<string, unknown>;
+				const genSharingAny =
+					(generatedApi as unknown as { sharing?: Record<string, unknown> })
+						.sharing ?? undefined;
+				return (genApiAny.createShareToken ??
+					genSharingAny?.createShareToken ??
+					(api as unknown as SharingApi).sharing?.createShareToken) as unknown;
+			};
+
+			const fnRefUnknown = getCreateShareTokenRef();
 			if (!fnRefUnknown) {
 				throw new Error("createShareToken mutation not available");
 			}
@@ -329,7 +366,7 @@ export function ShareDialog({
 			// Copy newly created link
 			await handleCopyText(tokenUrl);
 		} catch (e: unknown) {
-			const msg = getErrorMessage(e) || "Failed to create link";
+			const msg = getErrorMessage(e);
 			toast.error("Create link failed", { description: msg });
 		} finally {
 			setBusy(false);
@@ -351,7 +388,7 @@ export function ShareDialog({
 			});
 			toast.success("Link revoked");
 		} catch (e: unknown) {
-			const msg = getErrorMessage(e) || "Failed to revoke link";
+			const msg = getErrorMessage(e);
 			toast.error("Revoke failed", { description: msg });
 		} finally {
 			setBusy(false);
@@ -364,8 +401,8 @@ export function ShareDialog({
 		<Shield className="h-4 w-4" />
 	);
 
-	// Construct "default" share URL for copy button: public if enabled, otherwise plain doc route (may rely on permission/collab)
-	const defaultShareUrl = sharing?.isPublic ? basePublicUrl : basePublicUrl;
+	// Use base URL for the default share link
+	const defaultShareUrl = basePublicUrl;
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -421,7 +458,7 @@ export function ShareDialog({
 								<span className="text-sm font-medium">Public Access</span>
 								<span className="text-xs text-muted-foreground">
 									{sharing?.isPublic
-										? "Anyone with the link can view (server-side checks still apply for editing)."
+										? "Anyone with the link can view this document."
 										: "Only collaborators can access (or via link tokens)."}
 								</span>
 							</div>
@@ -501,7 +538,11 @@ export function ShareDialog({
 										<div className="flex flex-col">
 											<span className="text-sm font-medium">Owner</span>
 											<span className="text-xs text-muted-foreground">
-												{String(sharing.ownerId)}
+												{String(
+													(sharing as SharingWithMeta).ownerName ??
+														(sharing as SharingWithMeta).ownerEmail ??
+														sharing.ownerId,
+												)}
 											</span>
 										</div>
 									</div>
@@ -520,58 +561,78 @@ export function ShareDialog({
 									userId: Id<"users">;
 									role: CollaboratorRole;
 									createdAt: number;
-								}) => (
-									<div
-										key={String(c.userId)}
-										className="flex items-center justify-between rounded-md border px-3 py-2"
-									>
-										<div className="flex items-center gap-3">
-											<div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-												{/* Placeholder initials since we don't have name in this payload */}
-												U
+									// optional metadata returned by the server (name/email)
+									name?: string | null;
+									email?: string | null;
+								}) => {
+									const display =
+										(c.name && String(c.name)) ||
+										(c.email && String(c.email)) ||
+										String(c.userId);
+									// derive initials from name or email (before @) fallback to first char of id
+									const computeInitials = (s: string) => {
+										if (!s) return "U";
+										const nameParts = s.trim().split(/\s+/);
+										if (nameParts.length >= 2) {
+											return (
+												String(nameParts[0][0] || "") +
+												String(nameParts[1][0] || "")
+											).toUpperCase();
+										}
+										const local = s.split("@")[0];
+										return (local.slice(0, 2) || s[0]).toUpperCase();
+									};
+									const initials = computeInitials(display);
+									return (
+										<div
+											key={String(c.userId)}
+											className="flex items-center justify-between rounded-md border px-3 py-2"
+										>
+											<div className="flex items-center gap-3">
+												<div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold">
+													{initials}
+												</div>
+												<div className="flex flex-col">
+													<span className="text-sm font-medium">{display}</span>
+													<span className="text-xs text-muted-foreground">
+														Added: {new Date(c.createdAt).toLocaleString()}
+													</span>
+												</div>
 											</div>
-											<div className="flex flex-col">
-												<span className="text-sm font-medium">
-													{String(c.userId)}
-												</span>
-												<span className="text-xs text-muted-foreground">
-													Added: {new Date(c.createdAt).toLocaleString()}
-												</span>
+
+											<div className="flex items-center gap-2">
+												{/* Role selector: owner only */}
+												<Select
+													value={c.role}
+													onValueChange={(v) =>
+														updateRole(c.userId, v as CollaboratorRole)
+													}
+													disabled={!canChangeRole || busy}
+												>
+													<SelectTrigger className="w-[140px]">
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent>
+														<SelectItem value="viewer">Viewer</SelectItem>
+														<SelectItem value="commenter">Commenter</SelectItem>
+														<SelectItem value="editor">Editor</SelectItem>
+													</SelectContent>
+												</Select>
+
+												<Button
+													type="button"
+													variant="outline"
+													size="icon"
+													onClick={() => removeCollaborator(c.userId)}
+													disabled={busy || !isOnline}
+													title={!isOnline ? "Offline" : ""}
+												>
+													<Trash2 className="h-4 w-4" />
+												</Button>
 											</div>
 										</div>
-
-										<div className="flex items-center gap-2">
-											{/* Role selector: owner only */}
-											<Select
-												value={c.role}
-												onValueChange={(v) =>
-													updateRole(c.userId, v as CollaboratorRole)
-												}
-												disabled={!canChangeRole || busy}
-											>
-												<SelectTrigger className="w-[140px]">
-													<SelectValue />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectItem value="viewer">Viewer</SelectItem>
-													<SelectItem value="commenter">Commenter</SelectItem>
-													<SelectItem value="editor">Editor</SelectItem>
-												</SelectContent>
-											</Select>
-
-											<Button
-												type="button"
-												variant="outline"
-												size="icon"
-												onClick={() => removeCollaborator(c.userId)}
-												disabled={busy || !isOnline}
-												title={!isOnline ? "Offline" : ""}
-											>
-												<Trash2 className="h-4 w-4" />
-											</Button>
-										</div>
-									</div>
-								),
+									);
+								},
 							)}
 						</div>
 					</div>
@@ -623,12 +684,12 @@ export function ShareDialog({
 							{sharing?.tokens?.map(
 								(t: {
 									_id: Id<"shareTokens">;
-									token: string;
+									token?: string;
 									role: CollaboratorRole;
 									createdAt: number;
 									expiresAt?: number | null;
 								}) => {
-									const url = `${basePublicUrl}?t=${t.token}`;
+									const url = t.token ? `${basePublicUrl}?t=${t.token}` : defaultShareUrl;
 									return (
 										<div
 											key={String(t._id)}

@@ -215,6 +215,11 @@ const schema = defineSchema({
 	documentCollaborators: defineTable({
 		documentId: v.id("documents"),
 		userId: v.id("users"),
+		// Synthetic composite key to enforce a single row per (documentId, userId).
+		// Convex compound indexes are not unique, so we store a deterministic
+		// compositeKey string (e.g. "<documentId>|<userId>") and index it to allow
+		// lookups and deterministic upsert semantics.
+		compositeKey: v.string(),
 		role: v.union(
 			v.literal("viewer"),
 			v.literal("commenter"),
@@ -225,14 +230,19 @@ const schema = defineSchema({
 		updatedAt: v.number(),
 	})
 		.index("by_document", ["documentId"])
-		.index("by_user_document", ["userId", "documentId"]),
+		.index("by_user_document", ["userId", "documentId"])
+		// Enforce a single-row-per-pair behavior by indexing the synthetic composite key.
+		.index("by_compositeKey", ["compositeKey"]),
 
 	// Sharing: link-based access tokens for documents
-	// NOTE: For production, prefer storing only a hash of `token` and never the raw token.
-	// This MVP stores the raw token string for simplicity. Rotate frequently.
+	// NOTE: We store a one-way hash of the share token (e.g. SHA-256) and never
+	// persist or return the raw plaintext token. The raw token is only returned
+	// once at creation time to the caller. This prevents accidental exposure if
+	// the DB is read or logs are leaked.
 	shareTokens: defineTable({
 		documentId: v.id("documents"),
-		token: v.string(), // consider hashing in a follow-up
+		// `token` contains the token hash (not the plaintext token)
+		token: v.string(),
 		role: v.union(
 			v.literal("viewer"),
 			v.literal("commenter"),

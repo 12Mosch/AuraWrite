@@ -33,11 +33,10 @@ async function requireOwnerOrEditor(
 	// Check role in documentCollaborators
 	let isEditor = false;
 	if (!isOwner) {
+		const compositeKey = `${String(documentId)}|${String(callerId)}`;
 		const rows: Doc<"documentCollaborators">[] = await ctx.db
 			.query("documentCollaborators")
-			.withIndex("by_user_document", (q) =>
-				q.eq("userId", callerId).eq("documentId", documentId),
-			)
+			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
 			.collect();
 		isEditor = rows.some(
 			(r: Doc<"documentCollaborators">) => r.role === "editor",
@@ -63,6 +62,31 @@ async function requireOwner(
 	if (doc.ownerId !== callerId)
 		throw new ConvexError("Access denied: Owner only");
 	return doc;
+}
+
+/**
+ * Helper: Determine the highest role for a user on a document
+ */
+async function getUserRole(
+	ctx: QueryCtx | MutationCtx,
+	documentId: Id<"documents">,
+	userId: Id<"users">,
+	ownerId: Id<"users">,
+): Promise<"owner" | "editor" | "commenter" | "viewer" | undefined> {
+	if (userId === ownerId) return "owner";
+
+	const compositeKey = `${String(documentId)}|${String(userId)}`;
+	const rows: Doc<"documentCollaborators">[] = await ctx.db
+		.query("documentCollaborators")
+		.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+		.collect();
+
+	if (rows.length === 0) return undefined;
+
+	// Return highest role if multiple rows exist (shouldn't normally happen)
+	if (rows.some((r) => r.role === "editor")) return "editor";
+	if (rows.some((r) => r.role === "commenter")) return "commenter";
+	return "viewer";
 }
 
 /**
@@ -92,7 +116,6 @@ export const getDocumentSharing = query({
 			v.object({
 				_id: v.id("shareTokens"),
 				role: RoleValidator,
-				token: v.string(),
 				createdBy: v.id("users"),
 				createdAt: v.number(),
 				expiresAt: v.optional(v.union(v.number(), v.null())),
@@ -109,27 +132,22 @@ export const getDocumentSharing = query({
 
 		// Access: allow owner, collaborators (any role), or public viewers
 		let hasAccess = doc.ownerId === callerId || doc.isPublic === true;
-		let callerRole: "viewer" | "commenter" | "editor" | undefined;
+		const callerRole = await getUserRole(
+			ctx,
+			documentId,
+			callerId,
+			doc.ownerId,
+		);
 
-		if (!hasAccess) {
-			const rows: Doc<"documentCollaborators">[] = await ctx.db
-				.query("documentCollaborators")
-				.withIndex("by_user_document", (q) =>
-					q.eq("userId", callerId).eq("documentId", documentId),
-				)
-				.collect();
-			if (rows.length > 0) {
-				hasAccess = true;
-				// Prefer the highest role if multiple rows exist (shouldn't normally happen)
-				if (rows.some((r: Doc<"documentCollaborators">) => r.role === "editor"))
-					callerRole = "editor";
-				else if (
-					rows.some((r: Doc<"documentCollaborators">) => r.role === "commenter")
-				)
-					callerRole = "commenter";
-				else callerRole = "viewer";
-			}
+		if (!hasAccess && callerRole) {
+			hasAccess = true;
 		}
+
+		// Map 'owner' to undefined for outward-facing callerRole (RoleValidator doesn't include 'owner')
+		const callerRoleForReturn: "viewer" | "commenter" | "editor" | undefined =
+			callerRole === "owner"
+				? undefined
+				: (callerRole as "viewer" | "commenter" | "editor" | undefined);
 
 		if (!hasAccess) {
 			throw new ConvexError("Access denied");
@@ -157,15 +175,17 @@ export const getDocumentSharing = query({
 				createdAt: c.createdAt,
 				updatedAt: c.updatedAt,
 			})),
+			// Do not return raw or hashed tokens in query responses. Raw tokens are
+			// returned only once at creation. Returning token hashes provides no
+			// benefit to clients and increases risk of accidental exposure.
 			tokens: tokens.map((t) => ({
 				_id: t._id,
 				role: t.role,
-				token: t.token, // SECURITY NOTE: consider not returning raw tokens except at creation time.
 				createdBy: t.createdBy,
 				createdAt: t.createdAt,
 				expiresAt: t.expiresAt,
 			})),
-			callerRole,
+			callerRole: callerRoleForReturn,
 		};
 	},
 });
@@ -196,12 +216,11 @@ export const addCollaborator = mutation({
 			throw new ConvexError("Editors cannot grant editor role");
 		}
 
-		// Check if already present
+		// Compute deterministic composite key and check for existing entry
+		const compositeKey = `${String(documentId)}|${String(userId)}`;
 		const existing = await ctx.db
 			.query("documentCollaborators")
-			.withIndex("by_user_document", (q) =>
-				q.eq("userId", userId).eq("documentId", documentId),
-			)
+			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
 			.collect();
 		if (existing.length > 0) {
 			throw new ConvexError("User already a collaborator");
@@ -211,6 +230,7 @@ export const addCollaborator = mutation({
 		const id = await ctx.db.insert("documentCollaborators", {
 			documentId,
 			userId,
+			compositeKey,
 			role,
 			addedBy: callerId,
 			createdAt: now,
@@ -218,6 +238,7 @@ export const addCollaborator = mutation({
 		});
 
 		// Backward-compat: ensure legacy collaborators array contains the id (optional)
+		// TODO: Remove this once all documents have been migrated to the new schema
 		const coll = doc.collaborators || [];
 		if (!coll.includes(userId)) {
 			await ctx.db.patch(documentId, {
@@ -248,27 +269,13 @@ export const removeCollaborator = mutation({
 			throw new ConvexError("Cannot remove owner");
 		}
 
-		// Determine caller role if not owner
-		let callerRole: "viewer" | "commenter" | "editor" | "owner" = "viewer";
-		if (doc.ownerId === callerId) callerRole = "owner";
-		else {
-			const rows = await ctx.db
-				.query("documentCollaborators")
-				.withIndex("by_user_document", (q) =>
-					q.eq("userId", callerId).eq("documentId", documentId),
-				)
-				.collect();
-			if (rows.some((r) => r.role === "editor")) callerRole = "editor";
-			else if (rows.some((r) => r.role === "commenter"))
-				callerRole = "commenter";
-			else callerRole = "viewer";
-		}
+		const callerRole =
+			(await getUserRole(ctx, documentId, callerId, doc.ownerId)) ?? "viewer";
 
+		const compositeKey = `${String(documentId)}|${String(userId)}`;
 		const targetRows: Doc<"documentCollaborators">[] = await ctx.db
 			.query("documentCollaborators")
-			.withIndex("by_user_document", (q) =>
-				q.eq("userId", userId).eq("documentId", documentId),
-			)
+			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
 			.collect();
 		if (targetRows.length === 0) {
 			throw new ConvexError("Collaborator not found");
@@ -319,20 +326,24 @@ export const updateCollaboratorRole = mutation({
 			throw new ConvexError("Owner role cannot be changed");
 		}
 
+		const compositeKey = `${String(documentId)}|${String(userId)}`;
 		const rows: Doc<"documentCollaborators">[] = await ctx.db
 			.query("documentCollaborators")
-			.withIndex("by_user_document", (q) =>
-				q.eq("userId", userId).eq("documentId", documentId),
-			)
+			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
 			.collect();
 
 		if (rows.length === 0) {
 			throw new ConvexError("Collaborator not found");
 		}
 
-		for (const r of rows) {
-			await ctx.db.patch(r._id, { role, updatedAt: Date.now() });
+		// There should only be one row per user-document pair.
+		// If multiple rows exist, log a warning and update the first entry.
+		if (rows.length > 1) {
+			console.warn(
+				`Multiple collaborator entries found for user ${userId} on document ${documentId}`,
+			);
 		}
+		await ctx.db.patch(rows[0]._id, { role, updatedAt: Date.now() });
 		return null;
 	},
 });
