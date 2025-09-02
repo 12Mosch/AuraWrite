@@ -249,10 +249,28 @@ export const addCollaborator = mutation({
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
 			.collect();
 		if (existing.length > 0) {
-			// Idempotent add: if a collaborator row already exists, refresh updatedAt
-			// and return the existing row id instead of throwing a 409-style error.
-			await ctx.db.patch(existing[0]._id, { updatedAt: Date.now() });
-			return existing[0]._id;
+			// Normalize deterministically to a single row for this (documentId, userId)
+			// Keep the earliest by createdAt; tie-break on _id for stability.
+			const sorted = existing
+				.slice()
+				.sort((a, b) =>
+					a.createdAt !== b.createdAt
+						? a.createdAt - b.createdAt
+						: String(a._id).localeCompare(String(b._id)),
+				);
+			const [keep, ...dupes] = sorted;
+			const nowTs = Date.now();
+			// Refresh the surviving row's updatedAt and desired role if necessary.
+			await ctx.db.patch(keep._id, {
+				// Preserve existing role unless escalating via updateCollaboratorRole API.
+				// Here we only refresh updatedAt to make "add" idempotent.
+				updatedAt: nowTs,
+			});
+			// Remove any duplicates to converge state even if prior races occurred.
+			if (dupes.length > 0) {
+				await Promise.all(dupes.map((d) => ctx.db.delete(d._id)));
+			}
+			return keep._id;
 		}
 
 		const now = Date.now();
@@ -266,13 +284,22 @@ export const addCollaborator = mutation({
 			updatedAt: now,
 		});
 
-		// Best-effort dedupe: recheck and remove extras keeping the earliest.
+		// Best-effort dedupe under concurrency:
+		// Recheck and deterministically remove extras, keeping the earliest by createdAt,
+		// with a stable tie-break on _id to ensure convergence when timestamps collide.
 		const after = await ctx.db
 			.query("documentCollaborators")
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
 			.collect();
 		if (after.length > 1) {
-			const [keep, ...dupes] = after.sort((a, b) => a.createdAt - b.createdAt);
+			const sorted = after
+				.slice()
+				.sort((a, b) =>
+					a.createdAt !== b.createdAt
+						? a.createdAt - b.createdAt
+						: String(a._id).localeCompare(String(b._id)),
+				);
+			const [keep, ...dupes] = sorted;
 			await Promise.all(dupes.map((d) => ctx.db.delete(d._id)));
 			return keep._id;
 		}

@@ -339,32 +339,33 @@ export function ShareDialog({
 		}
 		setBusy(true);
 		try {
-			const getCreateShareTokenRef = () => {
-				const genApiAny = generatedApi as unknown as Record<string, unknown>;
-				const genSharingAny =
-					(generatedApi as unknown as { sharing?: Record<string, unknown> })
-						.sharing ?? undefined;
-				return (genApiAny.createShareToken ??
-					genSharingAny?.createShareToken ??
-					(api as unknown as SharingApi).sharing?.createShareToken) as unknown;
+			// Resolve createShareToken mutation reference with a concise, robust fallback.
+			// Try the generated API root, generatedApi.sharing, then runtime api.sharing.
+			const genTyped = generatedApi as unknown as {
+				createShareToken?: unknown;
+				sharing?: { createShareToken?: unknown };
 			};
-
-			const fnRefUnknown = getCreateShareTokenRef();
-			if (!fnRefUnknown) {
+			const runtimeTyped = api as unknown as { sharing?: { createShareToken?: unknown } };
+			const createShareTokenRef =
+				genTyped.createShareToken ?? genTyped.sharing?.createShareToken ?? runtimeTyped.sharing?.createShareToken;
+			if (!createShareTokenRef) {
 				throw new Error("createShareToken mutation not available");
 			}
-			// Cast to the FunctionReference shape expected by convex.mutation
-			const fnRef = fnRefUnknown as Parameters<typeof convex.mutation>[0];
-			const res = (await convex.mutation(fnRef, {
-				documentId: documentId as Id<"documents">,
-				role: creatingTokenRole,
-			})) as unknown as { token?: string };
-			const tokenUrl = `${basePublicUrl}?t=${res.token ?? ""}`;
+			const res = (await convex.mutation(
+				createShareTokenRef as Parameters<typeof convex.mutation>[0],
+				{
+					documentId: documentId as Id<"documents">,
+					role: creatingTokenRole,
+				},
+			)) as unknown as { token?: string };
+			// Only newly created tokens will include the raw token value.
+			const token = res.token && res.token.trim() !== "" ? res.token : null;
+			const tokenUrl = token ? `${basePublicUrl}?t=${token}` : null;
 			toast.success("Link created", {
 				description: "A new share link has been created.",
 			});
-			// Copy newly created link
-			await handleCopyText(tokenUrl);
+			// Copy newly created link if present
+			if (tokenUrl) await handleCopyText(tokenUrl);
 		} catch (e: unknown) {
 			const msg = getErrorMessage(e);
 			toast.error("Create link failed", { description: msg });
@@ -571,7 +572,7 @@ export function ShareDialog({
 										String(c.userId);
 									// derive initials from name or email (before @) fallback to first char of id
 									const computeInitials = (s: string) => {
-										if (!s) return "U";
+										if (!s || s.trim() === "") return "U";
 										const nameParts = s.trim().split(/\s+/);
 										if (nameParts.length >= 2) {
 											return (
@@ -579,8 +580,19 @@ export function ShareDialog({
 												String(nameParts[1][0] || "")
 											).toUpperCase();
 										}
-										const local = s.split("@")[0];
-										return (local.slice(0, 2) || s[0]).toUpperCase();
+										// Handle email addresses
+										if (s.includes("@")) {
+											const local = s.split("@")[0];
+											if (local.length >= 2) {
+												return local.slice(0, 2).toUpperCase();
+											}
+											return (local[0] || "U").toUpperCase();
+										}
+										// Handle single name
+										if (s.length >= 2) {
+											return s.slice(0, 2).toUpperCase();
+										}
+										return s[0].toUpperCase();
 									};
 									const initials = computeInitials(display);
 									return (
@@ -689,9 +701,10 @@ export function ShareDialog({
 									createdAt: number;
 									expiresAt?: number | null;
 								}) => {
-									const url = t.token
-										? `${basePublicUrl}?t=${t.token}`
-										: defaultShareUrl;
+									// Only newly created tokens will have the raw token value
+									// Existing tokens are hashed and cannot be displayed
+									const hasToken = t.token && t.token.trim() !== "";
+									const url = hasToken ? `${basePublicUrl}?t=${t.token}` : null;
 									return (
 										<div
 											key={String(t._id)}
@@ -706,14 +719,15 @@ export function ShareDialog({
 													{t.expiresAt
 														? ` • Expires ${new Date(t.expiresAt).toLocaleString()}`
 														: ""}
+													{!hasToken ? " • Link unavailable" : ""}
 												</span>
 											</div>
 											<div className="flex items-center gap-2">
 												<Button
 													type="button"
 													variant="outline"
-													onClick={() => handleCopyText(url)}
-													disabled={!isOnline}
+													onClick={() => url && handleCopyText(url)}
+													disabled={!isOnline || !url}
 													title={!isOnline ? "Offline" : ""}
 												>
 													<Copy className="h-4 w-4 mr-2" />
