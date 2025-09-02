@@ -1,5 +1,4 @@
 import { useConvex, useMutation, useQuery } from "convex/react";
-import type { FunctionReference } from "convex/server";
 import {
 	Copy,
 	Link as LinkIcon,
@@ -303,24 +302,27 @@ export function ShareDialog({
 		}
 		setBusy(true);
 		try {
-			// Use the generated API reference if available at compile time.
-			// This yields a proper FunctionReference that convex.mutation accepts.
-			const generatedCreateRef =
-				(generatedApi as unknown as {
-					createShareToken?: { createShareToken?: unknown };
-				})?.createShareToken?.createShareToken;
-			if (!generatedCreateRef) {
+			// Prefer generated API ref when available; fall back to api.sharing.
+			// Locate the generated FunctionReference for the node-only createShareToken mutation.
+			// The codegen may export this at the top-level (e.g. `generatedApi.createShareToken`)
+			// or under a module name; avoid indexing into a specific typed module to prevent TS errors.
+			const genApiAny = generatedApi as unknown as Record<string, unknown>;
+			const genSharingAny =
+				(generatedApi as unknown as { sharing?: Record<string, unknown> }).sharing ??
+				undefined;
+			const fnRefUnknown = (genApiAny.createShareToken ??
+				genSharingAny?.createShareToken ??
+				(api as unknown as SharingApi).sharing?.createShareToken) as unknown;
+			if (!fnRefUnknown) {
 				throw new Error("createShareToken mutation not available");
 			}
-			// Cast the statically-resolved generated reference to FunctionReference so TS is satisfied.
-			const fnRef = generatedCreateRef as unknown as FunctionReference<any, "mutation">;
-			const res = await convex.mutation(fnRef, {
+			// Cast to the FunctionReference shape expected by convex.mutation
+			const fnRef = fnRefUnknown as Parameters<typeof convex.mutation>[0];
+			const res = (await convex.mutation(fnRef, {
 				documentId: documentId as Id<"documents">,
 				role: creatingTokenRole,
-			});
-			// Narrow the mutation result to a known shape without using `any`
-			const token = (res as unknown as { token?: string }).token;
-			const tokenUrl = `${basePublicUrl}?t=${token ?? ""}`;
+			})) as unknown as { token?: string };
+			const tokenUrl = `${basePublicUrl}?t=${res.token ?? ""}`;
 			toast.success("Link created", {
 				description: "A new share link has been created.",
 			});
