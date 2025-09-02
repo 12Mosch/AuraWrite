@@ -12,6 +12,90 @@ import {
 	getCurrentUser,
 } from "./authHelpers";
 
+/**
+ * Helper: redact collaborators field for non-manager callers.
+ * A manager is the owner or an editor on the document.
+ */
+async function redactCollaboratorsForCaller(
+	ctx: QueryCtx | MutationCtx,
+	document: Doc<"documents">,
+	callerId?: Id<"users">,
+) {
+	// If there's no callerId (anonymous) and the doc is public, redact collaborators.
+	if (!callerId) {
+		return { ...document, collaborators: [] as Id<"users">[] | undefined };
+	}
+
+	// Owner is always a manager.
+	if (document.ownerId === callerId) return document;
+
+	// Check live documentCollaborators for an editor role for the caller.
+	const compositeKey = `${String(document._id)}|${String(callerId)}`;
+	const rows = await ctx.db
+		.query("documentCollaborators")
+		.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+		.collect();
+	const isEditor = rows.some((r) => r.role === "editor");
+
+	if (!isEditor) {
+		// Not a manager: return a shallow copy with collaborators redacted.
+		return { ...document, collaborators: [] as Id<"users">[] | undefined };
+	}
+	return document;
+}
+
+/**
+ * Bulk redaction helper: given a page of documents, determine which docs the caller
+ * is a manager for (owner or editor) with a single query, then redact collaborators
+ * on non-manager docs.
+ */
+async function redactForCallerBulk(
+	ctx: QueryCtx | MutationCtx,
+	docs: Doc<"documents">[],
+	callerId?: Id<"users">,
+) {
+	// Fast path: anonymous caller - redact all collaborators
+	if (!callerId) {
+		return docs.map((d) => ({
+			...d,
+			collaborators: [] as Id<"users">[] | undefined,
+		}));
+	}
+
+	// Build set of doc ids for quick lookup
+	const docIdSet = new Set(docs.map((d) => String(d._id)));
+
+	// Owner ids are always managers; collect them to avoid DB lookups for those docs
+	const ownerManaged = new Set<string>();
+	for (const d of docs) {
+		if (d.ownerId === callerId) ownerManaged.add(String(d._id));
+	}
+
+	// If all docs are owner-managed, return early
+	if (ownerManaged.size === docs.length) return docs;
+
+	// Fetch all collaborator rows for the caller using `by_user` index and filter to our doc set.
+	// This avoids N queries for N docs.
+	const rows: Doc<"documentCollaborators">[] = await ctx.db
+		.query("documentCollaborators")
+		.withIndex("by_user_document", (q) => q.eq("userId", callerId))
+		.collect();
+
+	// Determine which documentIds the caller is an editor for
+	const editorDocIds = new Set(
+		rows
+			.filter((r) => r.role === "editor" && docIdSet.has(String(r.documentId)))
+			.map((r) => String(r.documentId)),
+	);
+
+	// Map docs to redacted or original depending on owner/editor membership
+	return docs.map((d) =>
+		ownerManaged.has(String(d._id)) || editorDocIds.has(String(d._id))
+			? d
+			: { ...d, collaborators: [] as Id<"users">[] | undefined },
+	);
+}
+
 // Helper function to check document edit permissions
 async function checkDocumentEditAccess(
 	ctx: QueryCtx | MutationCtx,
@@ -132,7 +216,8 @@ export const getDocument = query({
 	handler: async (ctx, { documentId }) => {
 		try {
 			const userId = await getCurrentUser(ctx);
-			return await checkDocumentAccess(ctx, documentId, userId);
+			const doc = await checkDocumentAccess(ctx, documentId, userId);
+			return await redactCollaboratorsForCaller(ctx, doc, userId);
 		} catch (error: unknown) {
 			const isExpected = (err: unknown) => {
 				if (err instanceof ConvexError) {
@@ -194,7 +279,8 @@ export const getDocumentForRecovery = query({
 	handler: async (ctx, { documentId }) => {
 		try {
 			const userId = await getCurrentUser(ctx);
-			return await checkDocumentAccess(ctx, documentId, userId);
+			const doc = await checkDocumentAccess(ctx, documentId, userId);
+			return await redactCollaboratorsForCaller(ctx, doc, userId);
 		} catch (error: unknown) {
 			const isExpected = (err: unknown) => {
 				if (err instanceof ConvexError) {
@@ -918,7 +1004,10 @@ export const searchDocuments = query({
 		// Pagination via offset/limit
 		const start = Math.max(0, offset);
 		const end = start + Math.max(0, limit);
-		return filtered.slice(start, end);
+
+		// Redact collaborators per-document for the caller (bulk lookup to avoid N DB queries)
+		const page = filtered.slice(start, end);
+		return (await redactForCallerBulk(ctx, page, userId)) as Doc<"documents">[];
 	},
 });
 
@@ -993,6 +1082,11 @@ export const getDocumentsByFolder = query({
 			const map = new Map(ownedInFolder.map((d) => [d._id, d]));
 			for (const d of accessibleNonOwned) map.set(d._id, d);
 			documents = Array.from(map.values());
+
+			// Redact collaborators for non-managers when returning documents
+			documents = (await Promise.all(
+				documents.map((d) => redactCollaboratorsForCaller(ctx, d, userId)),
+			)) as Doc<"documents">[];
 		} else {
 			// Get documents not in any folder (root level)
 			const ownedRoot = await ctx.db
@@ -1019,6 +1113,11 @@ export const getDocumentsByFolder = query({
 			const map = new Map(ownedRootFiltered.map((d) => [d._id, d]));
 			for (const d of accessibleNonOwnedRoot) map.set(d._id, d);
 			documents = Array.from(map.values());
+
+			// Redact collaborators for non-managers when returning root-level documents
+			documents = (await Promise.all(
+				documents.map((d) => redactCollaboratorsForCaller(ctx, d, userId)),
+			)) as Doc<"documents">[];
 		}
 
 		// Sort by updated date (newest first)
@@ -1240,7 +1339,8 @@ export const getDocumentsByStatus = query({
 		// Offset/limit pagination on merged results
 		const start = safeOffset;
 		const end = start + safeLimit;
-		return results.slice(start, end);
+		const page = results.slice(start, end);
+		return (await redactForCallerBulk(ctx, page, userId)) as Doc<"documents">[];
 	},
 });
 

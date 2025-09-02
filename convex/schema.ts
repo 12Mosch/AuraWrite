@@ -210,6 +210,63 @@ const schema = defineSchema({
 		.index("by_user_searched", ["userId", "searchedAt"])
 		.index("by_searchedAt", ["searchedAt"])
 		.index("by_query", ["query"]),
+
+	// Sharing: collaborator roles per document
+	documentCollaborators: defineTable({
+		documentId: v.id("documents"),
+		userId: v.id("users"),
+		// Synthetic composite key to enforce a single row per (documentId, userId).
+		// Convex compound indexes are not unique, so we store a deterministic
+		// compositeKey string (e.g. "<documentId>|<userId>") and index it to allow
+		// lookups and deterministic upsert semantics.
+		compositeKey: v.string(),
+		role: v.union(
+			v.literal("viewer"),
+			v.literal("commenter"),
+			v.literal("editor"),
+		),
+		addedBy: v.id("users"),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_document", ["documentId"])
+		.index("by_user_document", ["userId", "documentId"])
+		// Enforce a single-row-per-pair behavior by indexing the synthetic composite key.
+		.index("by_compositeKey", ["compositeKey"]),
+
+	// Sharing: link-based access tokens for documents
+	// NOTE: We store a one-way hash of the share token (e.g. SHA-256) and never
+	// persist or return the raw plaintext token. The raw token is only returned
+	// once at creation time to the caller. This prevents accidental exposure if
+	// the DB is read or logs are leaked.
+	shareTokens: defineTable({
+		documentId: v.id("documents"),
+		// SHA-256 hash (base64url) of the opaque token; never store plaintext
+		tokenHash: v.string(),
+		// Non-sensitive short prefix for observability (e.g., first 6 chars).
+		// This is safe to store and helps UX for debugging/revocation without exposing the token.
+		tokenPrefix: v.optional(v.string()),
+		role: v.union(
+			v.literal("viewer"),
+			v.literal("commenter"),
+			v.literal("editor"),
+		),
+		createdBy: v.id("users"),
+		createdAt: v.number(),
+		expiresAt: v.optional(v.number()),
+		// Soft-revocation metadata (optional) to support auditability instead of hard deletes.
+		revokedAt: v.optional(v.number()),
+		revokedBy: v.optional(v.id("users")),
+	})
+		.index("by_document", ["documentId"])
+		.index("by_document_role", ["documentId", "role"])
+		.index("by_createdBy", ["createdBy"])
+		// For token verification: document + tokenHash
+		.index("by_document_tokenHash", ["documentId", "tokenHash"])
+		// For periodic cleanup of expired tokens
+		.index("by_expiresAt", ["expiresAt"])
+		// For purging or listing revoked tokens efficiently
+		.index("by_revokedAt", ["revokedAt"]),
 });
 
 export default schema;

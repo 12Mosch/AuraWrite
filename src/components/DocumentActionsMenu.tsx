@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { ShareDialog } from "./ShareDialog";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -63,6 +64,7 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 	const [isOpen, setIsOpen] = useState(false);
 	const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 	const [deleting, setDeleting] = useState(false);
+	const [shareOpen, setShareOpen] = useState(false);
 
 	// Mutations
 	const duplicateDocument = useMutation(api.documents.duplicateDocument);
@@ -201,7 +203,10 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 
 	// Handle share
 	const handleShare = useCallback(() => {
-		onShare?.();
+		// Call optional external handler then open our Share dialog.
+		// If onShare performs navigation or async preloads, await it to avoid
+		// dialog flicker by opening the dialog only after it settles.
+		Promise.resolve(onShare?.()).finally(() => setShareOpen(true));
 	}, [onShare]);
 
 	// Fetch folder tree once at top-level to satisfy Hooks rules
@@ -423,6 +428,12 @@ export const DocumentActionsMenu: React.FC<DocumentActionsMenuProps> = ({
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
+
+			<ShareDialog
+				open={shareOpen}
+				onOpenChange={setShareOpen}
+				documentId={String(documentId)}
+			/>
 
 			<AlertDialog
 				open={confirmDeleteOpen}

@@ -10,9 +10,29 @@ import { checkDocumentAccess, getCurrentUser } from "./authHelpers";
 async function enrichDocumentWithUserDetails(
 	ctx: QueryCtx,
 	document: Doc<"documents">,
+	callerId?: Id<"users">,
 ) {
+	// Determine if caller is a manager (owner or editor) to gate collaborator details.
+	let isManager = false;
+	if (callerId !== undefined) {
+		if (document.ownerId === callerId) {
+			isManager = true;
+		} else {
+			// Check documentCollaborators table for an editor role for the caller.
+			const compositeKey = `${String(document._id)}|${String(callerId)}`;
+			const rows = await ctx.db
+				.query("documentCollaborators")
+				.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+				.collect();
+			if (rows.some((r) => r.role === "editor")) {
+				isManager = true;
+			}
+		}
+	}
 	// Optimize user fetching by collecting all user IDs (collaborators + owner)
-	const allUserIds = [...(document.collaborators || []), document.ownerId];
+	const allUserIds = isManager
+		? [...(document.collaborators || []), document.ownerId]
+		: [document.ownerId];
 	const uniqueUserIds = [...new Set(allUserIds)];
 
 	// Batch fetch all users
@@ -26,19 +46,19 @@ async function enrichDocumentWithUserDetails(
 	);
 
 	// Get collaborator details using cached data
-	const collaboratorDetails = (document.collaborators || [])
-		.map((collaboratorId) => {
-			const user = userMap.get(collaboratorId);
-			return user
-				? {
-						_id: user._id,
-						name: user.name,
-						email: user.email,
-						image: user.image,
-					}
-				: null;
-		})
-		.filter(Boolean);
+	const collaboratorDetails = isManager
+		? (document.collaborators || []).map((collaboratorId) => {
+				const user = userMap.get(collaboratorId);
+				return user
+					? {
+							_id: user._id,
+							name: user.name,
+							email: user.email,
+							image: user.image,
+						}
+					: null;
+			})
+		: [];
 
 	// Get owner details using cached data
 	const owner = userMap.get(document.ownerId);
@@ -47,7 +67,7 @@ async function enrichDocumentWithUserDetails(
 		_id: document._id,
 		title: document.title,
 		isPublic: document.isPublic || false,
-		collaborators: collaboratorDetails.filter(Boolean),
+		collaborators: collaboratorDetails,
 		owner: owner
 			? {
 					_id: owner._id,
@@ -101,7 +121,7 @@ export const subscribeToDocumentMetadata = query({
 		const userId = await getCurrentUser(ctx);
 		const document = await checkDocumentAccess(ctx, documentId, userId);
 
-		return await enrichDocumentWithUserDetails(ctx, document);
+		return await enrichDocumentWithUserDetails(ctx, document, userId);
 	},
 });
 
@@ -119,7 +139,7 @@ export const subscribeToMultipleDocumentMetadata = query({
 			documentIds.map(async (documentId) => {
 				try {
 					const document = await checkDocumentAccess(ctx, documentId, userId);
-					return await enrichDocumentWithUserDetails(ctx, document);
+					return await enrichDocumentWithUserDetails(ctx, document, userId);
 				} catch (_error) {
 					// If user doesn't have access to a document, skip it
 					// This allows partial results for mixed access scenarios
