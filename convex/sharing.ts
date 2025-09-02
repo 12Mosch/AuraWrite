@@ -17,6 +17,13 @@ export const RoleValidator = v.union(
 	v.literal("editor"),
 );
 
+function makeCompositeKey(
+	documentId: Id<"documents">,
+	userId: Id<"users">,
+): string {
+	return `${String(documentId)}|${String(userId)}`;
+}
+
 /**
  * Helper: ensure the caller is owner or an editor on the document.
  * Returns the document for convenience.
@@ -33,7 +40,7 @@ async function requireOwnerOrEditor(
 	// Check role in documentCollaborators
 	let isEditor = false;
 	if (!isOwner) {
-		const compositeKey = `${String(documentId)}|${String(callerId)}`;
+		const compositeKey = makeCompositeKey(documentId, callerId);
 		const rows = await ctx.db
 			.query("documentCollaborators")
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
@@ -73,7 +80,7 @@ async function getUserRole(
 ): Promise<"owner" | "editor" | "commenter" | "viewer" | undefined> {
 	if (userId === ownerId) return "owner";
 
-	const compositeKey = `${String(documentId)}|${String(userId)}`;
+	const compositeKey = makeCompositeKey(documentId, userId);
 	const rows = await ctx.db
 		.query("documentCollaborators")
 		.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
@@ -99,7 +106,7 @@ export const getDocumentSharing = query({
 	returns: v.object({
 		documentId: v.id("documents"),
 		title: v.string(),
-		ownerId: v.id("users"),
+		ownerId: v.optional(v.id("users")),
 		isPublic: v.optional(v.boolean()),
 		collaborators: v.array(
 			v.object({
@@ -175,7 +182,7 @@ export const getDocumentSharing = query({
 		return {
 			documentId,
 			title: doc.title,
-			ownerId: doc.ownerId,
+			ownerId: isManager ? doc.ownerId : undefined,
 			isPublic: doc.isPublic,
 			collaborators: isManager
 				? collaborators.map((c) => ({
@@ -200,8 +207,10 @@ export const getDocumentSharing = query({
 						// token documents include a revoked flag). Use a typed cast instead of
 						// `any` to satisfy the linter.
 						.filter((t) => {
-							const tt = t as Doc<"shareTokens"> & { revoked?: boolean };
-							return !(tt.revoked === true);
+							// Treat revokedAt (nullable) as the source of truth for soft-revocation.
+							// Keep tokens where revokedAt is null/undefined; exclude when revokedAt is set.
+							const tt = t as Doc<"shareTokens"> & { revokedAt?: string | null };
+							return tt.revokedAt == null;
 						})
 						// Sort newest first by createdAt.
 						.sort((a, b) => b.createdAt - a.createdAt)
@@ -235,6 +244,13 @@ export const addCollaborator = mutation({
 		const callerId = await getCurrentUser(ctx);
 		const doc = await requireOwnerOrEditor(ctx, documentId, callerId);
 
+		// Validate that the target user actually exists to avoid dangling references.
+		// This must run immediately after authorization and before any inserts/patches.
+		const targetUser = await ctx.db.get(userId);
+		if (!targetUser) {
+			throw new ConvexError("Target user does not exist");
+		}
+
 		if (userId === doc.ownerId) {
 			throw new ConvexError("Owner already has full access");
 		}
@@ -245,7 +261,7 @@ export const addCollaborator = mutation({
 		}
 
 		// Compute deterministic composite key and check for existing entry
-		const compositeKey = `${String(documentId)}|${String(userId)}`;
+		const compositeKey = makeCompositeKey(documentId, userId);
 		const existing = await ctx.db
 			.query("documentCollaborators")
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
@@ -341,7 +357,7 @@ export const removeCollaborator = mutation({
 		const callerRole =
 			(await getUserRole(ctx, documentId, callerId, doc.ownerId)) ?? "viewer";
 
-		const compositeKey = `${String(documentId)}|${String(userId)}`;
+		const compositeKey = makeCompositeKey(documentId, userId);
 		const targetRows: Doc<"documentCollaborators">[] = await ctx.db
 			.query("documentCollaborators")
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
@@ -358,6 +374,17 @@ export const removeCollaborator = mutation({
 
 		for (const r of targetRows) {
 			await ctx.db.delete(r._id);
+		}
+
+		// Clean up any active collaboration sessions for this user on this document
+		const sessions = await ctx.db
+			.query("collaborationSessions")
+			.withIndex("by_user_document", (q) =>
+				q.eq("userId", userId).eq("documentId", documentId),
+			)
+			.collect();
+		if (sessions.length > 0) {
+			await Promise.all(sessions.map((s) => ctx.db.delete(s._id)));
 		}
 
 		// Update legacy collaborators array
@@ -394,7 +421,7 @@ export const updateCollaboratorRole = mutation({
 			throw new ConvexError("Owner role cannot be changed");
 		}
 
-		const compositeKey = `${String(documentId)}|${String(userId)}`;
+		const compositeKey = makeCompositeKey(documentId, userId);
 		const rows: Doc<"documentCollaborators">[] = await ctx.db
 			.query("documentCollaborators")
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))

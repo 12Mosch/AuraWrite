@@ -243,6 +243,9 @@ const schema = defineSchema({
 		documentId: v.id("documents"),
 		// SHA-256 hash (base64url) of the opaque token; never store plaintext
 		tokenHash: v.string(),
+		// Non-sensitive short prefix for observability (e.g., first 6 chars).
+		// This is safe to store and helps UX for debugging/revocation without exposing the token.
+		tokenPrefix: v.optional(v.string()),
 		role: v.union(
 			v.literal("viewer"),
 			v.literal("commenter"),
@@ -261,7 +264,9 @@ const schema = defineSchema({
 		// For token verification: document + tokenHash
 		.index("by_document_tokenHash", ["documentId", "tokenHash"])
 		// For periodic cleanup of expired tokens
-		.index("by_expiresAt", ["expiresAt"]),
+		.index("by_expiresAt", ["expiresAt"])
+		// For purging or listing revoked tokens efficiently
+		.index("by_revokedAt", ["revokedAt"]),
 });
 
 export default schema;

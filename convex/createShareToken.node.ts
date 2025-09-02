@@ -35,10 +35,13 @@ export const createShareToken = mutation({
 		const isOwner = doc.ownerId === callerId;
 		let isEditor = false;
 		if (!isOwner) {
-			const compositeKey = `${String(documentId)}|${String(callerId)}`;
+			// Prefer the typed composite index (userId, documentId) to avoid constructing
+			// a synthetic string key when possible.
 			const rows = await ctx.db
 				.query("documentCollaborators")
-				.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+				.withIndex("by_user_document", (q) =>
+					q.eq("userId", callerId).eq("documentId", documentId),
+				)
 				.collect();
 			isEditor = rows.some((r) => r.role === "editor");
 		}
@@ -75,6 +78,9 @@ export const createShareToken = mutation({
 		const tokenId = await ctx.db.insert("shareTokens", {
 			documentId,
 			tokenHash,
+			// Non-sensitive prefix (first 6 chars) for observability / revocation UI.
+			// Store only a short, non-secret prefix to aid debugging without exposing the token.
+			tokenPrefix: token.slice(0, 6),
 			role,
 			createdBy: callerId,
 			createdAt: now,

@@ -17,7 +17,7 @@ async function enrichDocumentWithUserDetails(
 	if (callerId !== undefined) {
 		if (document.ownerId === callerId) {
 			isManager = true;
-		} else if (document.collaborators && document.collaborators.length > 0) {
+		} else {
 			// Check documentCollaborators table for an editor role for the caller.
 			const compositeKey = `${String(document._id)}|${String(callerId)}`;
 			const rows = await ctx.db
@@ -47,19 +47,17 @@ async function enrichDocumentWithUserDetails(
 
 	// Get collaborator details using cached data
 	const collaboratorDetails = isManager
-		? (document.collaborators || [])
-				.map((collaboratorId) => {
-					const user = userMap.get(collaboratorId);
-					return user
-						? {
-								_id: user._id,
-								name: user.name,
-								email: user.email,
-								image: user.image,
-							}
-						: null;
-				})
-				.filter(Boolean)
+		? (document.collaborators || []).map((collaboratorId) => {
+				const user = userMap.get(collaboratorId);
+				return user
+					? {
+							_id: user._id,
+							name: user.name,
+							email: user.email,
+							image: user.image,
+						}
+					: null;
+			})
 		: [];
 
 	// Get owner details using cached data
@@ -69,7 +67,7 @@ async function enrichDocumentWithUserDetails(
 		_id: document._id,
 		title: document.title,
 		isPublic: document.isPublic || false,
-		collaborators: collaboratorDetails.filter(Boolean),
+		collaborators: collaboratorDetails,
 		owner: owner
 			? {
 					_id: owner._id,
