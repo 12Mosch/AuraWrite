@@ -92,7 +92,10 @@ async function getUserRole(
 /**
  * Query: getDocumentSharing(documentId)
  * Returns document meta + collaborators (with roles) + isPublic + active share tokens.
- * Note: For MVP we return raw tokens. In production, prefer hashing tokens and never returning raw values except on creation.
+ * Note: We do NOT return raw plaintext tokens here. The DB stores only token hashes
+ * and raw tokens are returned once at creation time (by the token-creation API).
+ * For safety, token hashes are not useful to clients and are omitted unless the
+ * caller is a manager (owner or editor).
  */
 export const getDocumentSharing = query({
 	args: {
@@ -175,16 +178,18 @@ export const getDocumentSharing = query({
 				createdAt: c.createdAt,
 				updatedAt: c.updatedAt,
 			})),
-			// Do not return raw or hashed tokens in query responses. Raw tokens are
-			// returned only once at creation. Returning token hashes provides no
-			// benefit to clients and increases risk of accidental exposure.
-			tokens: tokens.map((t) => ({
-				_id: t._id,
-				role: t.role,
-				createdBy: t.createdBy,
-				createdAt: t.createdAt,
-				expiresAt: t.expiresAt,
-			})),
+			// Do not return raw or hashed tokens by default. Only owners and editors
+			// (managers) receive token metadata to reduce information leakage.
+			// Map callerRole === "owner" to manager as well.
+			tokens: (callerRole === "owner" || callerRole === "editor")
+				? tokens.map((t) => ({
+						_id: t._id,
+						role: t.role,
+						createdBy: t.createdBy,
+						createdAt: t.createdAt,
+						expiresAt: t.expiresAt,
+				  }))
+				: [],
 			callerRole: callerRoleForReturn,
 		};
 	},
@@ -223,7 +228,10 @@ export const addCollaborator = mutation({
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
 			.collect();
 		if (existing.length > 0) {
-			throw new ConvexError("User already a collaborator");
+			// Idempotent add: if a collaborator row already exists, refresh updatedAt
+			// and return the existing row id instead of throwing a 409-style error.
+			await ctx.db.patch(existing[0]._id, { updatedAt: Date.now() });
+			return existing[0]._id;
 		}
 
 		const now = Date.now();
@@ -317,11 +325,10 @@ export const updateCollaboratorRole = mutation({
 	returns: v.null(),
 	handler: async (ctx, { documentId, userId, role }) => {
 		const callerId = await getCurrentUser(ctx);
-		await requireOwner(ctx, documentId, callerId);
+		// requireOwner returns the doc; reuse it to avoid a second fetch.
+		const doc = await requireOwner(ctx, documentId, callerId);
 
 		// Cannot set role for owner
-		const doc = await ctx.db.get(documentId);
-		if (!doc) throw new ConvexError("Document not found");
 		if (userId === doc.ownerId) {
 			throw new ConvexError("Owner role cannot be changed");
 		}

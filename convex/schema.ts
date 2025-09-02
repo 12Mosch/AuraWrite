@@ -241,8 +241,8 @@ const schema = defineSchema({
 	// the DB is read or logs are leaked.
 	shareTokens: defineTable({
 		documentId: v.id("documents"),
-		// `token` contains the token hash (not the plaintext token)
-		token: v.string(),
+		// SHA-256 hash (base64url) of the opaque token; never store plaintext
+		tokenHash: v.string(),
 		role: v.union(
 			v.literal("viewer"),
 			v.literal("commenter"),
@@ -254,7 +254,11 @@ const schema = defineSchema({
 	})
 		.index("by_document", ["documentId"])
 		.index("by_document_role", ["documentId", "role"])
-		.index("by_createdBy", ["createdBy"]),
+		.index("by_createdBy", ["createdBy"])
+		// For token verification: document + tokenHash
+		.index("by_document_tokenHash", ["documentId", "tokenHash"])
+		// For periodic cleanup of expired tokens
+		.index("by_expiresAt", ["expiresAt"]),
 });
 
 export default schema;

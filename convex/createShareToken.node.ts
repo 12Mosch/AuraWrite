@@ -74,7 +74,7 @@ export const createShareToken = mutation({
 
 		const tokenId = await ctx.db.insert("shareTokens", {
 			documentId,
-			token: tokenHash,
+			tokenHash,
 			role,
 			createdBy: callerId,
 			createdAt: now,
