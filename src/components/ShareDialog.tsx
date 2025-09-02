@@ -689,7 +689,9 @@ export function ShareDialog({
 									createdAt: number;
 									expiresAt?: number | null;
 								}) => {
-									const url = t.token ? `${basePublicUrl}?t=${t.token}` : defaultShareUrl;
+									const url = t.token
+										? `${basePublicUrl}?t=${t.token}`
+										: defaultShareUrl;
 									return (
 										<div
 											key={String(t._id)}

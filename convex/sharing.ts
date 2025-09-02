@@ -34,13 +34,11 @@ async function requireOwnerOrEditor(
 	let isEditor = false;
 	if (!isOwner) {
 		const compositeKey = `${String(documentId)}|${String(callerId)}`;
-		const rows: Doc<"documentCollaborators">[] = await ctx.db
+		const row = await ctx.db
 			.query("documentCollaborators")
 			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
-			.collect();
-		isEditor = rows.some(
-			(r: Doc<"documentCollaborators">) => r.role === "editor",
-		);
+			.first();
+		isEditor = row?.role === "editor";
 	}
 
 	if (!isOwner && !isEditor) {
@@ -76,17 +74,12 @@ async function getUserRole(
 	if (userId === ownerId) return "owner";
 
 	const compositeKey = `${String(documentId)}|${String(userId)}`;
-	const rows: Doc<"documentCollaborators">[] = await ctx.db
+	const row = await ctx.db
 		.query("documentCollaborators")
 		.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
-		.collect();
-
-	if (rows.length === 0) return undefined;
-
-	// Return highest role if multiple rows exist (shouldn't normally happen)
-	if (rows.some((r) => r.role === "editor")) return "editor";
-	if (rows.some((r) => r.role === "commenter")) return "commenter";
-	return "viewer";
+		.first();
+	if (!row) return undefined;
+	return row.role;
 }
 
 /**
@@ -128,19 +121,29 @@ export const getDocumentSharing = query({
 		callerRole: v.optional(RoleValidator),
 	}),
 	handler: async (ctx, { documentId }) => {
-		const callerId = await getCurrentUser(ctx);
+		// Use a non-throwing caller lookup so anonymous/public viewers can access
+		// public documents. getCurrentUser throws for anonymous users, so wrap it.
+		let callerId: Id<"users"> | undefined;
+		try {
+			callerId = await getCurrentUser(ctx);
+		} catch (_err) {
+			callerId = undefined;
+		}
 
 		const doc = await ctx.db.get(documentId);
 		if (!doc) throw new ConvexError("Document not found");
 
 		// Access: allow owner, collaborators (any role), or public viewers
-		let hasAccess = doc.ownerId === callerId || doc.isPublic === true;
-		const callerRole = await getUserRole(
-			ctx,
-			documentId,
-			callerId,
-			doc.ownerId,
-		);
+		let hasAccess = callerId !== undefined && doc.ownerId === callerId;
+		if (!hasAccess && doc.isPublic === true) {
+			hasAccess = true;
+		}
+
+		// Only look up a callerRole when we have an authenticated callerId.
+		let callerRole: "owner" | "editor" | "commenter" | "viewer" | undefined;
+		if (callerId !== undefined) {
+			callerRole = await getUserRole(ctx, documentId, callerId, doc.ownerId);
+		}
 
 		if (!hasAccess && callerRole) {
 			hasAccess = true;
@@ -181,15 +184,33 @@ export const getDocumentSharing = query({
 			// Do not return raw or hashed tokens by default. Only owners and editors
 			// (managers) receive token metadata to reduce information leakage.
 			// Map callerRole === "owner" to manager as well.
-			tokens: (callerRole === "owner" || callerRole === "editor")
-				? tokens.map((t) => ({
-						_id: t._id,
-						role: t.role,
-						createdBy: t.createdBy,
-						createdAt: t.createdAt,
-						expiresAt: t.expiresAt,
-				  }))
-				: [],
+			tokens:
+				callerRole === "owner" || callerRole === "editor"
+					? tokens
+							// Exclude expired tokens. expiresAt may be null/undefined or a number.
+							.filter(
+								(t) =>
+									!(
+										typeof t.expiresAt === "number" && t.expiresAt < Date.now()
+									),
+							)
+							// Exclude tokens marked revoked (backwards-compatible check in case
+							// token documents include a revoked flag). Use a typed cast instead of
+							// `any` to satisfy the linter.
+							.filter((t) => {
+								const tt = t as Doc<"shareTokens"> & { revoked?: boolean };
+								return !(tt.revoked === true);
+							})
+							// Sort newest first by createdAt.
+							.sort((a, b) => b.createdAt - a.createdAt)
+							.map((t) => ({
+								_id: t._id,
+								role: t.role,
+								createdBy: t.createdBy,
+								createdAt: t.createdAt,
+								expiresAt: t.expiresAt,
+							}))
+					: [],
 			callerRole: callerRoleForReturn,
 		};
 	},
@@ -244,6 +265,17 @@ export const addCollaborator = mutation({
 			createdAt: now,
 			updatedAt: now,
 		});
+
+		// Best-effort dedupe: recheck and remove extras keeping the earliest.
+		const after = await ctx.db
+			.query("documentCollaborators")
+			.withIndex("by_compositeKey", (q) => q.eq("compositeKey", compositeKey))
+			.collect();
+		if (after.length > 1) {
+			const [keep, ...dupes] = after.sort((a, b) => a.createdAt - b.createdAt);
+			await Promise.all(dupes.map((d) => ctx.db.delete(d._id)));
+			return keep._id;
+		}
 
 		// Backward-compat: ensure legacy collaborators array contains the id (optional)
 		// TODO: Remove this once all documents have been migrated to the new schema
@@ -344,13 +376,28 @@ export const updateCollaboratorRole = mutation({
 		}
 
 		// There should only be one row per user-document pair.
-		// If multiple rows exist, log a warning and update the first entry.
+		// If multiple rows exist, normalize deterministically:
+		// - Patch all matched rows to set the requested role and updatedAt.
+		// - Then keep the earliest (by createdAt) and delete any later duplicates.
 		if (rows.length > 1) {
 			console.warn(
-				`Multiple collaborator entries found for user ${userId} on document ${documentId}`,
+				`Multiple collaborator entries found for user ${userId} on document ${documentId}; normalizing entries`,
 			);
 		}
-		await ctx.db.patch(rows[0]._id, { role, updatedAt: Date.now() });
+
+		const now = Date.now();
+		// Update every matching row with the new role/updatedAt
+		await Promise.all(
+			rows.map((r) => ctx.db.patch(r._id, { role, updatedAt: now })),
+		);
+
+		// If duplicates exist, remove the later ones and keep the earliest entry.
+		if (rows.length > 1) {
+			const sorted = rows.slice().sort((a, b) => a.createdAt - b.createdAt);
+			const [, ...dupes] = sorted;
+			await Promise.all(dupes.map((d) => ctx.db.delete(d._id)));
+		}
+
 		return null;
 	},
 });
